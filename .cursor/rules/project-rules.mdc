@@ -1,0 +1,121 @@
+# Alrouby Salon & Spa System - Cursor Rules
+
+You are developing the Alrouby Salon & Spa Booking & Management System.
+
+## Source of Truth
+
+The single product source of truth is:
+
+- /docs/SRS.md
+
+Do not invent business requirements that contradict the SRS.
+
+When additional technical documents are added, follow them as implementation references:
+
+- /docs/ARCHITECTURE.md
+- /docs/DATABASE_SCHEMA.md
+- /docs/API_CONTRACT.md
+- /docs/RBAC_MATRIX.md
+- /docs/UI_SPEC.md
+- /docs/BOOKING_ENGINE_RULES.md
+- /docs/SPRINT_PLAN.md
+
+If one of these files does not exist yet, do not assume its content. Ask for it or create a proposed draft only when requested.
+
+---
+
+## Core Product Rules
+
+Before implementing any feature:
+
+1. Read the relevant section in /docs/SRS.md.
+2. Keep booking logic flexible and receptionist-controlled.
+3. Do not build a fully automated staff availability engine in MVP.
+4. One booking may contain multiple booking items.
+5. Online bookings start as Pending.
+6. WhatsApp-first communication is required.
+7. MVP WhatsApp implementation uses pre-filled WhatsApp deep links.
+8. Future WhatsApp Business API support should be kept possible.
+9. VAT and payment policies must be configurable by admin.
+10. Slot capacity must be configurable by receptionist.
+11. Cancellation/reschedule window is 24 hours.
+12. Phone number is required before booking submission.
+13. Social login is required for clients.
+14. Role permissions must be enforced on backend, not only frontend.
+15. Important business records should not be hard-deleted unless explicitly required.
+
+---
+
+## Engineering Rules
+
+Use TypeScript strictly.
+
+Use clear validation for all input.
+
+Use DTOs for backend requests and responses.
+
+Use backend authorization guards for protected actions.
+
+Use reusable UI components.
+
+Do not hardcode business data in frontend components.
+
+Use environment variables for secrets and external integrations.
+
+Keep code modular and maintainable.
+
+Prefer soft delete or active/inactive status for business entities.
+
+Use consistent naming across database models, API endpoints, DTOs, and frontend types.
+
+---
+
+## Development Process
+
+Before coding a new module, produce an implementation plan that includes:
+
+1. Files to create or modify.
+2. Database changes.
+3. API endpoints.
+4. Validation rules.
+5. Authorization rules.
+6. Frontend pages/components affected.
+7. Tests or manual testing checklist.
+
+Do not implement large modules in one uncontrolled step.
+
+Build sprint by sprint.
+
+---
+
+## Quality Rules
+
+Every major feature should include:
+
+1. Backend validation.
+2. Authorization checks.
+3. Error handling.
+4. Empty states on frontend.
+5. Loading states on frontend.
+6. Basic tests or manual test checklist.
+
+---
+
+## When Unsure
+
+When unsure, ask for clarification instead of inventing behavior.
+
+Do not add features outside the SRS unless explicitly requested.
+
+
+## UI Source of Truth
+
+The approved Figma design and /docs/UI_SPEC.md are the UI source of truth.
+
+When implementing frontend screens:
+1. Follow /docs/UI_SPEC.md.
+2. Use screenshots in /docs/ui-screens as visual references.
+3. Do not invent new layouts, colors, or component styles.
+4. Keep the public website premium botanical luxury.
+5. Keep the dashboard operational, clean, and permission-aware.
+6. Use EGP currency and English-only copy.

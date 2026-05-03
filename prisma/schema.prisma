@@ -1,0 +1,16 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Sprint 0 scaffold only — replace with domain models in later sprints.
+model SchemaVersion {
+  id        Int      @id @default(1)
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("schema_version")
+}
