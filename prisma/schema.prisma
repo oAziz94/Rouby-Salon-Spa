@@ -7,10 +7,78 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Sprint 0 scaffold only — replace with domain models in later sprints.
-model SchemaVersion {
-  id        Int      @id @default(1)
-  updatedAt DateTime @default(now()) @updatedAt
+/// Minimal branch row for Sprint 1 (User.branchId FK). CRUD APIs in Sprint 2.
+model Branch {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  address     String   @default("")
+  phone       String   @default("")
+  whatsapp    String   @default("")
+  mapUrl      String   @default("") @map("map_url")
+  workingHours Json? @map("working_hours")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  @@map("schema_version")
+  users User[]
+
+  @@map("branches")
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  level       Int
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  module      String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String   @map("password_hash")
+  roleId       String   @map("role_id") @db.Uuid
+  branchId     String?  @map("branch_id") @db.Uuid
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  role   Role    @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([roleId])
+  @@index([branchId])
+  @@map("users")
 }

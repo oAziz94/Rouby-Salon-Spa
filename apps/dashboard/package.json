@@ -9,6 +9,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@rouby/api-client": "*",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "next": "15.5.15"
