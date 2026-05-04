@@ -1,8 +1,11 @@
 import * as argon2 from "argon2";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PERMISSION_SEED_ROWS, ROLE_SEEDS } from "./seed-data";
 
 const prisma = new PrismaClient();
+
+/** Singleton system_settings row (Sprint 2). Keep in sync with services/api `SYSTEM_SETTINGS_ID`. */
+const SYSTEM_SETTINGS_ID = "00000000-0000-4000-8000-000000000002";
 
 async function main(): Promise<void> {
   const ownerPassword = process.env.SEED_OWNER_PASSWORD;
@@ -26,6 +29,27 @@ async function main(): Promise<void> {
     update: {
       name: "Alrouby Main",
       isActive: true,
+    },
+  });
+
+  await prisma.systemSettings.upsert({
+    where: { id: SYSTEM_SETTINGS_ID },
+    create: {
+      id: SYSTEM_SETTINGS_ID,
+      vatEnabled: false,
+      defaultVatRate: new Prisma.Decimal("0.14"),
+      pricesIncludeVat: false,
+      showVatOnInvoice: true,
+      taxRegistrationNumber: null,
+      paymentDepositPolicy: "PAY_AT_SALON",
+      updatedByUserId: null,
+    },
+    update: {
+      vatEnabled: false,
+      defaultVatRate: new Prisma.Decimal("0.14"),
+      pricesIncludeVat: false,
+      showVatOnInvoice: true,
+      paymentDepositPolicy: "PAY_AT_SALON",
     },
   });
 
@@ -129,7 +153,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `Seeded: branch ${defaultBranch.name}, ${PERMISSION_SEED_ROWS.length} permissions, ${ROLE_SEEDS.length} roles, owner user owner@alrouby.local`,
+    `Seeded: branch ${defaultBranch.name}, system_settings singleton, ${PERMISSION_SEED_ROWS.length} permissions, ${ROLE_SEEDS.length} roles, owner user owner@alrouby.local`,
   );
 }
 

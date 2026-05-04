@@ -20,7 +20,9 @@ export class PermissionsGuard implements CanActivate {
     if (!required?.length) {
       return true;
     }
-    const request = context.switchToHttp().getRequest<{ user?: DashboardJwtUser }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ user?: DashboardJwtUser }>();
     const user = request.user;
     if (!user?.permissions?.length) {
       throw new ForbiddenException('Insufficient permissions');

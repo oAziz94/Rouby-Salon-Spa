@@ -29,7 +29,10 @@ export class DashboardAuthController {
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Dashboard email + password login' })
-  @ApiResponse({ status: 200, description: 'Returns access JWT (aud=dashboard)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns access JWT (aud=dashboard)',
+  })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   @ApiResponse({ status: 429, description: 'Too many login attempts' })
   login(@Body() dto: DashboardLoginDto) {

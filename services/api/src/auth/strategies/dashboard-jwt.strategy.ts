@@ -24,7 +24,9 @@ export class DashboardJwtStrategy extends PassportStrategy(
     });
   }
 
-  async validate(payload: DashboardAccessTokenPayload): Promise<DashboardJwtUser> {
+  async validate(
+    payload: DashboardAccessTokenPayload,
+  ): Promise<DashboardJwtUser> {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: { id: true, isActive: true },

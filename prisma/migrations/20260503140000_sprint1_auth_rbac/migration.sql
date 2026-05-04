@@ -91,3 +91,9 @@ ALTER TABLE "users" ADD CONSTRAINT "users_role_id_fkey" FOREIGN KEY ("role_id") 
 
 -- AddForeignKey
 ALTER TABLE "users" ADD CONSTRAINT "users_branch_id_fkey" FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- UUID PK defaults: Prisma expects app-generated UUIDs (was split wrongly into a migration that ran before this file)
+ALTER TABLE "branches" ALTER COLUMN "id" DROP DEFAULT;
+ALTER TABLE "permissions" ALTER COLUMN "id" DROP DEFAULT;
+ALTER TABLE "roles" ALTER COLUMN "id" DROP DEFAULT;
+ALTER TABLE "users" ALTER COLUMN "id" DROP DEFAULT;

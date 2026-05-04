@@ -25,6 +25,31 @@ model Branch {
   @@map("branches")
 }
 
+/// Singleton global VAT + payment/deposit policy (Sprint 2). One row; fixed id in seed.
+model SystemSettings {
+  id                    String               @id @db.Uuid
+  vatEnabled            Boolean              @map("vat_enabled")
+  defaultVatRate        Decimal              @map("default_vat_rate") @db.Decimal(6, 5)
+  pricesIncludeVat      Boolean              @map("prices_include_vat")
+  showVatOnInvoice      Boolean              @map("show_vat_on_invoice")
+  taxRegistrationNumber String?              @map("tax_registration_number")
+  paymentDepositPolicy  PaymentDepositPolicy @map("payment_deposit_policy")
+  updatedByUserId       String?              @map("updated_by_user_id") @db.Uuid
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("SystemSettingsUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("system_settings")
+}
+
+enum PaymentDepositPolicy {
+  PAY_AT_SALON
+  OPTIONAL_DEPOSIT
+  REQUIRED_DEPOSIT
+  FUTURE_ONLINE
+  MANUAL_INSTAPAY
+}
+
 model Role {
   id          String   @id @default(uuid()) @db.Uuid
   name        String   @unique
@@ -77,6 +102,8 @@ model User {
 
   role   Role    @relation(fields: [roleId], references: [id], onDelete: Restrict)
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  systemSettingsUpdates SystemSettings[] @relation("SystemSettingsUpdatedBy")
 
   @@index([roleId])
   @@index([branchId])

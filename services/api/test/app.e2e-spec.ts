@@ -106,4 +106,52 @@ describe('App (e2e)', () => {
       .get('/api/v1/dashboard/_internal/auth-probe')
       .expect(401);
   });
+
+  itDb('GET /api/v1/public/branches', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/public/branches')
+      .expect(200);
+    expect(Array.isArray(res.body)).toBe(true);
+  });
+
+  const itOwner =
+    dashboardAuthDbReady && process.env.SEED_OWNER_PASSWORD ? it : it.skip;
+
+  itOwner(
+    'Sprint 2: owner GET vat + payment-policy + system settings',
+    async () => {
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/dashboard/auth/login')
+        .send({
+          email: 'owner@alrouby.local',
+          password: process.env.SEED_OWNER_PASSWORD,
+        });
+      expect(login.status).toBe(200);
+      const token = login.body.accessToken as string;
+
+      const vat = await request(app.getHttpServer())
+        .get('/api/v1/dashboard/settings/vat')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      expect(vat.body).toMatchObject({
+        defaultTimezone: 'Africa/Cairo',
+        defaultCurrency: 'EGP',
+      });
+      expect(typeof vat.body.defaultVatRate).toBe('number');
+
+      const policy = await request(app.getHttpServer())
+        .get('/api/v1/dashboard/settings/payment-policy')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      expect(policy.body.paymentDepositPolicy).toBe('PAY_AT_SALON');
+      expect(policy.body.defaultTimezone).toBe('Africa/Cairo');
+
+      const sys = await request(app.getHttpServer())
+        .get('/api/v1/dashboard/settings/system')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      expect(sys.body.defaultTimezone).toBe('Africa/Cairo');
+      expect(sys.body.defaultCurrency).toBe('EGP');
+    },
+  );
 });
