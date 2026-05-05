@@ -4,9 +4,11 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ClientAuthController } from './client-auth.controller';
+import { ClientAuthService } from './client-auth.service';
 import { DashboardAuthController } from './dashboard-auth.controller';
 import { DashboardAuthService } from './dashboard-auth.service';
 import { DashboardInternalController } from './dashboard-internal.controller';
+import { ClientJwtStrategy } from './strategies/client-jwt.strategy';
 import { DashboardJwtStrategy } from './strategies/dashboard-jwt.strategy';
 
 @Module({
@@ -34,7 +36,18 @@ import { DashboardJwtStrategy } from './strategies/dashboard-jwt.strategy';
     ClientAuthController,
     DashboardInternalController,
   ],
-  providers: [DashboardAuthService, DashboardJwtStrategy],
-  exports: [JwtModule, DashboardAuthService],
+  providers: [
+    DashboardAuthService,
+    DashboardJwtStrategy,
+    ClientJwtStrategy,
+    ClientAuthService,
+  ],
+  exports: [
+    JwtModule,
+    DashboardAuthService,
+    ClientAuthService,
+    DashboardJwtStrategy,
+    ClientJwtStrategy,
+  ],
 })
 export class AuthModule {}

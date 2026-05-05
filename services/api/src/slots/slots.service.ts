@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -14,8 +16,11 @@ import type { PatchSlotCapacityDto } from './dto/patch-slot-capacity.dto';
 import type { PatchSlotOnlineBookableDto } from './dto/patch-slot-online-bookable.dto';
 import type { PatchSlotStatusDto } from './dto/patch-slot-status.dto';
 import type { PatchSlotDto } from './dto/patch-slot.dto';
-
-const CAIRO_TIME_ZONE = 'Africa/Cairo';
+import {
+  isSlotStartStrictlyInFutureCairo,
+  toDateOnlyUtc,
+  toTimeOnlyUtc,
+} from '../common/cairo-slot-time';
 
 @Injectable()
 export class SlotsService {
@@ -58,14 +63,6 @@ export class SlotsService {
     return new Date(`1970-01-01T${this.normalizeTime(value)}.000Z`);
   }
 
-  private toDateOnly(value: Date): string {
-    return value.toISOString().slice(0, 10);
-  }
-
-  private toTimeOnly(value: Date): string {
-    return value.toISOString().slice(11, 19);
-  }
-
   private mapSlot(row: {
     id: string;
     branchId: string;
@@ -85,9 +82,9 @@ export class SlotsService {
     return {
       id: row.id,
       branchId: row.branchId,
-      date: this.toDateOnly(row.date),
-      startTime: this.toTimeOnly(row.startTime),
-      endTime: this.toTimeOnly(row.endTime),
+      date: toDateOnlyUtc(row.date),
+      startTime: toTimeOnlyUtc(row.startTime),
+      endTime: toTimeOnlyUtc(row.endTime),
       capacity: row.capacity,
       bookedCount: row.bookedCount,
       status: row.status,
@@ -98,26 +95,6 @@ export class SlotsService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
-  }
-
-  private getCairoNowKey(): string {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: CAIRO_TIME_ZONE,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-    const parts = formatter.formatToParts(new Date());
-    const byType = new Map(parts.map((part) => [part.type, part.value]));
-    return `${byType.get('year')}-${byType.get('month')}-${byType.get('day')}T${byType.get('hour')}:${byType.get('minute')}:${byType.get('second')}`;
-  }
-
-  private slotStartKey(row: { date: Date; startTime: Date }): string {
-    return `${this.toDateOnly(row.date)}T${this.toTimeOnly(row.startTime)}`;
   }
 
   private async getBranchOrFail(
@@ -260,8 +237,8 @@ export class SlotsService {
       throw new NotFoundException('Slot not found');
     }
 
-    const nextStart = dto.startTime ?? this.toTimeOnly(existing.startTime);
-    const nextEnd = dto.endTime ?? this.toTimeOnly(existing.endTime);
+    const nextStart = dto.startTime ?? toTimeOnlyUtc(existing.startTime);
+    const nextEnd = dto.endTime ?? toTimeOnlyUtc(existing.endTime);
     this.assertTimeRange(nextStart, nextEnd);
 
     const row = await this.prisma.bookingSlot.update({
@@ -378,12 +355,100 @@ export class SlotsService {
       orderBy: [{ startTime: 'asc' }],
     });
 
-    const cairoNowKey = this.getCairoNowKey();
     const data = rows
       .filter((slot) => slot.bookedCount < slot.capacity)
-      .filter((slot) => this.slotStartKey(slot) > cairoNowKey)
+      .filter((slot) => isSlotStartStrictlyInFutureCairo(slot))
       .map((slot) => this.mapSlot(slot));
 
     return { data };
+  }
+
+  /**
+   * Validates a slot for **public website booking submission** (same predicate as `listPublicSlots`).
+   * Dashboard bookings may target offline / non-available slots via separate validation.
+   */
+  async assertSlotPubliclyBookable(
+    branchId: string,
+    slotId: string,
+  ): Promise<{
+    id: string;
+    branchId: string;
+    date: Date;
+    startTime: Date;
+    endTime: Date;
+    capacity: number;
+    bookedCount: number;
+    status: BookingSlotStatus;
+    isOnlineBookable: boolean;
+    deletedAt: Date | null;
+  }> {
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { id: true, isActive: true },
+    });
+    if (!branch?.isActive) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Branch is not available for booking',
+          error: 'Bad Request',
+          code: 'BRANCH_INACTIVE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const slot = await this.prisma.bookingSlot.findFirst({
+      where: { id: slotId, branchId, deletedAt: null },
+    });
+    if (!slot) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is not available for online booking',
+          error: 'Bad Request',
+          code: 'SLOT_NOT_ONLINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (slot.status !== BookingSlotStatus.AVAILABLE || !slot.isOnlineBookable) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is not available for online booking',
+          error: 'Bad Request',
+          code: 'SLOT_NOT_ONLINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (slot.capacity <= 0 || slot.bookedCount >= slot.capacity) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Selected slot is full',
+          error: 'Bad Request',
+          code: 'SLOT_FULL',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (!isSlotStartStrictlyInFutureCairo(slot)) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is not available for online booking',
+          error: 'Bad Request',
+          code: 'SLOT_NOT_ONLINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    return slot;
   }
 }

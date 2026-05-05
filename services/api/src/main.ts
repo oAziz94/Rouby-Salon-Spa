@@ -37,12 +37,16 @@ async function bootstrap(): Promise<void> {
     const config = new DocumentBuilder()
       .setTitle('Alrouby Salon API')
       .setDescription(
-        'REST API (MVP). Contract: /docs/API_CONTRACT.md. Sprint 1: auth + RBAC; Sprint 2: branches + system settings; Sprint 3: catalog.',
+        'REST API (MVP). Contract: /docs/API_CONTRACT.md. Sprint 1–5: auth, RBAC, branches, settings, catalog, slots, bookings.',
       )
       .setVersion('1.0')
       .addBearerAuth(
         { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
         'dashboard-jwt',
+      )
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'client-jwt',
       )
       .build();
     const document = SwaggerModule.createDocument(app, config);

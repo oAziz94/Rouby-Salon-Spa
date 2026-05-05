@@ -6,5 +6,6 @@ import { SlotsService } from './slots.service';
 @Module({
   controllers: [DashboardSlotsController, PublicSlotsController],
   providers: [SlotsService],
+  exports: [SlotsService],
 })
 export class SlotsModule {}

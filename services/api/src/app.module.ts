@@ -10,6 +10,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { SettingsModule } from './settings/settings.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { SlotsModule } from './slots/slots.module';
+import { BookingsModule } from './bookings/bookings.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { SlotsModule } from './slots/slots.module';
     SettingsModule,
     CatalogModule,
     SlotsModule,
+    BookingsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

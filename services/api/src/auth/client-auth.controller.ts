@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpException,
@@ -7,10 +8,14 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ClientAuthService } from './client-auth.service';
+import { ClientDevTokenDto } from './dto/client-dev-token.dto';
 
 @ApiTags('client-auth')
 @Controller('client/auth')
 export class ClientAuthController {
+  constructor(private readonly clientAuth: ClientAuthService) {}
+
   @Get('providers')
   @ApiOperation({ summary: 'OAuth providers (placeholder)' })
   providers() {
@@ -49,6 +54,15 @@ export class ClientAuthController {
       },
       HttpStatus.NOT_IMPLEMENTED,
     );
+  }
+
+  @Post('dev/token')
+  @ApiOperation({
+    summary:
+      'Mint a client JWT for local testing (no OAuth). Disabled in production unless CLIENT_DEV_AUTH_ENABLED=true.',
+  })
+  devToken(@Body() body: ClientDevTokenDto) {
+    return this.clientAuth.mintDevToken(body);
   }
 
   @Post('oauth/:provider/callback')
