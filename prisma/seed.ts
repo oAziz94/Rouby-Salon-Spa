@@ -1,5 +1,6 @@
 import * as argon2 from "argon2";
 import {
+  BookingSlotStatus,
   BundleType,
   OfferDiscountType,
   PriceDisplayType,
@@ -27,6 +28,12 @@ const VAR_COLOR_LONG = "30000000-0000-4000-8000-000000000022";
 const PKG_LUXURY = "30000000-0000-4000-8000-000000000031";
 const BND_NAILS = "30000000-0000-4000-8000-000000000041";
 const OFF_SUMMER = "30000000-0000-4000-8000-000000000051";
+const SLOT_AVAILABLE_ONLINE_1 = "40000000-0000-4000-8000-000000000001";
+const SLOT_AVAILABLE_OFFLINE = "40000000-0000-4000-8000-000000000002";
+const SLOT_FILLED = "40000000-0000-4000-8000-000000000003";
+const SLOT_BLOCKED = "40000000-0000-4000-8000-000000000004";
+const SLOT_CLOSED = "40000000-0000-4000-8000-000000000005";
+const SLOT_AVAILABLE_ONLINE_2 = "40000000-0000-4000-8000-000000000006";
 
 async function seedCatalog(branchId: string): Promise<void> {
   await prisma.serviceCategory.upsert({
@@ -303,6 +310,155 @@ async function seedCatalog(branchId: string): Promise<void> {
   });
 }
 
+function isoDateDaysFromNow(daysFromNow: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + daysFromNow);
+  return d.toISOString().slice(0, 10);
+}
+
+function parseDateOnly(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function parseTimeOnly(value: string): Date {
+  return new Date(`1970-01-01T${value}.000Z`);
+}
+
+async function seedBookingSlots(branchId: string): Promise<void> {
+  const targetDate = isoDateDaysFromNow(2);
+  const futureDate = isoDateDaysFromNow(3);
+  const staleDate = isoDateDaysFromNow(-1);
+
+  const rows = [
+    {
+      id: SLOT_AVAILABLE_ONLINE_1,
+      date: targetDate,
+      startTime: "10:00:00",
+      endTime: "11:00:00",
+      capacity: 4,
+      bookedCount: 1,
+      status: BookingSlotStatus.AVAILABLE,
+      isOnlineBookable: true,
+      notes: "Seed: available online",
+    },
+    {
+      id: SLOT_AVAILABLE_OFFLINE,
+      date: targetDate,
+      startTime: "12:00:00",
+      endTime: "13:00:00",
+      capacity: 3,
+      bookedCount: 0,
+      status: BookingSlotStatus.AVAILABLE,
+      isOnlineBookable: false,
+      notes: "Seed: available but offline",
+    },
+    {
+      id: SLOT_FILLED,
+      date: targetDate,
+      startTime: "14:00:00",
+      endTime: "15:00:00",
+      capacity: 5,
+      bookedCount: 2,
+      status: BookingSlotStatus.FILLED,
+      isOnlineBookable: true,
+      notes: "Seed: manually filled",
+    },
+    {
+      id: SLOT_BLOCKED,
+      date: targetDate,
+      startTime: "16:00:00",
+      endTime: "17:00:00",
+      capacity: 2,
+      bookedCount: 0,
+      status: BookingSlotStatus.BLOCKED,
+      isOnlineBookable: true,
+      notes: "Seed: blocked",
+    },
+    {
+      id: SLOT_CLOSED,
+      date: targetDate,
+      startTime: "18:00:00",
+      endTime: "19:00:00",
+      capacity: 2,
+      bookedCount: 0,
+      status: BookingSlotStatus.CLOSED,
+      isOnlineBookable: true,
+      notes: "Seed: closed",
+    },
+    {
+      id: SLOT_AVAILABLE_ONLINE_2,
+      date: futureDate,
+      startTime: "11:00:00",
+      endTime: "12:00:00",
+      capacity: 1,
+      bookedCount: 0,
+      status: BookingSlotStatus.AVAILABLE,
+      isOnlineBookable: true,
+      notes: "Seed: second available slot",
+    },
+  ] as const;
+
+  for (const row of rows) {
+    await prisma.bookingSlot.upsert({
+      where: { id: row.id },
+      create: {
+        id: row.id,
+        branchId,
+        date: parseDateOnly(row.date),
+        startTime: parseTimeOnly(row.startTime),
+        endTime: parseTimeOnly(row.endTime),
+        capacity: row.capacity,
+        bookedCount: row.bookedCount,
+        status: row.status,
+        isOnlineBookable: row.isOnlineBookable,
+        notes: row.notes,
+        deletedAt: null,
+      },
+      update: {
+        branchId,
+        date: parseDateOnly(row.date),
+        startTime: parseTimeOnly(row.startTime),
+        endTime: parseTimeOnly(row.endTime),
+        capacity: row.capacity,
+        bookedCount: row.bookedCount,
+        status: row.status,
+        isOnlineBookable: row.isOnlineBookable,
+        notes: row.notes,
+        deletedAt: null,
+      },
+    });
+  }
+
+  await prisma.bookingSlot.upsert({
+    where: { id: "40000000-0000-4000-8000-000000000007" },
+    create: {
+      id: "40000000-0000-4000-8000-000000000007",
+      branchId,
+      date: parseDateOnly(staleDate),
+      startTime: parseTimeOnly("10:00:00"),
+      endTime: parseTimeOnly("11:00:00"),
+      capacity: 2,
+      bookedCount: 0,
+      status: BookingSlotStatus.AVAILABLE,
+      isOnlineBookable: true,
+      notes: "Seed: past slot (should be hidden from public)",
+      deletedAt: null,
+    },
+    update: {
+      branchId,
+      date: parseDateOnly(staleDate),
+      startTime: parseTimeOnly("10:00:00"),
+      endTime: parseTimeOnly("11:00:00"),
+      capacity: 2,
+      bookedCount: 0,
+      status: BookingSlotStatus.AVAILABLE,
+      isOnlineBookable: true,
+      notes: "Seed: past slot (should be hidden from public)",
+      deletedAt: null,
+    },
+  });
+}
+
 async function main(): Promise<void> {
   const ownerPassword = process.env.SEED_OWNER_PASSWORD;
   if (!ownerPassword || ownerPassword.length < 8) {
@@ -449,9 +605,10 @@ async function main(): Promise<void> {
   }
 
   await seedCatalog(defaultBranch.id);
+  await seedBookingSlots(defaultBranch.id);
 
   console.log(
-    `Seeded: branch ${defaultBranch.name}, system_settings singleton, ${PERMISSION_SEED_ROWS.length} permissions, ${ROLE_SEEDS.length} roles, owner user owner@alrouby.local, Sprint 3 catalog`,
+    `Seeded: branch ${defaultBranch.name}, system_settings singleton, ${PERMISSION_SEED_ROWS.length} permissions, ${ROLE_SEEDS.length} roles, owner user owner@alrouby.local, Sprint 3 catalog, Sprint 4 booking slots`,
   );
 }
 

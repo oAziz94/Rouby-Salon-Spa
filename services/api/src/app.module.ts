@@ -9,6 +9,7 @@ import { HealthController } from './health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { SettingsModule } from './settings/settings.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { SlotsModule } from './slots/slots.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { CatalogModule } from './catalog/catalog.module';
     BranchesModule,
     SettingsModule,
     CatalogModule,
+    SlotsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
