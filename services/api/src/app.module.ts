@@ -8,6 +8,7 @@ import { BranchesModule } from './branches/branches.module';
 import { HealthController } from './health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { SettingsModule } from './settings/settings.module';
+import { CatalogModule } from './catalog/catalog.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { SettingsModule } from './settings/settings.module';
     AuthModule,
     BranchesModule,
     SettingsModule,
+    CatalogModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

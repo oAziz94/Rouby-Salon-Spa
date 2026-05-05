@@ -154,4 +154,55 @@ describe('App (e2e)', () => {
       expect(sys.body.defaultCurrency).toBe('EGP');
     },
   );
+
+  it('Sprint 3: public catalog categories + branch-filtered services', async () => {
+    const cats = await request(app.getHttpServer())
+      .get('/api/v1/public/categories')
+      .expect(200);
+    expect(Array.isArray(cats.body.data)).toBe(true);
+    expect(cats.body.data.length).toBeGreaterThan(0);
+
+    const branchId = '00000000-0000-4000-8000-000000000001';
+    const svc = await request(app.getHttpServer())
+      .get(`/api/v1/public/services?branchId=${branchId}&page=1&pageSize=50`)
+      .expect(200);
+    const body = svc.body as {
+      data: Array<{ id: string }>;
+      meta: { totalItems: number };
+    };
+    expect(body.meta.totalItems).toBeGreaterThanOrEqual(1);
+    const ids = body.data.map((s) => s.id);
+    expect(ids).toContain('30000000-0000-4000-8000-000000000011');
+    expect(ids).not.toContain('30000000-0000-4000-8000-000000000013');
+  });
+
+  const itReception =
+    dashboardAuthDbReady && process.env.SEED_RECEPTIONIST_PASSWORD
+      ? it
+      : it.skip;
+
+  itReception(
+    'Sprint 3: receptionist cannot create service (403)',
+    async () => {
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/dashboard/auth/login')
+        .send({
+          email: 'reception@alrouby.local',
+          password: process.env.SEED_RECEPTIONIST_PASSWORD,
+        });
+      expect(login.status).toBe(200);
+      const token = login.body.accessToken as string;
+
+      await request(app.getHttpServer())
+        .post('/api/v1/dashboard/services')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          categoryId: '30000000-0000-4000-8000-000000000001',
+          name: 'Blocked',
+          priceDisplayType: 'CONTACT',
+          branchIds: [],
+        })
+        .expect(403);
+    },
+  );
 });
