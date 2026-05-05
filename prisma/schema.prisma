@@ -528,3 +528,18 @@ model BookingChangeRequest {
   @@index([clientId, createdAt(sort: Desc)])
   @@map("booking_change_requests")
 }
+
+/// Editable WhatsApp message templates for dashboard deep links (SRS §11.4, Sprint 6).
+model WhatsAppTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  templateKey String   @unique @map("template_key")
+  content     String   @db.Text
+  /// JSON array of supported variable names (e.g. clientName, bookingDate) — see API docs.
+  variables   Json
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("whatsapp_templates")
+}

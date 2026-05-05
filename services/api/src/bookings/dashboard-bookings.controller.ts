@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentDashboardUser } from '../auth/decorators/current-dashboard-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
@@ -21,7 +29,10 @@ export class DashboardBookingsController {
   @Get()
   @RequirePermissions('bookings.read')
   @ApiOperation({ summary: 'List bookings (branch-scoped)' })
-  list(@CurrentDashboardUser() user: DashboardJwtUser, @Query() query: DashboardBookingListQueryDto) {
+  list(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Query() query: DashboardBookingListQueryDto,
+  ) {
     return this.bookings.listDashboardBookings(user, query);
   }
 
@@ -77,7 +88,9 @@ export class DashboardBookingsController {
 
   @Post(':bookingId/reschedule')
   @RequirePermissions('bookings.reschedule')
-  @ApiOperation({ summary: 'Reschedule booking (→ RESCHEDULED, capacity rules)' })
+  @ApiOperation({
+    summary: 'Reschedule booking (→ RESCHEDULED, capacity rules)',
+  })
   reschedule(
     @CurrentDashboardUser() user: DashboardJwtUser,
     @Param('bookingId') bookingId: string,

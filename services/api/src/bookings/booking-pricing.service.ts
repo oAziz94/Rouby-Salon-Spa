@@ -89,9 +89,11 @@ export class BookingPricingService {
     const subtotal = new Prisma.Decimal(exclusiveSubtotal.toFixed(2));
 
     const denom = exclusiveSubtotal > 0 ? exclusiveSubtotal : 0;
-    const discountOnTaxable =
-      denom > 0 ? disc * (taxableExclusive / denom) : 0;
-    const taxableAfterDiscount = Math.max(0, taxableExclusive - discountOnTaxable);
+    const discountOnTaxable = denom > 0 ? disc * (taxableExclusive / denom) : 0;
+    const taxableAfterDiscount = Math.max(
+      0,
+      taxableExclusive - discountOnTaxable,
+    );
 
     const vatAmountNum =
       settings.vatEnabled && taxableAfterDiscount > 0
@@ -113,10 +115,9 @@ export class BookingPricingService {
     branchId: string,
     items: BookingItemInputDto[],
   ): Promise<ResolvedBookingLine[]> {
-    const settings = await this.getSystemSettings();
     const lines: ResolvedBookingLine[] = [];
     for (const item of items) {
-      lines.push(await this.resolveOneLine(branchId, item, settings));
+      lines.push(await this.resolveOneLine(branchId, item));
     }
     return lines;
   }
@@ -124,14 +125,13 @@ export class BookingPricingService {
   private async resolveOneLine(
     branchId: string,
     item: BookingItemInputDto,
-    settings: SystemSettings,
   ): Promise<ResolvedBookingLine> {
     const qty = item.quantity ?? 1;
 
     switch (item.itemType) {
       case BookingItemType.SERVICE:
       case BookingItemType.ADD_ON:
-        return this.resolveServiceLine(branchId, item, qty, settings);
+        return this.resolveServiceLine(branchId, item, qty);
       case BookingItemType.SERVICE_VARIANT:
         return this.resolveVariantLine(branchId, item, qty);
       case BookingItemType.PACKAGE:
@@ -174,9 +174,13 @@ export class BookingPricingService {
     branchId: string,
     item: BookingItemInputDto,
     quantity: number,
-    _settings: SystemSettings,
   ): Promise<ResolvedBookingLine> {
-    if (!item.serviceId || item.serviceVariantId || item.packageId || item.bundleId) {
+    if (
+      !item.serviceId ||
+      item.serviceVariantId ||
+      item.packageId ||
+      item.bundleId
+    ) {
       this.throwInvalidItemShape();
     }
     const service = await this.prisma.service.findUnique({
@@ -195,7 +199,10 @@ export class BookingPricingService {
     }
     await this.assertServiceAtBranch(service.id, branchId);
 
-    if (service.priceDisplayType === PriceDisplayType.CONTACT || service.priceDisplayType === PriceDisplayType.HIDDEN) {
+    if (
+      service.priceDisplayType === PriceDisplayType.CONTACT ||
+      service.priceDisplayType === PriceDisplayType.HIDDEN
+    ) {
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_REQUEST,
@@ -219,7 +226,9 @@ export class BookingPricingService {
       );
     }
 
-    const base = service.basePrice ? Number(service.basePrice.toString()) : null;
+    const base = service.basePrice
+      ? Number(service.basePrice.toString())
+      : null;
     if (base === null) {
       throw new HttpException(
         {
@@ -252,14 +261,23 @@ export class BookingPricingService {
     item: BookingItemInputDto,
     quantity: number,
   ): Promise<ResolvedBookingLine> {
-    if (!item.serviceId || !item.serviceVariantId || item.packageId || item.bundleId) {
+    if (
+      !item.serviceId ||
+      !item.serviceVariantId ||
+      item.packageId ||
+      item.bundleId
+    ) {
       this.throwInvalidItemShape();
     }
     const variant = await this.prisma.serviceVariant.findUnique({
       where: { id: item.serviceVariantId },
       include: { service: true },
     });
-    if (!variant?.isActive || !variant.service.isActive || !variant.service.bookingAvailability) {
+    if (
+      !variant?.isActive ||
+      !variant.service.isActive ||
+      !variant.service.bookingAvailability
+    ) {
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_REQUEST,
@@ -304,10 +322,17 @@ export class BookingPricingService {
     item: BookingItemInputDto,
     quantity: number,
   ): Promise<ResolvedBookingLine> {
-    if (!item.packageId || item.serviceId || item.serviceVariantId || item.bundleId) {
+    if (
+      !item.packageId ||
+      item.serviceId ||
+      item.serviceVariantId ||
+      item.bundleId
+    ) {
       this.throwInvalidItemShape();
     }
-    const pkg = await this.prisma.package.findUnique({ where: { id: item.packageId } });
+    const pkg = await this.prisma.package.findUnique({
+      where: { id: item.packageId },
+    });
     if (!pkg?.isActive) {
       throw new HttpException(
         {
@@ -380,7 +405,12 @@ export class BookingPricingService {
     item: BookingItemInputDto,
     quantity: number,
   ): Promise<ResolvedBookingLine> {
-    if (!item.bundleId || item.serviceId || item.serviceVariantId || item.packageId) {
+    if (
+      !item.bundleId ||
+      item.serviceId ||
+      item.serviceVariantId ||
+      item.packageId
+    ) {
       this.throwInvalidItemShape();
     }
     const bundle = await this.prisma.bundle.findUnique({
@@ -475,7 +505,7 @@ export class BookingPricingService {
         (acc, s) => acc + (s.durationMinutes ?? 0),
         0,
       );
-      lineMetadata = { selectedServiceIds: selected } as Prisma.JsonValue;
+      lineMetadata = { selectedServiceIds: selected };
     } else {
       // FIXED / QUANTITY / MEMBERSHIP_STYLE: Sprint 5 uses all eligible services for duration estimate.
       const services = await this.prisma.service.findMany({

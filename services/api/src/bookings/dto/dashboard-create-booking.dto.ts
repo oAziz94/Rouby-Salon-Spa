@@ -30,7 +30,8 @@ export class DashboardCreateBookingDto {
 
   @ApiPropertyOptional({
     enum: BookingStatus,
-    description: 'Defaults to PENDING. Use CONFIRMED to consume slot capacity immediately.',
+    description:
+      'Defaults to PENDING. Use CONFIRMED to consume slot capacity immediately.',
   })
   @IsOptional()
   @IsEnum(BookingStatus)

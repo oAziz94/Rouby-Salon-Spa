@@ -8,7 +8,10 @@ import type { ClientJwtUser } from '../client-jwt-user';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
-export class ClientJwtStrategy extends PassportStrategy(Strategy, 'client-jwt') {
+export class ClientJwtStrategy extends PassportStrategy(
+  Strategy,
+  'client-jwt',
+) {
   constructor(
     configService: ConfigService,
     private readonly prisma: PrismaService,

@@ -18,7 +18,10 @@ export class DashboardBookingChangeRequestsController {
   @Get()
   @RequirePermissions('bookings.read')
   @ApiOperation({ summary: 'List client booking change requests' })
-  list(@CurrentDashboardUser() user: DashboardJwtUser, @Query() query: ChangeRequestListQueryDto) {
+  list(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Query() query: ChangeRequestListQueryDto,
+  ) {
     return this.bookings.listChangeRequests(user, query);
   }
 

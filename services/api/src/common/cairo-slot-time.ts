@@ -10,7 +10,10 @@ export function toTimeOnlyUtc(value: Date): string {
   return value.toISOString().slice(11, 19);
 }
 
-export function slotStartCompositeKey(row: { date: Date; startTime: Date }): string {
+export function slotStartCompositeKey(row: {
+  date: Date;
+  startTime: Date;
+}): string {
   return `${toDateOnlyUtc(row.date)}T${toTimeOnlyUtc(row.startTime)}`;
 }
 

@@ -21,8 +21,13 @@ export class PublicBookingsController {
   @Post()
   @UseGuards(ClientJwtAuthGuard)
   @ApiBearerAuth('client-jwt')
-  @ApiOperation({ summary: 'Submit website booking (PENDING, requires client JWT + phone)' })
-  create(@CurrentClient() client: ClientJwtUser, @Body() body: PublicBookingCreateBodyDto) {
+  @ApiOperation({
+    summary: 'Submit website booking (PENDING, requires client JWT + phone)',
+  })
+  create(
+    @CurrentClient() client: ClientJwtUser,
+    @Body() body: PublicBookingCreateBodyDto,
+  ) {
     return this.bookings.createPublicBooking(client, body);
   }
 }

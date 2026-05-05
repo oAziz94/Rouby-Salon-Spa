@@ -11,6 +11,7 @@ import { SettingsModule } from './settings/settings.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { SlotsModule } from './slots/slots.module';
 import { BookingsModule } from './bookings/bookings.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { BookingsModule } from './bookings/bookings.module';
     CatalogModule,
     SlotsModule,
     BookingsModule,
+    WhatsappModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

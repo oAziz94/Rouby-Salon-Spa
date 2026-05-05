@@ -24,7 +24,10 @@ export class ClientBookingsController {
 
   @Get()
   @ApiOperation({ summary: 'List my bookings' })
-  list(@CurrentClient() client: ClientJwtUser, @Query() query: ClientBookingListQueryDto) {
+  list(
+    @CurrentClient() client: ClientJwtUser,
+    @Query() query: ClientBookingListQueryDto,
+  ) {
     return this.bookings.listClientBookings(client, query);
   }
 

@@ -19,7 +19,10 @@ import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { isAtLeast24HoursBeforeSlotStartCairo } from '../common/cairo-slot-time';
 import { PrismaService } from '../prisma/prisma.service';
 import { SlotsService } from '../slots/slots.service';
-import { BookingPricingService, type ResolvedBookingLine } from './booking-pricing.service';
+import {
+  BookingPricingService,
+  type ResolvedBookingLine,
+} from './booking-pricing.service';
 import type { BookingItemInputDto } from './dto/booking-item-input.dto';
 import type { ChangeRequestListQueryDto } from './dto/change-request-list-query.dto';
 import type { ClientBookingListQueryDto } from './dto/client-booking-list-query.dto';
@@ -60,8 +63,7 @@ export class BookingsService {
 
   private canAccessAllBranches(user: DashboardJwtUser): boolean {
     return (
-      user.branchId === null ||
-      user.permissions.includes('branches.manage')
+      user.branchId === null || user.permissions.includes('branches.manage')
     );
   }
 
@@ -102,7 +104,10 @@ export class BookingsService {
     };
   }
 
-  async createPublicBooking(client: ClientJwtUser, body: PublicBookingCreateBodyDto) {
+  async createPublicBooking(
+    client: ClientJwtUser,
+    body: PublicBookingCreateBodyDto,
+  ) {
     const dbClient = await this.prisma.client.findUnique({
       where: { id: client.clientId },
     });
@@ -175,7 +180,10 @@ export class BookingsService {
     };
   }
 
-  async listClientBookings(client: ClientJwtUser, query: ClientBookingListQueryDto) {
+  async listClientBookings(
+    client: ClientJwtUser,
+    query: ClientBookingListQueryDto,
+  ) {
     const where: Prisma.BookingWhereInput = { clientId: client.clientId };
     if (query.status) {
       where.status = query.status;
@@ -227,8 +235,11 @@ export class BookingsService {
   }
 
   async createCancellationRequest(client: ClientJwtUser, bookingId: string) {
-    const booking = await this.getOwnedBookingOrThrow(client.clientId, bookingId);
-    await this.assertClientChangeWindow(booking);
+    const booking = await this.getOwnedBookingOrThrow(
+      client.clientId,
+      bookingId,
+    );
+    this.assertClientChangeWindow(booking);
 
     const dup = await this.prisma.bookingChangeRequest.findFirst({
       where: {
@@ -267,8 +278,11 @@ export class BookingsService {
     bookingId: string,
     body: ClientRescheduleRequestDto,
   ) {
-    const booking = await this.getOwnedBookingOrThrow(client.clientId, bookingId);
-    await this.assertClientChangeWindow(booking);
+    const booking = await this.getOwnedBookingOrThrow(
+      client.clientId,
+      bookingId,
+    );
+    this.assertClientChangeWindow(booking);
 
     const dup = await this.prisma.bookingChangeRequest.findFirst({
       where: {
@@ -328,7 +342,10 @@ export class BookingsService {
     query: DashboardBookingListQueryDto,
   ) {
     // TODO(Sprint 5): Specialist "Own" scope — filter via assigned staff lines when Staff/User linkage exists (RBAC_MATRIX §3.2).
-    const branchFilter = this.resolveDashboardBranchFilter(user, query.branchId);
+    const branchFilter = this.resolveDashboardBranchFilter(
+      user,
+      query.branchId,
+    );
     if (!this.canAccessAllBranches(user) && !branchFilter) {
       throw new ForbiddenException('Insufficient permissions');
     }
@@ -404,7 +421,10 @@ export class BookingsService {
     return this.mapBookingDetail(booking);
   }
 
-  async dashboardCreateBooking(user: DashboardJwtUser, dto: DashboardCreateBookingDto) {
+  async dashboardCreateBooking(
+    user: DashboardJwtUser,
+    dto: DashboardCreateBookingDto,
+  ) {
     this.assertDashboardBranchAccess(user, dto.branchId);
     if (dto.source === BookingSource.WEBSITE) {
       throw new HttpException(
@@ -681,7 +701,11 @@ export class BookingsService {
     return this.getDashboardBooking(user, bookingId);
   }
 
-  async applyDiscount(user: DashboardJwtUser, bookingId: string, body: DiscountBodyDto) {
+  async applyDiscount(
+    user: DashboardJwtUser,
+    bookingId: string,
+    body: DiscountBodyDto,
+  ) {
     const booking = await this.requireDashboardBooking(user, bookingId);
     if (
       booking.status === BookingStatus.CANCELLED ||
@@ -700,7 +724,11 @@ export class BookingsService {
 
     const settings = await this.pricing.getSystemSettings();
     const lines = await this.buildResolvedLinesFromPersistedItems(bookingId);
-    const totals = this.pricing.computeTotals(lines, settings, body.discountAmount);
+    const totals = this.pricing.computeTotals(
+      lines,
+      settings,
+      body.discountAmount,
+    );
 
     await this.prisma.booking.update({
       where: { id: bookingId },
@@ -716,8 +744,14 @@ export class BookingsService {
     return this.getDashboardBooking(user, bookingId);
   }
 
-  async listChangeRequests(user: DashboardJwtUser, query: ChangeRequestListQueryDto) {
-    const branchFilter = this.resolveDashboardBranchFilter(user, query.branchId);
+  async listChangeRequests(
+    user: DashboardJwtUser,
+    query: ChangeRequestListQueryDto,
+  ) {
+    const branchFilter = this.resolveDashboardBranchFilter(
+      user,
+      query.branchId,
+    );
     if (!this.canAccessAllBranches(user) && !branchFilter) {
       throw new ForbiddenException('Insufficient permissions');
     }
@@ -742,7 +776,9 @@ export class BookingsService {
         take: query.pageSize,
         orderBy: { createdAt: 'desc' },
         include: {
-          booking: { select: { id: true, branchId: true, status: true, slotId: true } },
+          booking: {
+            select: { id: true, branchId: true, status: true, slotId: true },
+          },
         },
       }),
     ]);
@@ -826,7 +862,11 @@ export class BookingsService {
               HttpStatus.BAD_REQUEST,
             );
           }
-          await this.rescheduleBookingTx(tx, row.bookingId, row.requestedSlotId);
+          await this.rescheduleBookingTx(
+            tx,
+            row.bookingId,
+            row.requestedSlotId,
+          );
         }
 
         await tx.bookingChangeRequest.update({
@@ -960,7 +1000,9 @@ export class BookingsService {
         quantity: it.quantity,
         isTaxable,
         lineMetadata: meta?.selectedServiceIds
-          ? ({ selectedServiceIds: meta.selectedServiceIds } as Prisma.JsonValue)
+          ? {
+              selectedServiceIds: meta.selectedServiceIds,
+            }
           : null,
       };
     });
@@ -1048,8 +1090,13 @@ export class BookingsService {
     });
   }
 
-  private async requireDashboardBooking(user: DashboardJwtUser, bookingId: string) {
-    const booking = await this.prisma.booking.findUnique({ where: { id: bookingId } });
+  private async requireDashboardBooking(
+    user: DashboardJwtUser,
+    bookingId: string,
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+    });
     if (!booking) {
       throw new NotFoundException('Booking not found');
     }
@@ -1062,12 +1109,19 @@ export class BookingsService {
     bookingId: string,
     fn: (
       tx: Prisma.TransactionClient,
-      booking: { id: string; branchId: string; slotId: string; status: BookingStatus },
+      booking: {
+        id: string;
+        branchId: string;
+        slotId: string;
+        status: BookingStatus;
+      },
     ) => Promise<void>,
   ): Promise<void> {
     await this.prisma.$transaction(
       async (tx) => {
-        const booking = await tx.booking.findUnique({ where: { id: bookingId } });
+        const booking = await tx.booking.findUnique({
+          where: { id: bookingId },
+        });
         if (!booking) {
           throw new NotFoundException('Booking not found');
         }
@@ -1170,9 +1224,9 @@ export class BookingsService {
     return booking;
   }
 
-  private async assertClientChangeWindow(booking: {
+  private assertClientChangeWindow(booking: {
     slot: { date: Date; startTime: Date };
-  }): Promise<void> {
+  }): void {
     if (!isAtLeast24HoursBeforeSlotStartCairo(booking.slot)) {
       throw new HttpException(
         {
@@ -1216,7 +1270,12 @@ export class BookingsService {
       lineMetadata: Prisma.JsonValue | null;
     }>;
     slot?: { date: Date; startTime: Date; endTime: Date };
-    client?: { id: string; fullName: string; phone: string; email: string | null };
+    client?: {
+      id: string;
+      fullName: string;
+      phone: string;
+      email: string | null;
+    };
   }) {
     return {
       id: booking.id,

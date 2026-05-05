@@ -6,18 +6,22 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { DashboardJwtUser } from '../dashboard-jwt-user';
-import { PERMISSIONS_KEY } from '../auth.constants';
+import { ANY_PERMISSIONS_KEY, PERMISSIONS_KEY } from '../auth.constants';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const required = this.reflector.getAllAndOverride<string[] | undefined>(
+    const requiredAll = this.reflector.getAllAndOverride<string[] | undefined>(
       PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!required?.length) {
+    const requiredAny = this.reflector.getAllAndOverride<string[] | undefined>(
+      ANY_PERMISSIONS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (!requiredAll?.length && !requiredAny?.length) {
       return true;
     }
     const request = context
@@ -27,9 +31,17 @@ export class PermissionsGuard implements CanActivate {
     if (!user?.permissions?.length) {
       throw new ForbiddenException('Insufficient permissions');
     }
-    const missing = required.filter((k) => !user.permissions.includes(k));
-    if (missing.length > 0) {
-      throw new ForbiddenException('Insufficient permissions');
+    if (requiredAll?.length) {
+      const missing = requiredAll.filter((k) => !user.permissions.includes(k));
+      if (missing.length > 0) {
+        throw new ForbiddenException('Insufficient permissions');
+      }
+    }
+    if (requiredAny?.length) {
+      const ok = requiredAny.some((k) => user.permissions.includes(k));
+      if (!ok) {
+        throw new ForbiddenException('Insufficient permissions');
+      }
     }
     return true;
   }

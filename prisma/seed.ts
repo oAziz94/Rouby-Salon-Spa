@@ -8,6 +8,7 @@ import {
   PrismaClient,
 } from "@prisma/client";
 import { PERMISSION_SEED_ROWS, ROLE_SEEDS } from "./seed-data";
+import { WHATSAPP_TEMPLATE_SEED_ROWS } from "./whatsapp-template-seed";
 
 const prisma = new PrismaClient();
 
@@ -607,8 +608,28 @@ async function main(): Promise<void> {
   await seedCatalog(defaultBranch.id);
   await seedBookingSlots(defaultBranch.id);
 
+  for (const row of WHATSAPP_TEMPLATE_SEED_ROWS) {
+    await prisma.whatsAppTemplate.upsert({
+      where: { templateKey: row.templateKey },
+      create: {
+        id: row.id,
+        name: row.name,
+        templateKey: row.templateKey,
+        content: row.content,
+        variables: row.variables,
+        isActive: true,
+      },
+      update: {
+        name: row.name,
+        content: row.content,
+        variables: row.variables,
+        isActive: true,
+      },
+    });
+  }
+
   console.log(
-    `Seeded: branch ${defaultBranch.name}, system_settings singleton, ${PERMISSION_SEED_ROWS.length} permissions, ${ROLE_SEEDS.length} roles, owner user owner@alrouby.local, Sprint 3 catalog, Sprint 4 booking slots`,
+    `Seeded: branch ${defaultBranch.name}, system_settings singleton, ${PERMISSION_SEED_ROWS.length} permissions, ${ROLE_SEEDS.length} roles, owner user owner@alrouby.local, Sprint 3 catalog, Sprint 4 booking slots, ${WHATSAPP_TEMPLATE_SEED_ROWS.length} WhatsApp templates`,
   );
 }
 

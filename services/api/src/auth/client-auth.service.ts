@@ -17,8 +17,7 @@ export class ClientAuthService {
   private assertDevAuthEnabled(): void {
     const nodeEnv = this.config.get<string>('NODE_ENV', 'development');
     const flag = this.config.get<string>('CLIENT_DEV_AUTH_ENABLED', '');
-    const enabled =
-      nodeEnv !== 'production' || flag.toLowerCase() === 'true';
+    const enabled = nodeEnv !== 'production' || flag.toLowerCase() === 'true';
     if (!enabled) {
       throw new ForbiddenException(
         'Client dev token minting is disabled. Set NODE_ENV=development or CLIENT_DEV_AUTH_ENABLED=true.',
@@ -29,7 +28,12 @@ export class ClientAuthService {
   async mintDevToken(dto: ClientDevTokenDto): Promise<{
     accessToken: string;
     expiresIn: number;
-    client: { id: string; fullName: string; phone: string; email: string | null };
+    client: {
+      id: string;
+      fullName: string;
+      phone: string;
+      email: string | null;
+    };
   }> {
     this.assertDevAuthEnabled();
 
