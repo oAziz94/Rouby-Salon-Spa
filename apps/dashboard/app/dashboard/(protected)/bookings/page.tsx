@@ -96,8 +96,8 @@ export default function DashboardBookingsPage() {
   const [branches, setBranches] = useState<DashboardBranch[]>([]);
   const [branchId, setBranchId] = useState<string>("");
   const [status, setStatus] = useState<string>("");
-  const [dateFrom, setDateFrom] = useState<string>(toDateInput(new Date()));
-  const [dateTo, setDateTo] = useState<string>(toDateInput(new Date()));
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
   const [clientIdFilter, setClientIdFilter] = useState<string>("");
   const [page, setPage] = useState(1);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -145,6 +145,9 @@ export default function DashboardBookingsPage() {
       return;
     }
     if (!branchId && canAccessMultipleBranches) {
+      return;
+    }
+    if (!dateFrom || !dateTo) {
       return;
     }
     setState("loading");
@@ -229,6 +232,12 @@ export default function DashboardBookingsPage() {
       setBranchId(user.branchId);
     }
   }, [branchId, canRead, canReadBranches, token, user?.branchId]);
+
+  useEffect(() => {
+    const today = toDateInput(new Date());
+    setDateFrom(today);
+    setDateTo(today);
+  }, []);
 
   useEffect(() => {
     void loadList();

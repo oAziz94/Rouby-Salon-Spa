@@ -76,7 +76,7 @@ export default function DashboardSlotsPage() {
   const { token, user, hasPermission } = useDashboardAuth();
   const [branches, setBranches] = useState<DashboardBranch[]>([]);
   const [branchId, setBranchId] = useState<string>("");
-  const [date, setDate] = useState<string>(todayDateInput());
+  const [date, setDate] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [rows, setRows] = useState<DashboardSlot[]>([]);
   const [state, setState] = useState<SlotsState>("loading");
@@ -86,7 +86,7 @@ export default function DashboardSlotsPage() {
   const [modalMode, setModalMode] = useState<SlotModalMode>("create");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingSlotId, setEditingSlotId] = useState<string>("");
-  const [slotForm, setSlotForm] = useState<SlotFormState>(buildInitialSlotForm(date));
+  const [slotForm, setSlotForm] = useState<SlotFormState>(() => buildInitialSlotForm(""));
 
   const canRead = hasPermission("slots.read");
   const canCreate = hasPermission("slots.create");
@@ -101,9 +101,15 @@ export default function DashboardSlotsPage() {
     [canReadBranches, user?.branchId],
   );
 
+  useEffect(() => {
+    if (!date) {
+      setDate(todayDateInput());
+    }
+  }, [date]);
+
   const refreshSlots = useMemo(
     () => async () => {
-      if (!token || !canRead || (!branchId && canAccessMultipleBranches)) {
+      if (!token || !canRead || !date || (!branchId && canAccessMultipleBranches)) {
         return;
       }
       setState("loading");

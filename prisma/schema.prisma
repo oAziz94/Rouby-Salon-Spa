@@ -219,26 +219,46 @@ model ServiceVariant {
 }
 
 model Package {
-  id              String    @id @default(uuid()) @db.Uuid
-  name            String
-  description     String?
-  imageUrl        String?   @map("image_url")
-  originalPrice   Decimal   @map("original_price") @db.Decimal(12, 2)
-  packagePrice    Decimal   @map("package_price") @db.Decimal(12, 2)
-  durationMinutes Int       @map("duration_minutes")
-  startDate       DateTime? @map("start_date") @db.Date
-  endDate         DateTime? @map("end_date") @db.Date
-  isTaxable       Boolean   @default(true) @map("is_taxable")
-  isActive        Boolean   @default(true) @map("is_active")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  name             String
+  description      String?
+  shortDescription String?   @map("short_description")
+  imageUrl         String?   @map("image_url")
+  originalPrice    Decimal   @map("original_price") @db.Decimal(12, 2)
+  packagePrice     Decimal   @map("package_price") @db.Decimal(12, 2)
+  durationMinutes  Int?      @map("duration_minutes")
+  startDate        DateTime? @map("start_date") @db.Date
+  endDate          DateTime? @map("end_date") @db.Date
+  isTaxable        Boolean   @default(true) @map("is_taxable")
+  isActive         Boolean   @default(true) @map("is_active")
+  isFeatured       Boolean   @default(false) @map("is_featured")
+  badgeLabel       String?   @map("badge_label")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   services     PackageService[]
   branches     PackageBranch[]
+  features     PackageFeature[]
   bookingItems BookingItem[]
 
   @@index([isActive])
+  @@index([isFeatured])
   @@map("packages")
+}
+
+model PackageFeature {
+  id           String   @id @default(uuid()) @db.Uuid
+  packageId    String   @map("package_id") @db.Uuid
+  label        String
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  package Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([packageId, isActive, displayOrder])
+  @@map("package_features")
 }
 
 model PackageService {

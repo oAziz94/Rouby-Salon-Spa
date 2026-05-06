@@ -549,23 +549,34 @@ export type DashboardServiceVariant = {
   currency: "EGP" | string;
 };
 
+export type DashboardPackageFeature = {
+  id: string;
+  label: string;
+  displayOrder: number;
+  isActive: boolean;
+};
+
 export type DashboardPackage = {
   id: string;
   name: string;
   description: string | null;
+  shortDescription: string | null;
   imageUrl: string | null;
   originalPrice: number;
   packagePrice: number;
-  durationMinutes: number;
+  durationMinutes: number | null;
   startDate: string | null;
   endDate: string | null;
   isTaxable: boolean;
   isActive: boolean;
+  isFeatured: boolean;
+  badgeLabel: string | null;
   createdAt: string;
   updatedAt: string;
   currency: "EGP" | string;
   serviceIds: string[];
   branchIds: string[];
+  features: DashboardPackageFeature[];
 };
 
 export type DashboardBundle = {

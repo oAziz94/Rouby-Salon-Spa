@@ -393,7 +393,7 @@ export class BookingPricingService {
       bundleId: null,
       nameSnapshot: pkg.name,
       priceSnapshot: new Prisma.Decimal(price.toFixed(2)),
-      durationMinutesSnapshot: pkg.durationMinutes,
+      durationMinutesSnapshot: pkg.durationMinutes ?? 0,
       quantity,
       isTaxable: pkg.isTaxable,
       lineMetadata: null,

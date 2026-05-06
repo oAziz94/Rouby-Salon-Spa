@@ -28,6 +28,8 @@ const SVC_PEDI = "30000000-0000-4000-8000-000000000015";
 const VAR_COLOR_SHORT = "30000000-0000-4000-8000-000000000021";
 const VAR_COLOR_LONG = "30000000-0000-4000-8000-000000000022";
 const PKG_LUXURY = "30000000-0000-4000-8000-000000000031";
+const PKG_ESCAPE = "30000000-0000-4000-8000-000000000032";
+const PKG_ROYAL = "30000000-0000-4000-8000-000000000033";
 const BND_NAILS = "30000000-0000-4000-8000-000000000041";
 const OFF_SUMMER = "30000000-0000-4000-8000-000000000051";
 const SLOT_AVAILABLE_ONLINE_1 = "40000000-0000-4000-8000-000000000001";
@@ -235,14 +237,19 @@ async function seedCatalog(branchId: string): Promise<void> {
     update: { price: new Prisma.Decimal("1600"), isActive: true },
   });
 
-  await prisma.packageService.deleteMany({ where: { packageId: PKG_LUXURY } });
-  await prisma.packageBranch.deleteMany({ where: { packageId: PKG_LUXURY } });
+  for (const packageId of [PKG_LUXURY, PKG_ESCAPE, PKG_ROYAL] as const) {
+    await prisma.packageFeature.deleteMany({ where: { packageId } });
+    await prisma.packageService.deleteMany({ where: { packageId } });
+    await prisma.packageBranch.deleteMany({ where: { packageId } });
+  }
+
   await prisma.package.upsert({
     where: { id: PKG_LUXURY },
     create: {
       id: PKG_LUXURY,
       name: "Luxury Spa Package",
       description: "Hair + nails combo",
+      shortDescription: "A restorative spa journey with aromatherapy and glow rituals.",
       originalPrice: new Prisma.Decimal("1050"),
       packagePrice: new Prisma.Decimal("899"),
       durationMinutes: 150,
@@ -250,10 +257,16 @@ async function seedCatalog(branchId: string): Promise<void> {
       endDate: null,
       isTaxable: true,
       isActive: true,
+      isFeatured: false,
+      badgeLabel: null,
     },
     update: {
+      description: "Hair + nails combo",
+      shortDescription: "A restorative spa journey with aromatherapy and glow rituals.",
       packagePrice: new Prisma.Decimal("899"),
       isActive: true,
+      isFeatured: false,
+      badgeLabel: null,
     },
   });
   await prisma.packageService.createMany({
@@ -264,6 +277,98 @@ async function seedCatalog(branchId: string): Promise<void> {
   });
   await prisma.packageBranch.createMany({
     data: [{ packageId: PKG_LUXURY, branchId }],
+  });
+  await prisma.packageFeature.createMany({
+    data: [
+      { packageId: PKG_LUXURY, label: "Aromatherapy welcome", displayOrder: 0, isActive: true },
+      { packageId: PKG_LUXURY, label: "Signature facial", displayOrder: 1, isActive: true },
+      { packageId: PKG_LUXURY, label: "Neck & shoulder release", displayOrder: 2, isActive: true },
+      { packageId: PKG_LUXURY, label: "Herbal tea ritual", displayOrder: 3, isActive: true },
+    ],
+  });
+
+  await prisma.package.upsert({
+    where: { id: PKG_ESCAPE },
+    create: {
+      id: PKG_ESCAPE,
+      name: "Essential Escape",
+      description: "Express renewal for busy schedules.",
+      shortDescription: "A balancing express ritual for busy weeks.",
+      originalPrice: new Prisma.Decimal("720"),
+      packagePrice: new Prisma.Decimal("560"),
+      durationMinutes: 90,
+      startDate: null,
+      endDate: null,
+      isTaxable: true,
+      isActive: true,
+      isFeatured: false,
+      badgeLabel: null,
+    },
+    update: {
+      shortDescription: "A balancing express ritual for busy weeks.",
+      packagePrice: new Prisma.Decimal("560"),
+      isActive: true,
+    },
+  });
+  await prisma.packageService.createMany({
+    data: [
+      { packageId: PKG_ESCAPE, serviceId: SVC_CUT, sortOrder: 0 },
+      { packageId: PKG_ESCAPE, serviceId: SVC_MANI, sortOrder: 1 },
+    ],
+  });
+  await prisma.packageBranch.createMany({
+    data: [{ packageId: PKG_ESCAPE, branchId }],
+  });
+  await prisma.packageFeature.createMany({
+    data: [
+      { packageId: PKG_ESCAPE, label: "Express facial cleanse", displayOrder: 0, isActive: true },
+      { packageId: PKG_ESCAPE, label: "Relaxing scalp massage", displayOrder: 1, isActive: true },
+      { packageId: PKG_ESCAPE, label: "Herbal refreshment", displayOrder: 2, isActive: true },
+    ],
+  });
+
+  await prisma.package.upsert({
+    where: { id: PKG_ROYAL },
+    create: {
+      id: PKG_ROYAL,
+      name: "Royal Retreat",
+      description: "Full journey with massage, facial, and care rituals.",
+      shortDescription: "Our most-loved full-body journey for deep renewal.",
+      originalPrice: new Prisma.Decimal("1450"),
+      packagePrice: new Prisma.Decimal("1200"),
+      durationMinutes: 180,
+      startDate: null,
+      endDate: null,
+      isTaxable: true,
+      isActive: true,
+      isFeatured: true,
+      badgeLabel: "Most Popular",
+    },
+    update: {
+      shortDescription: "Our most-loved full-body journey for deep renewal.",
+      packagePrice: new Prisma.Decimal("1200"),
+      isActive: true,
+      isFeatured: true,
+      badgeLabel: "Most Popular",
+    },
+  });
+  await prisma.packageService.createMany({
+    data: [
+      { packageId: PKG_ROYAL, serviceId: SVC_MANI, sortOrder: 0 },
+      { packageId: PKG_ROYAL, serviceId: SVC_PEDI, sortOrder: 1 },
+      { packageId: PKG_ROYAL, serviceId: SVC_CUT, sortOrder: 2 },
+    ],
+  });
+  await prisma.packageBranch.createMany({
+    data: [{ packageId: PKG_ROYAL, branchId }],
+  });
+  await prisma.packageFeature.createMany({
+    data: [
+      { packageId: PKG_ROYAL, label: "Full body massage", displayOrder: 0, isActive: true },
+      { packageId: PKG_ROYAL, label: "Luxury facial treatment", displayOrder: 1, isActive: true },
+      { packageId: PKG_ROYAL, label: "Hand and foot care", displayOrder: 2, isActive: true },
+      { packageId: PKG_ROYAL, label: "Private relaxation time", displayOrder: 3, isActive: true },
+    ],
   });
 
   await prisma.bundleService.deleteMany({ where: { bundleId: BND_NAILS } });

@@ -126,24 +126,40 @@ export class CatalogDashboardService {
       id: string;
       name: string;
       description: string | null;
+      shortDescription: string | null;
       imageUrl: string | null;
       originalPrice: Prisma.Decimal;
       packagePrice: Prisma.Decimal;
-      durationMinutes: number;
+      durationMinutes: number | null;
       startDate: Date | null;
       endDate: Date | null;
       isTaxable: boolean;
       isActive: boolean;
+      isFeatured: boolean;
+      badgeLabel: string | null;
       createdAt: Date;
       updatedAt: Date;
+      features?: Array<{
+        id: string;
+        label: string;
+        displayOrder: number;
+        isActive: boolean;
+      }>;
     },
     serviceIds: string[],
     branchIds: string[],
   ) {
+    const features = (row.features ?? []).map((f) => ({
+      id: f.id,
+      label: f.label,
+      displayOrder: f.displayOrder,
+      isActive: f.isActive,
+    }));
     return {
       id: row.id,
       name: row.name,
       description: row.description,
+      shortDescription: row.shortDescription,
       imageUrl: row.imageUrl,
       originalPrice: decimalToNumber(row.originalPrice),
       packagePrice: decimalToNumber(row.packagePrice),
@@ -152,11 +168,14 @@ export class CatalogDashboardService {
       endDate: row.endDate,
       isTaxable: row.isTaxable,
       isActive: row.isActive,
+      isFeatured: row.isFeatured,
+      badgeLabel: row.badgeLabel,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       currency: CURRENCY,
       serviceIds,
       branchIds,
+      features,
     };
   }
 
@@ -570,6 +589,7 @@ export class CatalogDashboardService {
         include: {
           services: true,
           branches: true,
+          features: { orderBy: { displayOrder: 'asc' } },
         },
       }),
     ]);
@@ -611,14 +631,17 @@ export class CatalogDashboardService {
         data: {
           name: dto.name,
           description: dto.description ?? null,
+          shortDescription: dto.shortDescription ?? null,
           imageUrl: dto.imageUrl ?? null,
           originalPrice: new Prisma.Decimal(dto.originalPrice),
           packagePrice: new Prisma.Decimal(dto.packagePrice),
-          durationMinutes: dto.durationMinutes,
+          durationMinutes: dto.durationMinutes ?? null,
           startDate: dto.startDate ?? null,
           endDate: dto.endDate ?? null,
           isTaxable: dto.isTaxable ?? true,
           isActive: dto.isActive ?? true,
+          isFeatured: dto.isFeatured ?? false,
+          badgeLabel: dto.badgeLabel ?? null,
           services: {
             create: uniqueServices.map((serviceId, i) => ({
               serviceId,
@@ -628,8 +651,23 @@ export class CatalogDashboardService {
           branches: {
             create: uniqueBranches.map((branchId) => ({ branchId })),
           },
+          ...(dto.features?.length
+            ? {
+                features: {
+                  create: dto.features.map((f, i) => ({
+                    label: f.label.trim(),
+                    displayOrder: f.displayOrder ?? i,
+                    isActive: f.isActive ?? true,
+                  })),
+                },
+              }
+            : {}),
         },
-        include: { services: true, branches: true },
+        include: {
+          services: true,
+          branches: true,
+          features: { orderBy: { displayOrder: 'asc' } },
+        },
       });
       return p;
     });
@@ -692,12 +730,28 @@ export class CatalogDashboardService {
           })),
         });
       }
+      if (dto.features !== undefined) {
+        await tx.packageFeature.deleteMany({ where: { packageId: id } });
+        if (dto.features.length > 0) {
+          await tx.packageFeature.createMany({
+            data: dto.features.map((f, i) => ({
+              packageId: id,
+              label: f.label.trim(),
+              displayOrder: f.displayOrder ?? i,
+              isActive: f.isActive ?? true,
+            })),
+          });
+        }
+      }
       return tx.package.update({
         where: { id },
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.description !== undefined && {
             description: dto.description,
+          }),
+          ...(dto.shortDescription !== undefined && {
+            shortDescription: dto.shortDescription,
           }),
           ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
           ...(dto.originalPrice !== undefined && {
@@ -713,8 +767,14 @@ export class CatalogDashboardService {
           ...(dto.endDate !== undefined && { endDate: dto.endDate }),
           ...(dto.isTaxable !== undefined && { isTaxable: dto.isTaxable }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+          ...(dto.isFeatured !== undefined && { isFeatured: dto.isFeatured }),
+          ...(dto.badgeLabel !== undefined && { badgeLabel: dto.badgeLabel }),
         },
-        include: { services: true, branches: true },
+        include: {
+          services: true,
+          branches: true,
+          features: { orderBy: { displayOrder: 'asc' } },
+        },
       });
     });
     return this.mapPackage(
@@ -729,7 +789,11 @@ export class CatalogDashboardService {
       const row = await this.prisma.package.update({
         where: { id },
         data: { isActive },
-        include: { services: true, branches: true },
+        include: {
+          services: true,
+          branches: true,
+          features: { orderBy: { displayOrder: 'asc' } },
+        },
       });
       return this.mapPackage(
         row,

@@ -18,6 +18,8 @@ import { useDashboardAuth } from "@/lib/dashboard-auth";
 
 type LoadState = "loading" | "loaded" | "empty" | "error";
 
+type FeatureFormRow = { key: string; label: string; isActive: boolean };
+
 function formatEGP(amount: number): string {
   return `EGP ${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -47,6 +49,10 @@ export default function DashboardPackagesPage() {
   const [durationMinutes, setDurationMinutes] = useState("");
   const [serviceIdsCsv, setServiceIdsCsv] = useState("");
   const [branchIdsCsv, setBranchIdsCsv] = useState("");
+  const [shortDescription, setShortDescription] = useState("");
+  const [badgeLabel, setBadgeLabel] = useState("");
+  const [isFeatured, setIsFeatured] = useState(false);
+  const [features, setFeatures] = useState<FeatureFormRow[]>([]);
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -87,6 +93,10 @@ export default function DashboardPackagesPage() {
     setDurationMinutes("");
     setServiceIdsCsv("");
     setBranchIdsCsv("");
+    setShortDescription("");
+    setBadgeLabel("");
+    setIsFeatured(false);
+    setFeatures([]);
     setSaveError("");
     setModalOpen(true);
   }
@@ -96,11 +106,45 @@ export default function DashboardPackagesPage() {
     setName(row.name);
     setOriginalPrice(row.originalPrice.toString());
     setPackagePrice(row.packagePrice.toString());
-    setDurationMinutes(row.durationMinutes.toString());
+    setDurationMinutes(row.durationMinutes != null ? String(row.durationMinutes) : "");
     setServiceIdsCsv(row.serviceIds.join(", "));
     setBranchIdsCsv(row.branchIds.join(", "));
+    setShortDescription(row.shortDescription ?? "");
+    setBadgeLabel(row.badgeLabel ?? "");
+    setIsFeatured(row.isFeatured);
+    setFeatures(
+      (row.features ?? []).map((f) => ({
+        key: f.id,
+        label: f.label,
+        isActive: f.isActive,
+      })),
+    );
     setSaveError("");
     setModalOpen(true);
+  }
+
+  function addFeatureRow() {
+    const key =
+      typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+        ? globalThis.crypto.randomUUID()
+        : `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setFeatures((prev) => [...prev, { key, label: "", isActive: true }]);
+  }
+
+  function removeFeatureRow(key: string) {
+    setFeatures((prev) => prev.filter((r) => r.key !== key));
+  }
+
+  function moveFeatureRow(key: string, direction: -1 | 1) {
+    setFeatures((prev) => {
+      const i = prev.findIndex((r) => r.key === key);
+      if (i < 0) return prev;
+      const j = i + direction;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j]!, next[i]!];
+      return next;
+    });
   }
 
   async function onSave(event: React.FormEvent<HTMLFormElement>) {
@@ -109,14 +153,27 @@ export default function DashboardPackagesPage() {
     setSaving(true);
     setSaveError("");
     try {
-      const payload = {
+      const featurePayload = features
+        .map((f) => ({ label: f.label.trim(), isActive: f.isActive }))
+        .filter((f) => f.label.length > 0)
+        .map((f, i) => ({ label: f.label, displayOrder: i, isActive: f.isActive }));
+
+      const payload: Record<string, unknown> = {
         name,
         originalPrice: Number(originalPrice),
         packagePrice: Number(packagePrice),
-        durationMinutes: Number(durationMinutes),
+        durationMinutes: durationMinutes.trim() === "" ? null : Number(durationMinutes),
         serviceIds: serviceIdsCsv.split(",").map((v) => v.trim()).filter(Boolean),
         branchIds: branchIdsCsv.split(",").map((v) => v.trim()).filter(Boolean),
+        shortDescription: shortDescription.trim() === "" ? null : shortDescription.trim(),
+        badgeLabel: badgeLabel.trim() === "" ? null : badgeLabel.trim(),
+        isFeatured,
       };
+      if (editingRow) {
+        payload.features = featurePayload;
+      } else if (featurePayload.length > 0) {
+        payload.features = featurePayload;
+      }
       if (editingRow) await patchDashboardPackage(token, editingRow.id, payload);
       else await postDashboardPackage(token, payload);
       setModalOpen(false);
@@ -191,7 +248,9 @@ export default function DashboardPackagesPage() {
                       <td className="py-3 pr-3 font-medium text-[#1F2420]">{row.name}</td>
                       <td className="py-3 pr-3 text-[#1F2420]">{formatEGP(row.originalPrice)}</td>
                       <td className="py-3 pr-3 text-[#1F2420]">{formatEGP(row.packagePrice)}</td>
-                      <td className="py-3 pr-3 text-[#7A6A58]">{row.durationMinutes} min</td>
+                      <td className="py-3 pr-3 text-[#7A6A58]">
+                        {row.durationMinutes != null ? `${row.durationMinutes} min` : "—"}
+                      </td>
                       <td className="py-3 pr-3 text-[#7A6A58]">{row.isActive ? "Active" : "Inactive"}</td>
                       <td className="py-3 pr-3">
                         {canManage ? (
@@ -231,9 +290,108 @@ export default function DashboardPackagesPage() {
                 <label className="text-sm md:col-span-2"><span className="mb-1 block font-medium text-[#1F2420]">Name</span><input value={name} onChange={(e) => setName(e.target.value)} required className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
                 <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Original price</span><input type="number" min={0} step="0.01" value={originalPrice} onChange={(e) => setOriginalPrice(e.target.value)} required className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
                 <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Package price</span><input type="number" min={0} step="0.01" value={packagePrice} onChange={(e) => setPackagePrice(e.target.value)} required className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
-                <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Duration (min)</span><input type="number" min={0} value={durationMinutes} onChange={(e) => setDurationMinutes(e.target.value)} required className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium text-[#1F2420]">Duration (min)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={durationMinutes}
+                    onChange={(e) => setDurationMinutes(e.target.value)}
+                    className="w-full rounded-md border border-border bg-white px-3 py-2"
+                    placeholder="Optional"
+                  />
+                </label>
+                <label className="text-sm md:col-span-2">
+                  <span className="mb-1 block font-medium text-[#1F2420]">Short description (marketing)</span>
+                  <textarea
+                    value={shortDescription}
+                    onChange={(e) => setShortDescription(e.target.value)}
+                    rows={2}
+                    className="w-full rounded-md border border-border bg-white px-3 py-2"
+                    placeholder="Shown on the public site cards when set"
+                  />
+                </label>
+                <label className="text-sm flex items-center gap-2 md:col-span-2">
+                  <input type="checkbox" checked={isFeatured} onChange={(e) => setIsFeatured(e.target.checked)} />
+                  <span className="font-medium text-[#1F2420]">Featured package</span>
+                </label>
+                <label className="text-sm md:col-span-2">
+                  <span className="mb-1 block font-medium text-[#1F2420]">Badge label</span>
+                  <input
+                    value={badgeLabel}
+                    onChange={(e) => setBadgeLabel(e.target.value)}
+                    className="w-full rounded-md border border-border bg-white px-3 py-2"
+                    placeholder="e.g. Most Popular (optional)"
+                  />
+                </label>
                 <label className="text-sm md:col-span-2"><span className="mb-1 block font-medium text-[#1F2420]">Service IDs (comma-separated)</span><input value={serviceIdsCsv} onChange={(e) => setServiceIdsCsv(e.target.value)} required className="w-full rounded-md border border-border bg-white px-3 py-2" /><p className="mt-1 text-xs text-[#7A6A58]">Services: {services.map((s) => `${s.name} (${s.id})`).join(" • ")}</p></label>
                 <label className="text-sm md:col-span-2"><span className="mb-1 block font-medium text-[#1F2420]">Branch IDs (comma-separated)</span><input value={branchIdsCsv} onChange={(e) => setBranchIdsCsv(e.target.value)} required className="w-full rounded-md border border-border bg-white px-3 py-2" /><p className="mt-1 text-xs text-[#7A6A58]">Branches: {branches.map((b) => `${b.name} (${b.id})`).join(" • ")}</p></label>
+                <div className="md:col-span-2 space-y-2 rounded-md border border-border bg-white p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-[#1F2420]">Display features</span>
+                    <button type="button" onClick={addFeatureRow} className="rounded border border-border bg-[#FFF9EE] px-2 py-1 text-xs font-medium">
+                      Add feature
+                    </button>
+                  </div>
+                  <p className="text-xs text-[#7A6A58]">Order matches display on the website. Saving replaces all feature rows for this package.</p>
+                  {features.length === 0 ? (
+                    <p className="text-xs text-[#7A6A58]">No features yet.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {features.map((row, index) => (
+                        <li key={row.key} className="flex flex-wrap items-center gap-2 rounded border border-border/80 bg-[#FFFCF6] p-2">
+                          <input
+                            value={row.label}
+                            onChange={(e) =>
+                              setFeatures((prev) =>
+                                prev.map((r) => (r.key === row.key ? { ...r, label: e.target.value } : r)),
+                              )
+                            }
+                            placeholder="Feature label"
+                            className="min-w-[12rem] flex-1 rounded border border-border px-2 py-1 text-sm"
+                          />
+                          <label className="flex items-center gap-1 text-xs text-[#1F2420]">
+                            <input
+                              type="checkbox"
+                              checked={row.isActive}
+                              onChange={(e) =>
+                                setFeatures((prev) =>
+                                  prev.map((r) => (r.key === row.key ? { ...r, isActive: e.target.checked } : r)),
+                                )
+                              }
+                            />
+                            Active
+                          </label>
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              disabled={index === 0}
+                              onClick={() => moveFeatureRow(row.key, -1)}
+                              className="rounded border border-border bg-white px-2 py-1 text-xs disabled:opacity-40"
+                            >
+                              Up
+                            </button>
+                            <button
+                              type="button"
+                              disabled={index === features.length - 1}
+                              onClick={() => moveFeatureRow(row.key, 1)}
+                              className="rounded border border-border bg-white px-2 py-1 text-xs disabled:opacity-40"
+                            >
+                              Down
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeFeatureRow(row.key)}
+                              className="rounded border border-border bg-white px-2 py-1 text-xs text-danger"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
                 {saveError ? <p className="rounded border border-[#E7B9A4] bg-[#FFF1EC] px-3 py-2 text-sm text-danger md:col-span-2">{saveError}</p> : null}
                 <div className="md:col-span-2 flex justify-end gap-2">
                   <button type="button" onClick={() => setModalOpen(false)} className="rounded border border-border bg-white px-3 py-2 text-sm">Cancel</button>

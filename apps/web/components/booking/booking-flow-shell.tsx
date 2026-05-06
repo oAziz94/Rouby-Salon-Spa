@@ -205,7 +205,7 @@ export function BookingFlowShell({
   >({});
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>("");
-  const [selectedDate, setSelectedDate] = useState<string>(todayDateOnly());
+  const [selectedDate, setSelectedDate] = useState<string>("");
   const [slots, setSlots] = useState<PublicSlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
@@ -227,6 +227,10 @@ export function BookingFlowShell({
 
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedDate(todayDateOnly());
+  }, []);
 
   useEffect(() => {
     if (branches.length > 0 && !selectedBranchId) {

@@ -254,6 +254,11 @@ export class CatalogPublicService {
         include: {
           services: { include: { service: true } },
           branches: true,
+          features: {
+            where: { isActive: true },
+            orderBy: { displayOrder: 'asc' },
+            select: { id: true, label: true, displayOrder: true },
+          },
         },
       }),
     ]);
@@ -261,13 +266,21 @@ export class CatalogPublicService {
       id: p.id,
       name: p.name,
       description: p.description,
+      shortDescription: p.shortDescription,
       imageUrl: p.imageUrl,
       originalPrice: decimalToNumber(p.originalPrice),
       packagePrice: decimalToNumber(p.packagePrice),
       durationMinutes: p.durationMinutes,
       startDate: p.startDate,
       endDate: p.endDate,
+      isFeatured: p.isFeatured,
+      badgeLabel: p.badgeLabel,
       currency: CURRENCY,
+      features: p.features.map((f) => ({
+        id: f.id,
+        label: f.label,
+        displayOrder: f.displayOrder,
+      })),
       includedServices: p.services.map((ps) => ({
         serviceId: ps.serviceId,
         name: ps.service.name,
@@ -307,6 +320,11 @@ export class CatalogPublicService {
       include: {
         services: { include: { service: true } },
         branches: true,
+        features: {
+          where: { isActive: true },
+          orderBy: { displayOrder: 'asc' },
+          select: { id: true, label: true, displayOrder: true },
+        },
       },
     });
     if (!row) {
@@ -316,6 +334,7 @@ export class CatalogPublicService {
       id: row.id,
       name: row.name,
       description: row.description,
+      shortDescription: row.shortDescription,
       imageUrl: row.imageUrl,
       originalPrice: decimalToNumber(row.originalPrice),
       packagePrice: decimalToNumber(row.packagePrice),
@@ -323,7 +342,14 @@ export class CatalogPublicService {
       startDate: row.startDate,
       endDate: row.endDate,
       isTaxable: row.isTaxable,
+      isFeatured: row.isFeatured,
+      badgeLabel: row.badgeLabel,
       currency: CURRENCY,
+      features: row.features.map((f) => ({
+        id: f.id,
+        label: f.label,
+        displayOrder: f.displayOrder,
+      })),
       includedServices: row.services.map((ps) => ({
         serviceId: ps.serviceId,
         name: ps.service.name,

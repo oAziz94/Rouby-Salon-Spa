@@ -56,15 +56,25 @@ export type PublicServiceVariant = {
   currency: "EGP";
 };
 
+export type PublicPackageFeature = {
+  id: string;
+  label: string;
+  displayOrder: number;
+};
+
 export type PublicPackage = {
   id: string;
   name: string;
   description: string | null;
+  shortDescription: string | null;
   imageUrl: string | null;
   originalPrice: number | null;
   packagePrice: number | null;
   durationMinutes: number | null;
+  isFeatured: boolean;
+  badgeLabel: string | null;
   currency: "EGP";
+  features: PublicPackageFeature[];
 };
 
 export type PublicBundle = {
@@ -153,6 +163,29 @@ export function getPublicServiceVariants(serviceId: string) {
 
 export function getPublicPackages() {
   return getJson<ListResponse<PublicPackage>>("/public/packages?page=1&pageSize=24");
+}
+
+export type PublicPackageDetail = PublicPackage & {
+  startDate: string | null;
+  endDate: string | null;
+  isTaxable: boolean;
+  includedServices: Array<{
+    serviceId: string;
+    name: string;
+    sortOrder: number;
+  }>;
+  branchIds: string[];
+};
+
+export function getPublicPackageById(packageId: string, branchId?: string) {
+  const params = new URLSearchParams();
+  if (branchId) {
+    params.set("branchId", branchId);
+  }
+  const qs = params.toString();
+  return getJson<PublicPackageDetail>(
+    `/public/packages/${packageId}${qs ? `?${qs}` : ""}`,
+  );
 }
 
 export function getPublicBundles() {

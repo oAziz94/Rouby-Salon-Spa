@@ -77,8 +77,8 @@ export default function BookingChangeRequestsPage() {
   const [rows, setRows] = useState<DashboardBookingChangeRequestListItem[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
   const [requestTypeFilter, setRequestTypeFilter] = useState("");
-  const [dateFrom, setDateFrom] = useState(toDateInput(new Date()));
-  const [dateTo, setDateTo] = useState(toDateInput(new Date()));
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState("");
@@ -95,6 +95,9 @@ export default function BookingChangeRequestsPage() {
 
   async function loadList() {
     if (!token || !canRead) {
+      return;
+    }
+    if (!dateFrom || !dateTo) {
       return;
     }
     setState("loading");
@@ -155,6 +158,12 @@ export default function BookingChangeRequestsPage() {
       setDetailLoading(false);
     }
   }
+
+  useEffect(() => {
+    const today = toDateInput(new Date());
+    setDateFrom(today);
+    setDateTo(today);
+  }, []);
 
   useEffect(() => {
     void loadList();

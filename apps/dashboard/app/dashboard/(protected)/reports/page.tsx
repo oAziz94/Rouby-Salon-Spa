@@ -121,8 +121,8 @@ export default function DashboardReportsPage() {
 
   const [branches, setBranches] = useState<DashboardBranch[]>([]);
   const [branchId, setBranchId] = useState("");
-  const [dateFrom, setDateFrom] = useState(toDateInput(new Date()));
-  const [dateTo, setDateTo] = useState(toDateInput(new Date()));
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const [overview, setOverview] = useState<DashboardReportsOverviewResponse | null>(null);
   const [operations, setOperations] = useState<DashboardReportSectionResponse | null>(null);
@@ -165,8 +165,15 @@ export default function DashboardReportsPage() {
   }, [branchId, canReadBranches, token, user?.branchId]);
 
   useEffect(() => {
+    const today = toDateInput(new Date());
+    setDateFrom(today);
+    setDateTo(today);
+  }, []);
+
+  useEffect(() => {
     if (!token) return;
     if (!branchId && canAccessMultipleBranches) return;
+    if (!dateFrom || !dateTo) return;
 
     const query = {
       branchId: branchId || undefined,

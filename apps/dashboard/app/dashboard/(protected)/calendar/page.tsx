@@ -42,7 +42,7 @@ export default function DashboardCalendarPage() {
   const { token, user, hasPermission } = useDashboardAuth();
   const [branches, setBranches] = useState<DashboardBranch[]>([]);
   const [branchId, setBranchId] = useState<string>("");
-  const [date, setDate] = useState<string>(todayDateInput());
+  const [date, setDate] = useState<string>("");
   const [status, setStatus] = useState<string>("");
   const [rows, setRows] = useState<DashboardBookingsListItem[]>([]);
   const [state, setState] = useState<CalendarState>("loading");
@@ -94,11 +94,21 @@ export default function DashboardCalendarPage() {
   ]);
 
   useEffect(() => {
+    if (!date) {
+      setDate(todayDateInput());
+    }
+  }, [date]);
+
+  useEffect(() => {
     if (!token || !canReadBookings) {
       return;
     }
 
     if (!branchId && canAccessMultipleBranches) {
+      return;
+    }
+
+    if (!date) {
       return;
     }
 
