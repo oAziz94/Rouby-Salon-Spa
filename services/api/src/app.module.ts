@@ -13,6 +13,7 @@ import { SlotsModule } from './slots/slots.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { BillingModule } from './billing/billing.module';
+import { ContentModule } from './content/content.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { BillingModule } from './billing/billing.module';
     BookingsModule,
     WhatsappModule,
     BillingModule,
+    ContentModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

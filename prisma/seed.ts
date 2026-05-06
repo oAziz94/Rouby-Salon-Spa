@@ -6,6 +6,7 @@ import {
   PriceDisplayType,
   Prisma,
   PrismaClient,
+  ReviewStatus,
 } from "@prisma/client";
 import { PERMISSION_SEED_ROWS, ROLE_SEEDS } from "./seed-data";
 import { WHATSAPP_TEMPLATE_SEED_ROWS } from "./whatsapp-template-seed";
@@ -35,6 +36,12 @@ const SLOT_FILLED = "40000000-0000-4000-8000-000000000003";
 const SLOT_BLOCKED = "40000000-0000-4000-8000-000000000004";
 const SLOT_CLOSED = "40000000-0000-4000-8000-000000000005";
 const SLOT_AVAILABLE_ONLINE_2 = "40000000-0000-4000-8000-000000000006";
+const GALLERY_ITEM_1 = "80000000-0000-4000-8000-000000000001";
+const GALLERY_ITEM_2 = "80000000-0000-4000-8000-000000000002";
+const GALLERY_ITEM_3 = "80000000-0000-4000-8000-000000000003";
+const REVIEW_APPROVED = "81000000-0000-4000-8000-000000000001";
+const REVIEW_PENDING = "81000000-0000-4000-8000-000000000002";
+const SITE_CONTENT_ID = "82000000-0000-4000-8000-000000000001";
 
 async function seedCatalog(branchId: string): Promise<void> {
   await prisma.serviceCategory.upsert({
@@ -460,6 +467,214 @@ async function seedBookingSlots(branchId: string): Promise<void> {
   });
 }
 
+async function seedContent(): Promise<void> {
+  await prisma.galleryItem.upsert({
+    where: { id: GALLERY_ITEM_1 },
+    create: {
+      id: GALLERY_ITEM_1,
+      imageUrl: "https://images.unsplash.com/photo-1560066984-138dadb4c035",
+      title: "Hair Styling Session",
+      category: "Hair",
+      description: "Elegant evening hairstyle",
+      isFeatured: true,
+      displayOrder: 1,
+      isActive: true,
+    },
+    update: {
+      title: "Hair Styling Session",
+      category: "Hair",
+      description: "Elegant evening hairstyle",
+      isFeatured: true,
+      displayOrder: 1,
+      isActive: true,
+    },
+  });
+  await prisma.galleryItem.upsert({
+    where: { id: GALLERY_ITEM_2 },
+    create: {
+      id: GALLERY_ITEM_2,
+      imageUrl: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9",
+      title: "Bridal Makeup",
+      category: "Makeup",
+      description: "Soft glam bridal look",
+      isFeatured: false,
+      displayOrder: 2,
+      isActive: true,
+    },
+    update: {
+      title: "Bridal Makeup",
+      category: "Makeup",
+      description: "Soft glam bridal look",
+      isFeatured: false,
+      displayOrder: 2,
+      isActive: true,
+    },
+  });
+  await prisma.galleryItem.upsert({
+    where: { id: GALLERY_ITEM_3 },
+    create: {
+      id: GALLERY_ITEM_3,
+      imageUrl: "https://images.unsplash.com/photo-1604654894610-df63bc536371",
+      title: "Spa Ritual",
+      category: "Spa",
+      description: "Relaxing spa and wellness moment",
+      isFeatured: false,
+      displayOrder: 3,
+      isActive: false,
+    },
+    update: {
+      title: "Spa Ritual",
+      category: "Spa",
+      description: "Relaxing spa and wellness moment",
+      isFeatured: false,
+      displayOrder: 3,
+      isActive: false,
+    },
+  });
+
+  const approvedClient = await prisma.client.findFirst({
+    where: { email: "testimonial.approved@alrouby.local" },
+    select: { id: true },
+  });
+  const approvedClientId = approvedClient
+    ? approvedClient.id
+    : (
+        await prisma.client.create({
+          data: {
+            fullName: "Mona Adel",
+            phone: "+201000000101",
+            email: "testimonial.approved@alrouby.local",
+          },
+          select: { id: true },
+        })
+      ).id;
+
+  const pendingClient = await prisma.client.findFirst({
+    where: { email: "testimonial.pending@alrouby.local" },
+    select: { id: true },
+  });
+  const pendingClientId = pendingClient
+    ? pendingClient.id
+    : (
+        await prisma.client.create({
+          data: {
+            fullName: "Sara Nabil",
+            phone: "+201000000102",
+            email: "testimonial.pending@alrouby.local",
+          },
+          select: { id: true },
+        })
+      ).id;
+
+  await prisma.review.upsert({
+    where: { id: REVIEW_APPROVED },
+    create: {
+      id: REVIEW_APPROVED,
+      clientId: approvedClientId,
+      rating: 5,
+      comment: "Amazing service and very professional team. Highly recommended.",
+      status: ReviewStatus.APPROVED,
+      displayOnWebsite: true,
+    },
+    update: {
+      clientId: approvedClientId,
+      rating: 5,
+      comment: "Amazing service and very professional team. Highly recommended.",
+      status: ReviewStatus.APPROVED,
+      displayOnWebsite: true,
+    },
+  });
+  await prisma.review.upsert({
+    where: { id: REVIEW_PENDING },
+    create: {
+      id: REVIEW_PENDING,
+      clientId: pendingClientId,
+      rating: 4,
+      comment: "Good experience overall, waiting for final feedback publication.",
+      status: ReviewStatus.PENDING,
+      displayOnWebsite: false,
+    },
+    update: {
+      clientId: pendingClientId,
+      rating: 4,
+      comment: "Good experience overall, waiting for final feedback publication.",
+      status: ReviewStatus.PENDING,
+      displayOnWebsite: false,
+    },
+  });
+
+  await prisma.siteContent.upsert({
+    where: { id: SITE_CONTENT_ID },
+    create: {
+      id: SITE_CONTENT_ID,
+      homeHero: {
+        heading: "Premium Beauty & Wellness Experience",
+        subheading: "Book your next salon and spa appointment with confidence.",
+        ctaLabel: "Book Appointment",
+      },
+      aboutSection: {
+        title: "About Alrouby Salon & Spa",
+        description:
+          "A premium salon and spa destination delivering personalized beauty and wellness services.",
+      },
+      contactSection: {
+        phone: "+201234567890",
+        whatsapp: "+201234567890",
+        address: "Cairo, Egypt",
+        openingHours: "Daily 10:00 AM - 10:00 PM",
+      },
+      footerSection: {
+        copyright: "Alrouby Salon & Spa",
+        links: ["Privacy Policy", "Terms & Cancellation Policy"],
+      },
+      socialLinks: {
+        instagram: "https://instagram.com/alroubysalon",
+        facebook: "https://facebook.com/alroubysalon",
+        tiktok: "https://tiktok.com/@alroubysalon",
+      },
+      seoDefaults: {
+        title: "Alrouby Salon & Spa",
+        description:
+          "Premium salon and spa services in Cairo. Explore services, book appointments, and connect on WhatsApp.",
+      },
+      updatedByUserId: null,
+    },
+    update: {
+      homeHero: {
+        heading: "Premium Beauty & Wellness Experience",
+        subheading: "Book your next salon and spa appointment with confidence.",
+        ctaLabel: "Book Appointment",
+      },
+      aboutSection: {
+        title: "About Alrouby Salon & Spa",
+        description:
+          "A premium salon and spa destination delivering personalized beauty and wellness services.",
+      },
+      contactSection: {
+        phone: "+201234567890",
+        whatsapp: "+201234567890",
+        address: "Cairo, Egypt",
+        openingHours: "Daily 10:00 AM - 10:00 PM",
+      },
+      footerSection: {
+        copyright: "Alrouby Salon & Spa",
+        links: ["Privacy Policy", "Terms & Cancellation Policy"],
+      },
+      socialLinks: {
+        instagram: "https://instagram.com/alroubysalon",
+        facebook: "https://facebook.com/alroubysalon",
+        tiktok: "https://tiktok.com/@alroubysalon",
+      },
+      seoDefaults: {
+        title: "Alrouby Salon & Spa",
+        description:
+          "Premium salon and spa services in Cairo. Explore services, book appointments, and connect on WhatsApp.",
+      },
+      updatedByUserId: null,
+    },
+  });
+}
+
 async function main(): Promise<void> {
   const ownerPassword = process.env.SEED_OWNER_PASSWORD;
   if (!ownerPassword || ownerPassword.length < 8) {
@@ -615,6 +830,7 @@ async function main(): Promise<void> {
 
   await seedCatalog(defaultBranch.id);
   await seedBookingSlots(defaultBranch.id);
+  await seedContent();
 
   for (const row of WHATSAPP_TEMPLATE_SEED_ROWS) {
     await prisma.whatsAppTemplate.upsert({
@@ -637,7 +853,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `Seeded: branch ${defaultBranch.name}, system_settings singleton, invoice_number_sequence singleton, ${PERMISSION_SEED_ROWS.length} permissions, ${ROLE_SEEDS.length} roles, owner user owner@alrouby.local, Sprint 3 catalog, Sprint 4 booking slots, ${WHATSAPP_TEMPLATE_SEED_ROWS.length} WhatsApp templates`,
+    `Seeded: branch ${defaultBranch.name}, system_settings singleton, invoice_number_sequence singleton, ${PERMISSION_SEED_ROWS.length} permissions, ${ROLE_SEEDS.length} roles, owner user owner@alrouby.local, Sprint 3 catalog, Sprint 4 booking slots, Sprint 8 content (gallery/reviews/site content), ${WHATSAPP_TEMPLATE_SEED_ROWS.length} WhatsApp templates`,
   );
 }
 
