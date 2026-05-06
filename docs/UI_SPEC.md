@@ -202,7 +202,7 @@ Implement **About**, **Offers**, **Service detail**, **Legal**, **Login/Register
 
 ### 7.6 Login / register step
 
-- Social providers (Google, Facebook) and optional email/phone auth per SRS §12 — UI matches whatever OAuth flow the API exposes; handle placeholder states gracefully if providers not yet wired.
+- Client authentication uses phone-number OTP only in MVP (`/client/auth/otp/request`, `/client/auth/otp/verify`); dashboard authentication remains email/password.
 - Explain **why** sign-in is needed before confirmation.
 
 ### 7.7 Phone required step

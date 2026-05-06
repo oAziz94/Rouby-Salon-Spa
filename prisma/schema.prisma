@@ -412,8 +412,27 @@ model Client {
   invoices        Invoice[]
   reviews         Review[]
 
-  @@index([phone])
+  @@unique([phone])
   @@map("clients")
+}
+
+enum ClientOtpPurpose {
+  LOGIN
+}
+
+model ClientOtpCode {
+  id         String           @id @default(uuid()) @db.Uuid
+  phone      String
+  codeHash   String           @map("code_hash")
+  expiresAt  DateTime         @map("expires_at")
+  consumedAt DateTime?        @map("consumed_at")
+  attempts   Int              @default(0)
+  purpose    ClientOtpPurpose @default(LOGIN)
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  @@index([phone, purpose, createdAt(sort: Desc)])
+  @@index([expiresAt])
+  @@map("client_otp_codes")
 }
 
 model ClientIdentity {

@@ -7,6 +7,7 @@ import {
   IsEmail,
   IsOptional,
   IsString,
+  MinLength,
   IsUUID,
   MaxLength,
 } from 'class-validator';
@@ -19,6 +20,7 @@ export class CreateDashboardClientDto {
 
   @ApiProperty()
   @IsString()
+  @MinLength(3)
   @MaxLength(32)
   phone!: string;
 

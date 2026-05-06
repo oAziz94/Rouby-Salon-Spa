@@ -255,13 +255,10 @@ Optional header `Idempotency-Key: <uuid>` on `POST` mutations that create paymen
 
 | Method | Path | Auth | Required permission | Notes |
 |--------|------|------|---------------------|-------|
-| `GET` | `/client/auth/providers` | Public | — | **Placeholder:** lists supported OAuth providers (`google`, `facebook`) and config flags. |
-| `GET` | `/client/auth/oauth/{provider}/start` | Public | — | **Placeholder:** returns authorization URL or 501 with doc link until OAuth wired. |
-| `POST` | `/client/auth/oauth/{provider}/callback` | Public | — | **Placeholder:** code exchange → creates/links `Client` + `ClientIdentity`; returns client JWT + client profile. |
-| `POST` | `/client/auth/logout` | Client | Session | Invalidate refresh token / cookie if used. |
-| `GET` | `/client/me` | Client | Own | Profile: `fullName`, `email`, `phone`, `profileImageUrl`, etc. |
-| `PATCH` | `/client/me` | Client | Own | Update allowed non-sensitive fields. |
-| `PUT` | `/client/me/phone` | Client | Own | **Phone capture/update** (required before first booking per SRS). Validate format. |
+| `POST` | `/client/auth/otp/request` | Public | — | Request login OTP by phone. Phone is normalized to E.164. `429` when rate-limited. In non-production only, response may include `devCode` for safe local testing. |
+| `POST` | `/client/auth/otp/verify` | Public | — | Verify OTP and return client JWT (`aud=client`) + client profile. OTP expires (default 5 minutes), consumed on success, attempts limited. |
+| `POST` | `/client/auth/logout` | Client | Session | Stateless MVP logout; client clears local token after success. |
+| `GET` | `/client/me` | Client | Own | Profile: `fullName`, `email`, normalized E.164 `phone`, `profileImageUrl`, etc. |
 | `GET` | `/client/bookings` | Client | Own | Paginated; filter `status`. |
 | `GET` | `/client/bookings/{bookingId}` | Client | Own | Detail + items (snapshots visible to owner). |
 | `POST` | `/client/bookings/{bookingId}/cancellation-requests` | Client | Own | **Request only**; validates 24h rule; persists **`BookingChangeRequest`** (`requestType=CANCEL`, `status=PENDING`); does **not** set booking `CANCELLED`. |
@@ -280,6 +277,16 @@ Optional header `Idempotency-Key: <uuid>` on `POST` mutations that create paymen
 ```
 
 **Persistence:** `/docs/DATABASE_SCHEMA.md` (`BookingChangeRequest`). Behavior rules: `/docs/BOOKING_ENGINE_RULES.md` §11–§13.
+
+**Phone normalization policy (client OTP + dashboard client writes):**
+
+- Accept valid international inputs for any country.
+- Accept `+` prefix as international.
+- Accept `00` prefix and normalize to `+`.
+- For local numbers without `+`/`00`, parse with default country `EG`.
+- Store `Client.phone` in normalized **E.164** format only.
+- Reject invalid numbers with `400` and `code = PHONE_INVALID`.
+- `Client.phone` uniqueness is enforced on normalized values.
 
 ---
 

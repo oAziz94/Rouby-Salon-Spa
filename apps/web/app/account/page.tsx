@@ -6,46 +6,63 @@ import { ErrorState } from "@/components/states/error-state";
 import { postPublicJson } from "@/lib/api/client";
 import { setClientPhone, setClientToken } from "@/lib/auth/client-session";
 
-type DevTokenResponse = {
+type OtpRequestResponse = { success: true; expiresIn: number; phone: string; devCode?: string };
+type OtpVerifyResponse = {
   accessToken: string;
   expiresIn: number;
-  client: {
-    id: string;
-    fullName: string;
-    phone: string;
-    email: string | null;
-  };
+  client: { id: string; fullName: string; phone: string; email: string | null };
 };
 
 export default function AccountPage() {
-  const [fullName, setFullName] = useState("Guest Client");
   const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [devCode, setDevCode] = useState<string | null>(null);
+  const [otpRequested, setOtpRequested] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
 
-  const canSubmit = useMemo(
-    () => fullName.trim().length > 0 && phone.trim().length > 0 && !loading,
-    [fullName, phone, loading],
+  const canRequestOtp = useMemo(() => phone.trim().length > 0 && !loading, [phone, loading]);
+  const canVerifyOtp = useMemo(
+    () => phone.trim().length > 0 && code.trim().length >= 4 && !loading,
+    [phone, code, loading],
   );
 
-  async function handleDevSignIn() {
+  async function handleRequestOtp() {
     setLoading(true);
     setError(null);
     try {
-      const response = await postPublicJson<DevTokenResponse>("/client/auth/dev/token", {
-        fullName: fullName.trim(),
+      const response = await postPublicJson<OtpRequestResponse>("/client/auth/otp/request", {
         phone: phone.trim(),
-        email: email.trim() || undefined,
+      });
+      setPhone(response.phone);
+      setDevCode(response.devCode ?? null);
+      setOtpRequested(true);
+      setSignedIn(false);
+    } catch (err) {
+      setSignedIn(false);
+      setError(err instanceof Error ? err.message : "Unable to sign in.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyOtp() {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await postPublicJson<OtpVerifyResponse>("/client/auth/otp/verify", {
+        phone: phone.trim(),
+        code: code.trim(),
       });
       setClientToken(response.accessToken);
       setClientPhone(response.client.phone);
       setSignedIn(true);
       setPhone(response.client.phone);
+      setDevCode(null);
     } catch (err) {
       setSignedIn(false);
-      setError(err instanceof Error ? err.message : "Unable to sign in.");
+      setError(err instanceof Error ? err.message : "Unable to verify OTP.");
     } finally {
       setLoading(false);
     }
@@ -56,19 +73,10 @@ export default function AccountPage() {
       <section className="rounded-2xl border border-border bg-card p-7">
         <h1 className="font-heading text-4xl text-primary">My Account</h1>
         <p className="mt-3 text-sm leading-relaxed text-muted sm:text-base">
-          Client account auth is currently development-ready only. Production OAuth/profile
-          endpoints are not fully available yet.
+          Sign in using your phone number and one-time verification code.
         </p>
 
         <div className="mt-6 grid gap-3">
-          <label className="text-sm text-muted">
-            Full Name
-            <input
-              value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-            />
-          </label>
           <label className="text-sm text-muted">
             Phone
             <input
@@ -77,15 +85,20 @@ export default function AccountPage() {
               className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
             />
           </label>
-          <label className="text-sm text-muted">
-            Email (optional)
-            <input
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-            />
-          </label>
+          {otpRequested ? (
+            <label className="text-sm text-muted">
+              Verification Code
+              <input
+                value={code}
+                onChange={(event) => setCode(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+              />
+            </label>
+          ) : null}
         </div>
+        {devCode ? (
+          <p className="mt-2 text-sm text-muted">Development OTP: {devCode}</p>
+        ) : null}
 
         {error ? (
           <div className="mt-4">
@@ -96,11 +109,19 @@ export default function AccountPage() {
         <div className="mt-5 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => void handleDevSignIn()}
-            disabled={!canSubmit}
+            onClick={() => void handleRequestOtp()}
+            disabled={!canRequestOtp}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? "Signing in..." : "Sign in (Dev Token)"}
+            {loading ? "Sending..." : "Send OTP"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleVerifyOtp()}
+            disabled={!canVerifyOtp}
+            className="rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? "Verifying..." : "Verify OTP"}
           </button>
           <Link
             href="/account/bookings"

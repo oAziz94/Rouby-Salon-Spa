@@ -20,7 +20,6 @@ type BookingStepId =
   | "summary"
   | "datetime"
   | "auth"
-  | "phone"
   | "review"
   | "pending";
 
@@ -90,15 +89,11 @@ type BookingCreateResponse = {
   createdAt: string;
 };
 
-type DevTokenResponse = {
+type OtpRequestResponse = { success: true; expiresIn: number; phone: string; devCode?: string };
+type OtpVerifyResponse = {
   accessToken: string;
   expiresIn: number;
-  client: {
-    id: string;
-    fullName: string;
-    phone: string;
-    email: string | null;
-  };
+  client: { id: string; fullName: string; phone: string; email: string | null };
 };
 
 type BookingItemPayload = {
@@ -114,8 +109,7 @@ const STEP_ORDER: { id: BookingStepId; label: string }[] = [
   { id: "select", label: "Select" },
   { id: "summary", label: "Summary" },
   { id: "datetime", label: "Date & Slot" },
-  { id: "auth", label: "Sign In" },
-  { id: "phone", label: "Phone" },
+  { id: "auth", label: "OTP Login" },
   { id: "review", label: "Review" },
   { id: "pending", label: "Pending" },
 ];
@@ -221,9 +215,10 @@ export function BookingFlowShell({
   const [phoneNumber, setPhoneNumber] = useState("");
   const [clientToken, setClientToken] = useState<string>("");
   const [authError, setAuthError] = useState<string | null>(null);
-  const [devFullName, setDevFullName] = useState("Guest Client");
-  const [devPhone, setDevPhone] = useState("");
-  const [devEmail, setDevEmail] = useState("");
+  const [otpPhone, setOtpPhone] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpRequested, setOtpRequested] = useState(false);
+  const [devCodeHint, setDevCodeHint] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
   const [estimate, setEstimate] = useState<BookingEstimateResponse | null>(null);
@@ -248,7 +243,7 @@ export function BookingFlowShell({
     }
     if (storedPhone) {
       setPhoneNumber(storedPhone);
-      setDevPhone(storedPhone);
+      setOtpPhone(storedPhone);
     }
   }, []);
 
@@ -468,9 +463,6 @@ export function BookingFlowShell({
     if (currentStep.id === "auth") {
       return isSignedIn;
     }
-    if (currentStep.id === "phone") {
-      return phoneNumber.trim().length > 0;
-    }
     if (currentStep.id === "review") {
       return Boolean(clientToken && phoneNumber.trim() && selectedSlotId);
     }
@@ -488,26 +480,48 @@ export function BookingFlowShell({
     setCurrentStepIndex((prev) => Math.max(prev - 1, 0));
   }
 
-  async function handleDevSignIn() {
+  async function handleRequestOtp() {
     setAuthLoading(true);
     setAuthError(null);
     try {
-      const response = await fetchJsonWithBody<DevTokenResponse>(
-        "/client/auth/dev/token",
+      const response = await fetchJsonWithBody<OtpRequestResponse>(
+        "/client/auth/otp/request",
         "POST",
         {
-          fullName: devFullName,
-          phone: devPhone,
-          email: devEmail || undefined,
+          phone: otpPhone,
+        },
+      );
+      setOtpRequested(true);
+      setOtpPhone(response.phone);
+      setDevCodeHint(response.devCode ?? null);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Unable to sign in.");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleVerifyOtp() {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const response = await fetchJsonWithBody<OtpVerifyResponse>(
+        "/client/auth/otp/verify",
+        "POST",
+        {
+          phone: otpPhone,
+          code: otpCode,
         },
       );
       setClientToken(response.accessToken);
       setIsSignedIn(true);
       setPhoneNumber(response.client.phone);
+      setOtpPhone(response.client.phone);
+      setDevCodeHint(null);
       window.sessionStorage.setItem("clientAccessToken", response.accessToken);
       window.sessionStorage.setItem("clientPhone", response.client.phone);
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "Unable to sign in.");
+      setAuthError(error instanceof Error ? error.message : "Unable to verify OTP.");
       setIsSignedIn(false);
       setClientToken("");
     } finally {
@@ -588,7 +602,7 @@ export function BookingFlowShell({
       </section>
 
       <section className="mt-6 rounded-2xl border border-border bg-card p-4 sm:p-6">
-        <ol className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-7 sm:overflow-visible sm:pb-0">
+        <ol className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-6 sm:overflow-visible sm:pb-0">
           {STEP_ORDER.map((step, index) => {
             const isDone = index < currentStepIndex;
             const isCurrent = index === currentStepIndex;
@@ -975,45 +989,50 @@ export function BookingFlowShell({
 
           {currentStep.id === "auth" ? (
             <div>
-              <h2 className="font-heading text-2xl text-primary">4. Login / Register</h2>
+              <h2 className="font-heading text-2xl text-primary">4. Phone OTP Login</h2>
               <p className="mt-3 text-sm text-muted">
-                Booking submission requires an authenticated client account. OAuth is not
-                configured yet, so use development client sign-in.
+                Booking submission requires client authentication using your phone and
+                one-time code.
               </p>
               <div className="mt-4 rounded-lg border border-border bg-background p-4">
                 <div className="grid gap-3">
                   <label className="text-sm text-muted">
-                    Full Name
-                    <input
-                      value={devFullName}
-                      onChange={(event) => setDevFullName(event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                    />
-                  </label>
-                  <label className="text-sm text-muted">
                     Phone
                     <input
-                      value={devPhone}
-                      onChange={(event) => setDevPhone(event.target.value)}
+                      value={otpPhone}
+                      onChange={(event) => setOtpPhone(event.target.value)}
                       className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
                     />
                   </label>
-                  <label className="text-sm text-muted">
-                    Email (optional)
-                    <input
-                      value={devEmail}
-                      onChange={(event) => setDevEmail(event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                    />
-                  </label>
+                  {otpRequested ? (
+                    <label className="text-sm text-muted">
+                      Verification Code
+                      <input
+                        value={otpCode}
+                        onChange={(event) => setOtpCode(event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                      />
+                    </label>
+                  ) : null}
+                  {devCodeHint ? (
+                    <p className="text-sm text-muted">Development OTP: {devCodeHint}</p>
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => void handleDevSignIn()}
-                      disabled={authLoading || !devPhone.trim() || !devFullName.trim()}
+                      onClick={() => void handleRequestOtp()}
+                      disabled={authLoading || !otpPhone.trim()}
                       className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {authLoading ? "Signing in..." : "Sign in (Dev)"}
+                      {authLoading ? "Sending..." : "Send OTP"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleVerifyOtp()}
+                      disabled={authLoading || !otpPhone.trim() || otpCode.trim().length < 4}
+                      className="rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {authLoading ? "Verifying..." : "Verify OTP"}
                     </button>
                     {isSignedIn ? (
                       <span className="rounded-lg border border-accent bg-accent/15 px-3 py-2 text-sm text-foreground">
@@ -1031,29 +1050,9 @@ export function BookingFlowShell({
             </div>
           ) : null}
 
-          {currentStep.id === "phone" ? (
-            <div>
-              <h2 className="font-heading text-2xl text-primary">5. Phone Required</h2>
-              <p className="mt-3 text-sm text-muted">
-                A phone number is required before booking submission. If profile endpoints are
-                unavailable, phone is captured locally and validated before submit.
-              </p>
-              <label className="mt-4 block text-sm text-muted">
-                Phone Number
-                <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(event) => setPhoneNumber(event.target.value)}
-                  placeholder="+20..."
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                />
-              </label>
-            </div>
-          ) : null}
-
           {currentStep.id === "review" ? (
             <div>
-              <h2 className="font-heading text-2xl text-primary">6. Review Booking Request</h2>
+              <h2 className="font-heading text-2xl text-primary">5. Review Booking Request</h2>
               <div className="mt-4 space-y-3 rounded-lg border border-border bg-background p-4 text-sm">
                 <p>
                   <span className="font-medium text-foreground">Items:</span>{" "}
@@ -1095,7 +1094,7 @@ export function BookingFlowShell({
 
           {currentStep.id === "pending" ? (
             <div>
-              <h2 className="font-heading text-2xl text-primary">7. Pending Confirmation</h2>
+              <h2 className="font-heading text-2xl text-primary">6. Pending Confirmation</h2>
               <div className="mt-4 rounded-lg border border-accent bg-accent/10 p-5">
                 <p className="text-sm text-foreground">
                   Booking request received. Our salon team will review and confirm your

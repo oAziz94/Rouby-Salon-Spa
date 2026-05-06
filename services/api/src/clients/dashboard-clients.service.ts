@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -7,6 +8,7 @@ import type { Prisma } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { canAccessAllBranches } from '../billing/dashboard-branch-scope';
 import { buildListMeta } from '../catalog/catalog.utils';
+import { normalizePhoneToE164 } from '../common/phone/phone.util';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateDashboardClientDto } from './dto/create-dashboard-client.dto';
 import type { DashboardClientListQueryDto } from './dto/dashboard-client-list-query.dto';
@@ -15,6 +17,23 @@ import type { UpdateDashboardClientDto } from './dto/update-dashboard-client.dto
 @Injectable()
 export class DashboardClientsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private handlePhoneUniqueConflict(error: unknown): never {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: string }).code === 'P2002'
+    ) {
+      throw new ConflictException({
+        statusCode: 409,
+        message: 'A client with this phone number already exists.',
+        error: 'Conflict',
+        code: 'CLIENT_PHONE_CONFLICT',
+      });
+    }
+    throw error;
+  }
 
   private canViewContact(user: DashboardJwtUser): boolean {
     return user.permissions.includes('clients.contact.view');
@@ -202,40 +221,45 @@ export class DashboardClientsService {
       }
     }
     const canSensitive = this.canViewSensitive(user);
-    const row = await this.prisma.client.create({
-      data: {
-        fullName: dto.fullName,
-        phone: dto.phone,
-        email: dto.email ?? null,
-        profileImageUrl: dto.profileImageUrl ?? null,
-        gender: dto.gender ?? null,
-        birthDate: dto.birthDate ?? null,
-        preferredBranchId:
-          preferredBranchId ??
-          (!canAccessAllBranches(user) ? user.branchId : null),
-        notes: canSensitive ? (dto.notes ?? null) : null,
-        allergiesOrWarnings: canSensitive
-          ? (dto.allergiesOrWarnings ?? null)
-          : null,
-        tags: dto.tags ?? [],
-      },
-      select: {
-        id: true,
-        fullName: true,
-        phone: true,
-        email: true,
-        profileImageUrl: true,
-        gender: true,
-        birthDate: true,
-        preferredBranchId: true,
-        notes: true,
-        allergiesOrWarnings: true,
-        tags: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-    return this.mapClientForUser(user, row);
+    const normalizedPhone = normalizePhoneToE164(dto.phone);
+    try {
+      const row = await this.prisma.client.create({
+        data: {
+          fullName: dto.fullName,
+          phone: normalizedPhone,
+          email: dto.email ?? null,
+          profileImageUrl: dto.profileImageUrl ?? null,
+          gender: dto.gender ?? null,
+          birthDate: dto.birthDate ?? null,
+          preferredBranchId:
+            preferredBranchId ??
+            (!canAccessAllBranches(user) ? user.branchId : null),
+          notes: canSensitive ? (dto.notes ?? null) : null,
+          allergiesOrWarnings: canSensitive
+            ? (dto.allergiesOrWarnings ?? null)
+            : null,
+          tags: dto.tags ?? [],
+        },
+        select: {
+          id: true,
+          fullName: true,
+          phone: true,
+          email: true,
+          profileImageUrl: true,
+          gender: true,
+          birthDate: true,
+          preferredBranchId: true,
+          notes: true,
+          allergiesOrWarnings: true,
+          tags: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      return this.mapClientForUser(user, row);
+    } catch (error) {
+      this.handlePhoneUniqueConflict(error);
+    }
   }
 
   async patchClient(
@@ -263,7 +287,9 @@ export class DashboardClientsService {
         where: { id: clientId },
         data: {
           ...(dto.fullName !== undefined && { fullName: dto.fullName }),
-          ...(dto.phone !== undefined && { phone: dto.phone }),
+          ...(dto.phone !== undefined && {
+            phone: normalizePhoneToE164(dto.phone),
+          }),
           ...(dto.email !== undefined && { email: dto.email }),
           ...(dto.profileImageUrl !== undefined && {
             profileImageUrl: dto.profileImageUrl,
@@ -297,7 +323,8 @@ export class DashboardClientsService {
         },
       });
       return this.mapClientForUser(user, row);
-    } catch {
+    } catch (error) {
+      this.handlePhoneUniqueConflict(error);
       throw new NotFoundException('Client not found');
     }
   }
