@@ -10,6 +10,7 @@ import { BookingSlotStatus, Prisma } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { buildListMeta } from '../catalog/catalog.utils';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import type { CreateSlotDto } from './dto/create-slot.dto';
 import type { DashboardSlotListQueryDto } from './dto/dashboard-slot-list-query.dto';
 import type { PatchSlotCapacityDto } from './dto/patch-slot-capacity.dto';
@@ -24,7 +25,10 @@ import {
 
 @Injectable()
 export class SlotsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   private assertBranchScope(user: DashboardJwtUser, branchId: string): void {
     if (
@@ -214,6 +218,20 @@ export class SlotsService {
         createdByUserId: user.userId,
       },
     });
+    await this.audit.log({
+      userId: user.userId,
+      action: 'slot.created',
+      module: 'slots',
+      entityId: row.id,
+      newValue: {
+        branchId: row.branchId,
+        date: row.date.toISOString(),
+        startTime: row.startTime.toISOString(),
+        endTime: row.endTime.toISOString(),
+        capacity: row.capacity,
+        status: row.status,
+      },
+    });
 
     return this.mapSlot(row);
   }
@@ -254,6 +272,24 @@ export class SlotsService {
         ...(dto.notes !== undefined && { notes: dto.notes }),
       },
     });
+    await this.audit.log({
+      userId: user.userId,
+      action: 'slot.updated',
+      module: 'slots',
+      entityId: row.id,
+      oldValue: {
+        date: existing.date.toISOString(),
+        startTime: existing.startTime.toISOString(),
+        endTime: existing.endTime.toISOString(),
+        notes: existing.notes,
+      },
+      newValue: {
+        date: row.date.toISOString(),
+        startTime: row.startTime.toISOString(),
+        endTime: row.endTime.toISOString(),
+        notes: row.notes,
+      },
+    });
 
     return this.mapSlot(row);
   }
@@ -270,9 +306,21 @@ export class SlotsService {
     if (slot.branchId !== branchId) {
       throw new NotFoundException('Slot not found');
     }
+    const before = await this.prisma.bookingSlot.findUnique({
+      where: { id: slotId },
+      select: { capacity: true },
+    });
     const row = await this.prisma.bookingSlot.update({
       where: { id: slotId },
       data: { capacity: dto.capacity },
+    });
+    await this.audit.log({
+      userId: user.userId,
+      action: 'slot.capacity_changed',
+      module: 'slots',
+      entityId: row.id,
+      oldValue: { capacity: before?.capacity ?? null },
+      newValue: { capacity: row.capacity },
     });
     return this.mapSlot(row);
   }
@@ -289,9 +337,21 @@ export class SlotsService {
     if (slot.branchId !== branchId) {
       throw new NotFoundException('Slot not found');
     }
+    const before = await this.prisma.bookingSlot.findUnique({
+      where: { id: slotId },
+      select: { isOnlineBookable: true },
+    });
     const row = await this.prisma.bookingSlot.update({
       where: { id: slotId },
       data: { isOnlineBookable: dto.isOnlineBookable },
+    });
+    await this.audit.log({
+      userId: user.userId,
+      action: 'slot.updated',
+      module: 'slots',
+      entityId: row.id,
+      oldValue: { isOnlineBookable: before?.isOnlineBookable ?? null },
+      newValue: { isOnlineBookable: row.isOnlineBookable },
     });
     return this.mapSlot(row);
   }
@@ -308,9 +368,25 @@ export class SlotsService {
     if (slot.branchId !== branchId) {
       throw new NotFoundException('Slot not found');
     }
+    const before = await this.prisma.bookingSlot.findUnique({
+      where: { id: slotId },
+      select: { status: true },
+    });
     const row = await this.prisma.bookingSlot.update({
       where: { id: slotId },
       data: { status: dto.status },
+    });
+    const action =
+      dto.status === BookingSlotStatus.FILLED
+        ? 'slot.marked_filled'
+        : 'slot.updated';
+    await this.audit.log({
+      userId: user.userId,
+      action,
+      module: 'slots',
+      entityId: row.id,
+      oldValue: { status: before?.status ?? null },
+      newValue: { status: row.status },
     });
     return this.mapSlot(row);
   }

@@ -1,26 +1,98 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --font-size: 16px;
+  --background: #faf7f0;
+  --foreground: #1f2420;
+  --card: #f3ebdd;
+  --card-foreground: #1f2420;
+  --popover: #f3ebdd;
+  --popover-foreground: #1f2420;
+  --primary: #17351f;
+  --primary-foreground: #faf7f0;
+  --secondary: #2a1722;
+  --secondary-foreground: #faf7f0;
+  --muted: #7a6a58;
+  --muted-foreground: #1f2420;
+  --accent: #b9974a;
+  --accent-foreground: #1f2420;
+  --destructive: #8b4428;
+  --destructive-foreground: #faf7f0;
+  --border: rgb(122 106 88 / 20%);
+  --input: transparent;
+  --input-background: #f3ebdd;
+  --ring: #b9974a;
+  --radius: 0.75rem;
+
+  --alrouby-primary-green: #17351f;
+  --alrouby-deep-plum: #2a1722;
+  --alrouby-champagne-gold: #b9974a;
+  --alrouby-warm-cream: #f3ebdd;
+  --alrouby-mushroom-taupe: #7a6a58;
+  --alrouby-sage-green: #6e775d;
+  --alrouby-rust-accent: #8b4428;
+  --alrouby-inky-blue: #24383b;
+  --alrouby-charcoal-text: #1f2420;
+  --alrouby-soft-bg: #faf7f0;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--font-body);
+  --font-heading: var(--font-display);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border;
   }
-}
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  html {
+    font-size: var(--font-size);
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-body), Inter, Arial, sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display), "Times New Roman", serif;
+  }
+
+  a,
+  button,
+  input,
+  select,
+  textarea {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
 }

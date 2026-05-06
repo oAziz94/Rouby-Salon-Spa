@@ -22,6 +22,7 @@ import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { isAtLeast24HoursBeforeSlotStartCairo } from '../common/cairo-slot-time';
 import { PrismaService } from '../prisma/prisma.service';
 import { SlotsService } from '../slots/slots.service';
+import { AuditService } from '../audit/audit.service';
 import {
   BookingPricingService,
   type ResolvedBookingLine,
@@ -63,10 +64,8 @@ export class BookingsService {
     private readonly prisma: PrismaService,
     private readonly pricing: BookingPricingService,
     private readonly slots: SlotsService,
+    private readonly audit: AuditService,
   ) {}
-
-  // --- Sprint 9: persist AuditLog rows for booking lifecycle events (TODO placeholders only). ---
-  // private auditBookingEvent(...): void {}
 
   private canAccessAllBranches(user: DashboardJwtUser): boolean {
     return (
@@ -173,6 +172,18 @@ export class BookingsService {
         slotId: true,
         totalAmount: true,
         createdAt: true,
+      },
+    });
+    await this.audit.log({
+      userId: null,
+      action: 'booking.created',
+      module: 'bookings',
+      entityId: booking.id,
+      newValue: {
+        branchId: booking.branchId,
+        slotId: booking.slotId,
+        status: booking.status,
+        totalAmount: Number(booking.totalAmount.toString()),
       },
     });
 
@@ -520,12 +531,22 @@ export class BookingsService {
         timeout: 10_000,
       },
     );
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.created',
+      module: 'bookings',
+      entityId: booking.id,
+      newValue: {
+        branchId: booking.branchId,
+        slotId: booking.slotId,
+        status: booking.status,
+      },
+    });
 
     return this.mapBookingDetail(booking);
   }
 
   async confirmBooking(user: DashboardJwtUser, bookingId: string) {
-    // TODO(Sprint 9): AuditLog `booking.confirmed` with before/after payload (BOOKING_ENGINE_RULES §20).
     await this.mutateBookingStatus(user, bookingId, async (tx, booking) => {
       if (booking.status !== BookingStatus.PENDING) {
         throw new HttpException(
@@ -548,7 +569,15 @@ export class BookingsService {
         data: { status: BookingStatus.CONFIRMED },
       });
     });
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.confirmed',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: { status: updated.status },
+    });
+    return updated;
   }
 
   async rejectBooking(user: DashboardJwtUser, bookingId: string) {
@@ -569,7 +598,15 @@ export class BookingsService {
         data: { status: BookingStatus.REJECTED },
       });
     });
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.rejected',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: { status: updated.status },
+    });
+    return updated;
   }
 
   async requireFollowUp(user: DashboardJwtUser, bookingId: string) {
@@ -590,7 +627,15 @@ export class BookingsService {
         data: { status: BookingStatus.REQUIRES_FOLLOW_UP },
       });
     });
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.requires_follow_up',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: { status: updated.status },
+    });
+    return updated;
   }
 
   async rescheduleBooking(
@@ -601,7 +646,15 @@ export class BookingsService {
     await this.mutateBookingStatus(user, bookingId, async (tx) => {
       await this.rescheduleBookingTx(tx, bookingId, body.slotId);
     });
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.rescheduled',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: { status: updated.status, slotId: updated.slotId },
+    });
+    return updated;
   }
 
   async confirmReschedule(user: DashboardJwtUser, bookingId: string) {
@@ -629,7 +682,15 @@ export class BookingsService {
     await this.mutateBookingStatus(user, bookingId, async (tx) => {
       await this.cancelBookingTx(tx, bookingId);
     });
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.cancelled',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: { status: updated.status },
+    });
+    return updated;
   }
 
   async markArrived(user: DashboardJwtUser, bookingId: string) {
@@ -638,7 +699,15 @@ export class BookingsService {
       to: BookingStatus.ARRIVED,
       adjustCapacity: false,
     });
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.arrived',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: { status: updated.status },
+    });
+    return updated;
   }
 
   async markInProgress(user: DashboardJwtUser, bookingId: string) {
@@ -647,7 +716,15 @@ export class BookingsService {
       to: BookingStatus.IN_PROGRESS,
       adjustCapacity: false,
     });
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.in_progress',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: { status: updated.status },
+    });
+    return updated;
   }
 
   async markCompleted(user: DashboardJwtUser, bookingId: string) {
@@ -656,7 +733,15 @@ export class BookingsService {
       to: BookingStatus.COMPLETED,
       adjustCapacity: true,
     });
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.completed',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: { status: updated.status },
+    });
+    return updated;
   }
 
   async markNoShow(user: DashboardJwtUser, bookingId: string) {
@@ -665,7 +750,15 @@ export class BookingsService {
       to: BookingStatus.NO_SHOW,
       adjustCapacity: true,
     });
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.no_show',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: { status: updated.status },
+    });
+    return updated;
   }
 
   async recalculatePricing(user: DashboardJwtUser, bookingId: string) {
@@ -721,7 +814,20 @@ export class BookingsService {
       });
     });
 
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.price_recalculated',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: {
+        subtotal: updated.subtotal,
+        discountAmount: updated.discountAmount,
+        vatAmount: updated.vatAmount,
+        totalAmount: updated.totalAmount,
+      },
+    });
+    return updated;
   }
 
   async applyDiscount(
@@ -753,6 +859,7 @@ export class BookingsService {
       body.discountAmount,
     );
 
+    const beforeTotal = Number(booking.totalAmount.toString());
     await this.prisma.booking.update({
       where: { id: bookingId },
       data: {
@@ -763,8 +870,22 @@ export class BookingsService {
         subtotal: totals.subtotal,
       },
     });
-
-    return this.getDashboardBooking(user, bookingId);
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.discount_applied',
+      module: 'bookings',
+      entityId: bookingId,
+      oldValue: {
+        totalAmount: beforeTotal,
+        discountAmount: Number(booking.discountAmount.toString()),
+      },
+      newValue: {
+        totalAmount: updated.totalAmount,
+        discountAmount: updated.discountAmount,
+      },
+    });
+    return updated;
   }
 
   async listChangeRequests(

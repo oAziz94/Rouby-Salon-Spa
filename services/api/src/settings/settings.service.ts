@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PaymentDepositPolicy, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
+import { AuditService } from '../audit/audit.service';
 import { SYSTEM_SETTINGS_ID } from './settings.constants';
 import type { PatchPaymentPolicyDto } from './dto/patch-payment-policy.dto';
 import type { PatchVatSettingsDto } from './dto/patch-vat-settings.dto';
@@ -16,6 +17,7 @@ export class SettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly audit: AuditService,
   ) {}
 
   private defaults(): { defaultTimezone: string; defaultCurrency: string } {
@@ -115,20 +117,57 @@ export class SettingsService {
     if (dto.taxRegistrationNumber !== undefined) {
       data.taxRegistrationNumber = dto.taxRegistrationNumber;
     }
-    await this.prisma.systemSettings.update({
+    const before = await this.prisma.systemSettings.findUnique({
+      where: { id: SYSTEM_SETTINGS_ID },
+    });
+    const updated = await this.prisma.systemSettings.update({
       where: { id: SYSTEM_SETTINGS_ID },
       data,
+    });
+    await this.audit.log({
+      userId: user.userId,
+      action: 'vat.settings.updated',
+      module: 'settings',
+      entityId: updated.id,
+      oldValue: before
+        ? {
+            vatEnabled: before.vatEnabled,
+            defaultVatRate: Number(before.defaultVatRate.toString()),
+            pricesIncludeVat: before.pricesIncludeVat,
+            showVatOnInvoice: before.showVatOnInvoice,
+            taxRegistrationNumber: before.taxRegistrationNumber,
+          }
+        : null,
+      newValue: {
+        vatEnabled: updated.vatEnabled,
+        defaultVatRate: Number(updated.defaultVatRate.toString()),
+        pricesIncludeVat: updated.pricesIncludeVat,
+        showVatOnInvoice: updated.showVatOnInvoice,
+        taxRegistrationNumber: updated.taxRegistrationNumber,
+      },
     });
     return this.getVatResponse();
   }
 
   async patchPaymentPolicy(user: DashboardJwtUser, dto: PatchPaymentPolicyDto) {
-    await this.prisma.systemSettings.update({
+    const before = await this.prisma.systemSettings.findUnique({
+      where: { id: SYSTEM_SETTINGS_ID },
+      select: { id: true, paymentDepositPolicy: true },
+    });
+    const updated = await this.prisma.systemSettings.update({
       where: { id: SYSTEM_SETTINGS_ID },
       data: {
         paymentDepositPolicy: dto.paymentDepositPolicy,
         updatedBy: { connect: { id: user.userId } },
       },
+    });
+    await this.audit.log({
+      userId: user.userId,
+      action: 'payment.policy.updated',
+      module: 'settings',
+      entityId: updated.id,
+      oldValue: { paymentDepositPolicy: before?.paymentDepositPolicy ?? null },
+      newValue: { paymentDepositPolicy: updated.paymentDepositPolicy },
     });
     return this.getPaymentPolicyResponse();
   }

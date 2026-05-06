@@ -14,6 +14,7 @@ import type { CreatePaymentDto } from './dto/create-payment.dto';
 import type { SimplePaymentStatusDto } from './dto/simple-payment-status.dto';
 import type { UpdatePaymentDto } from './dto/update-payment.dto';
 import { InvoicesService } from './invoices.service';
+import { AuditService } from '../audit/audit.service';
 
 function httpBusiness(
   status: HttpStatus,
@@ -54,9 +55,8 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly invoices: InvoicesService,
+    private readonly audit: AuditService,
   ) {}
-
-  // TODO(Sprint 9): persist AuditLog — payment.recorded, payment.updated (SRS §22).
 
   private async requireBookingWithPayments(
     user: DashboardJwtUser,
@@ -115,6 +115,22 @@ export class PaymentsService {
       });
 
       await this.invoices.syncInvoicePaymentTotalsForBooking(tx, bookingId);
+      await this.audit.log(
+        {
+          userId: user.userId,
+          action: 'payment.recorded',
+          module: 'billing',
+          entityId: payment.id,
+          newValue: {
+            bookingId: payment.bookingId,
+            amount: Number(payment.amount.toString()),
+            method: payment.method,
+            status: payment.status,
+            reference: payment.reference,
+          },
+        },
+        tx,
+      );
 
       return this.mapPayment(payment);
     });
@@ -181,6 +197,29 @@ export class PaymentsService {
       await this.invoices.syncInvoicePaymentTotalsForBooking(
         tx,
         existing.booking.id,
+      );
+      await this.audit.log(
+        {
+          userId: user.userId,
+          action: 'payment.recorded',
+          module: 'billing',
+          entityId: payment.id,
+          oldValue: {
+            amount: Number(existing.amount.toString()),
+            method: existing.method,
+            status: existing.status,
+            reference: existing.reference,
+            paidAt: existing.paidAt?.toISOString() ?? null,
+          },
+          newValue: {
+            amount: Number(payment.amount.toString()),
+            method: payment.method,
+            status: payment.status,
+            reference: payment.reference,
+            paidAt: payment.paidAt?.toISOString() ?? null,
+          },
+        },
+        tx,
       );
 
       return this.mapPayment(payment);

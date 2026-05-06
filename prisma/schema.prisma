@@ -20,12 +20,12 @@ model Branch {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  users           User[]
-  serviceBranches ServiceBranch[]
-  packageBranches PackageBranch[]
-  bookingSlots    BookingSlot[]
-  bookings        Booking[]
-  clientsPreferred Client[] @relation("ClientPreferredBranch")
+  users            User[]
+  serviceBranches  ServiceBranch[]
+  packageBranches  PackageBranch[]
+  bookingSlots     BookingSlot[]
+  bookings         Booking[]
+  clientsPreferred Client[]        @relation("ClientPreferredBranch")
 
   @@map("branches")
 }
@@ -37,7 +37,7 @@ model SystemSettings {
   defaultVatRate        Decimal              @map("default_vat_rate") @db.Decimal(6, 5)
   pricesIncludeVat      Boolean              @map("prices_include_vat")
   showVatOnInvoice      Boolean              @map("show_vat_on_invoice")
-  taxRegistrationNumber String?            @map("tax_registration_number")
+  taxRegistrationNumber String?              @map("tax_registration_number")
   paymentDepositPolicy  PaymentDepositPolicy @map("payment_deposit_policy")
   updatedByUserId       String?              @map("updated_by_user_id") @db.Uuid
   updatedAt             DateTime             @updatedAt @map("updated_at")
@@ -108,17 +108,37 @@ model User {
   role   Role    @relation(fields: [roleId], references: [id], onDelete: Restrict)
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
-  systemSettingsUpdates SystemSettings[] @relation("SystemSettingsUpdatedBy")
-  createdBookingSlots   BookingSlot[]    @relation("BookingSlotCreatedBy")
-  createdBookings       Booking[]        @relation("BookingCreatedBy")
+  systemSettingsUpdates SystemSettings[]       @relation("SystemSettingsUpdatedBy")
+  createdBookingSlots   BookingSlot[]          @relation("BookingSlotCreatedBy")
+  createdBookings       Booking[]              @relation("BookingCreatedBy")
   handledChangeRequests BookingChangeRequest[] @relation("BookingChangeRequestHandledBy")
-  recordedPayments      Payment[]        @relation("PaymentRecordedBy")
-  createdInvoices       Invoice[]        @relation("InvoiceCreatedBy")
-  updatedSiteContents   SiteContent[]    @relation("SiteContentUpdatedBy")
+  recordedPayments      Payment[]              @relation("PaymentRecordedBy")
+  createdInvoices       Invoice[]              @relation("InvoiceCreatedBy")
+  updatedSiteContents   SiteContent[]          @relation("SiteContentUpdatedBy")
+  auditLogs             AuditLog[]
 
   @@index([roleId])
   @@index([branchId])
   @@map("users")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  module    String
+  entityId  String?  @map("entity_id")
+  oldValue  Json?    @map("old_value")
+  newValue  Json?    @map("new_value")
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([module, action, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([entityId, createdAt(sort: Desc)])
+  @@map("audit_logs")
 }
 
 // --- Sprint 3: Catalog ---
@@ -139,30 +159,30 @@ model ServiceCategory {
 }
 
 model Service {
-  id                  String            @id @default(uuid()) @db.Uuid
-  categoryId          String            @map("category_id") @db.Uuid
+  id                  String           @id @default(uuid()) @db.Uuid
+  categoryId          String           @map("category_id") @db.Uuid
   name                String
   description         String?
-  imageUrl            String?           @map("image_url")
-  priceDisplayType    PriceDisplayType  @map("price_display_type")
-  basePrice           Decimal?          @map("base_price") @db.Decimal(12, 2)
-  basePriceMax        Decimal?          @map("base_price_max") @db.Decimal(12, 2)
-  durationMinutes     Int?              @map("duration_minutes")
-  isTaxable           Boolean           @default(true) @map("is_taxable")
-  bookingAvailability Boolean           @default(true) @map("booking_availability")
-  preparationNotes    String?         @map("preparation_notes")
-  aftercareNotes      String?           @map("aftercare_notes")
-  isActive            Boolean           @default(true) @map("is_active")
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @updatedAt @map("updated_at")
+  imageUrl            String?          @map("image_url")
+  priceDisplayType    PriceDisplayType @map("price_display_type")
+  basePrice           Decimal?         @map("base_price") @db.Decimal(12, 2)
+  basePriceMax        Decimal?         @map("base_price_max") @db.Decimal(12, 2)
+  durationMinutes     Int?             @map("duration_minutes")
+  isTaxable           Boolean          @default(true) @map("is_taxable")
+  bookingAvailability Boolean          @default(true) @map("booking_availability")
+  preparationNotes    String?          @map("preparation_notes")
+  aftercareNotes      String?          @map("aftercare_notes")
+  isActive            Boolean          @default(true) @map("is_active")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
 
-  category        ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  category        ServiceCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   branches        ServiceBranch[]
   variants        ServiceVariant[]
   packageServices PackageService[]
   bundleServices  BundleService[]
   bookingItems    BookingItem[]
-  relatedReviews  Review[]        @relation("ReviewRelatedService")
+  relatedReviews  Review[]         @relation("ReviewRelatedService")
 
   @@index([categoryId, isActive])
   @@map("services")
@@ -191,7 +211,7 @@ model ServiceVariant {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  service      Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   bookingItems BookingItem[]
 
   @@index([serviceId, isActive])
@@ -199,22 +219,22 @@ model ServiceVariant {
 }
 
 model Package {
-  id             String    @id @default(uuid()) @db.Uuid
-  name           String
-  description    String?
-  imageUrl       String?   @map("image_url")
-  originalPrice  Decimal   @map("original_price") @db.Decimal(12, 2)
-  packagePrice   Decimal   @map("package_price") @db.Decimal(12, 2)
-  durationMinutes Int      @map("duration_minutes")
-  startDate      DateTime? @map("start_date") @db.Date
-  endDate        DateTime? @map("end_date") @db.Date
-  isTaxable      Boolean   @default(true) @map("is_taxable")
-  isActive       Boolean   @default(true) @map("is_active")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(uuid()) @db.Uuid
+  name            String
+  description     String?
+  imageUrl        String?   @map("image_url")
+  originalPrice   Decimal   @map("original_price") @db.Decimal(12, 2)
+  packagePrice    Decimal   @map("package_price") @db.Decimal(12, 2)
+  durationMinutes Int       @map("duration_minutes")
+  startDate       DateTime? @map("start_date") @db.Date
+  endDate         DateTime? @map("end_date") @db.Date
+  isTaxable       Boolean   @default(true) @map("is_taxable")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  services PackageService[]
-  branches PackageBranch[]
+  services     PackageService[]
+  branches     PackageBranch[]
   bookingItems BookingItem[]
 
   @@index([isActive])
@@ -247,20 +267,20 @@ model PackageBranch {
 }
 
 model Bundle {
-  id               String     @id @default(uuid()) @db.Uuid
-  name             String
-  description      String?
-  bundleType       BundleType @map("bundle_type")
-  price            Decimal    @db.Decimal(12, 2)
-  rules            Json?
-  selectableCount  Int        @map("selectable_count")
-  startDate        DateTime?  @map("start_date") @db.Date
-  endDate          DateTime?  @map("end_date") @db.Date
-  isActive         Boolean    @default(true) @map("is_active")
-  createdAt        DateTime   @default(now()) @map("created_at")
-  updatedAt        DateTime   @updatedAt @map("updated_at")
+  id              String     @id @default(uuid()) @db.Uuid
+  name            String
+  description     String?
+  bundleType      BundleType @map("bundle_type")
+  price           Decimal    @db.Decimal(12, 2)
+  rules           Json?
+  selectableCount Int        @map("selectable_count")
+  startDate       DateTime?  @map("start_date") @db.Date
+  endDate         DateTime?  @map("end_date") @db.Date
+  isActive        Boolean    @default(true) @map("is_active")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
 
-  services BundleService[]
+  services     BundleService[]
   bookingItems BookingItem[]
 
   @@index([isActive])
@@ -281,19 +301,19 @@ model BundleService {
 }
 
 model Offer {
-  id                    String           @id @default(uuid()) @db.Uuid
-  name                  String
-  offerCode             String?          @unique @map("offer_code")
-  discountType          OfferDiscountType @map("discount_type")
-  discountValue         Decimal          @map("discount_value") @db.Decimal(12, 4)
-  startDate             DateTime         @map("start_date") @db.Date
-  endDate               DateTime         @map("end_date") @db.Date
-  usageLimit            Int?             @map("usage_limit")
-  perClientUsageLimit   Int?             @map("per_client_usage_limit")
-  isActive              Boolean          @default(true) @map("is_active")
-  eligibilityRules      Json?            @map("eligibility_rules")
-  createdAt             DateTime         @default(now()) @map("created_at")
-  updatedAt             DateTime         @updatedAt @map("updated_at")
+  id                  String            @id @default(uuid()) @db.Uuid
+  name                String
+  offerCode           String?           @unique @map("offer_code")
+  discountType        OfferDiscountType @map("discount_type")
+  discountValue       Decimal           @map("discount_value") @db.Decimal(12, 4)
+  startDate           DateTime          @map("start_date") @db.Date
+  endDate             DateTime          @map("end_date") @db.Date
+  usageLimit          Int?              @map("usage_limit")
+  perClientUsageLimit Int?              @map("per_client_usage_limit")
+  isActive            Boolean           @default(true) @map("is_active")
+  eligibilityRules    Json?             @map("eligibility_rules")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
 
   @@index([isActive])
   @@map("offers")
@@ -352,8 +372,8 @@ model BookingSlot {
   branch    Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
   createdBy User?  @relation("BookingSlotCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  bookings              Booking[]
-  changeRequestTargets  BookingChangeRequest[] @relation("ChangeRequestTargetSlot")
+  bookings             Booking[]
+  changeRequestTargets BookingChangeRequest[] @relation("ChangeRequestTargetSlot")
 
   @@index([branchId, date])
   @@index([branchId, date, startTime])
@@ -384,26 +404,26 @@ model Client {
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  preferredBranch Branch? @relation("ClientPreferredBranch", fields: [preferredBranchId], references: [id], onDelete: SetNull)
+  preferredBranch Branch?                @relation("ClientPreferredBranch", fields: [preferredBranchId], references: [id], onDelete: SetNull)
   identities      ClientIdentity[]
   bookings        Booking[]
-  changeRequests    BookingChangeRequest[]
-  payments          Payment[]
-  invoices          Invoice[]
-  reviews           Review[]
+  changeRequests  BookingChangeRequest[]
+  payments        Payment[]
+  invoices        Invoice[]
+  reviews         Review[]
 
   @@index([phone])
   @@map("clients")
 }
 
 model ClientIdentity {
-  id               String                 @id @default(uuid()) @db.Uuid
-  clientId         String                 @map("client_id") @db.Uuid
-  provider         ClientIdentityProvider
-  providerSubject  String                 @map("provider_subject")
-  email            String?
-  createdAt        DateTime               @default(now()) @map("created_at")
-  updatedAt        DateTime               @updatedAt @map("updated_at")
+  id              String                 @id @default(uuid()) @db.Uuid
+  clientId        String                 @map("client_id") @db.Uuid
+  provider        ClientIdentityProvider
+  providerSubject String                 @map("provider_subject")
+  email           String?
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
@@ -456,32 +476,32 @@ enum BookingChangeRequestStatus {
 }
 
 model Booking {
-  id               String         @id @default(uuid()) @db.Uuid
-  clientId         String         @map("client_id") @db.Uuid
-  branchId         String         @map("branch_id") @db.Uuid
-  slotId           String         @map("slot_id") @db.Uuid
-  status           BookingStatus
-  source           BookingSource
-  subtotal         Decimal        @db.Decimal(12, 2)
-  discountAmount   Decimal        @default(0) @map("discount_amount") @db.Decimal(12, 2)
-  vatRate          Decimal        @map("vat_rate") @db.Decimal(6, 5)
-  vatAmount        Decimal        @map("vat_amount") @db.Decimal(12, 2)
-  totalAmount      Decimal        @map("total_amount") @db.Decimal(12, 2)
-  clientNotes      String?        @map("client_notes")
-  adminNotes       String?        @map("admin_notes")
-  createdByUserId  String?        @map("created_by_user_id") @db.Uuid
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
+  id              String        @id @default(uuid()) @db.Uuid
+  clientId        String        @map("client_id") @db.Uuid
+  branchId        String        @map("branch_id") @db.Uuid
+  slotId          String        @map("slot_id") @db.Uuid
+  status          BookingStatus
+  source          BookingSource
+  subtotal        Decimal       @db.Decimal(12, 2)
+  discountAmount  Decimal       @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  vatRate         Decimal       @map("vat_rate") @db.Decimal(6, 5)
+  vatAmount       Decimal       @map("vat_amount") @db.Decimal(12, 2)
+  totalAmount     Decimal       @map("total_amount") @db.Decimal(12, 2)
+  clientNotes     String?       @map("client_notes")
+  adminNotes      String?       @map("admin_notes")
+  createdByUserId String?       @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
 
-  client        Client         @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  branch        Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  slot          BookingSlot    @relation(fields: [slotId], references: [id], onDelete: Restrict)
-  createdByUser User?          @relation("BookingCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  items         BookingItem[]
+  client         Client                 @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  branch         Branch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  slot           BookingSlot            @relation(fields: [slotId], references: [id], onDelete: Restrict)
+  createdByUser  User?                  @relation("BookingCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  items          BookingItem[]
   changeRequests BookingChangeRequest[]
-  payments      Payment[]
-  invoices      Invoice[]
-  reviews       Review[]
+  payments       Payment[]
+  invoices       Invoice[]
+  reviews        Review[]
 
   @@index([clientId, createdAt(sort: Desc)])
   @@index([branchId, status, slotId])
@@ -490,21 +510,21 @@ model Booking {
 }
 
 model BookingItem {
-  id                        String          @id @default(uuid()) @db.Uuid
-  bookingId                 String          @map("booking_id") @db.Uuid
-  itemType                  BookingItemType @map("item_type")
-  serviceId                 String?         @map("service_id") @db.Uuid
-  serviceVariantId          String?         @map("service_variant_id") @db.Uuid
-  packageId                 String?         @map("package_id") @db.Uuid
-  bundleId                  String?         @map("bundle_id") @db.Uuid
-  nameSnapshot              String          @map("name_snapshot")
-  priceSnapshot             Decimal         @map("price_snapshot") @db.Decimal(12, 2)
+  id                      String          @id @default(uuid()) @db.Uuid
+  bookingId               String          @map("booking_id") @db.Uuid
+  itemType                BookingItemType @map("item_type")
+  serviceId               String?         @map("service_id") @db.Uuid
+  serviceVariantId        String?         @map("service_variant_id") @db.Uuid
+  packageId               String?         @map("package_id") @db.Uuid
+  bundleId                String?         @map("bundle_id") @db.Uuid
+  nameSnapshot            String          @map("name_snapshot")
+  priceSnapshot           Decimal         @map("price_snapshot") @db.Decimal(12, 2)
   durationMinutesSnapshot Int             @map("duration_minutes_snapshot")
-  quantity                  Int             @default(1)
+  quantity                Int             @default(1)
   /// Optional JSON: e.g. `{ "selectedServiceIds": ["uuid"] }` for flexible bundles (Sprint 5).
-  lineMetadata              Json?           @map("line_metadata")
-  createdAt                 DateTime        @default(now()) @map("created_at")
-  updatedAt                 DateTime        @updatedAt @map("updated_at")
+  lineMetadata            Json?           @map("line_metadata")
+  createdAt               DateTime        @default(now()) @map("created_at")
+  updatedAt               DateTime        @updatedAt @map("updated_at")
 
   booking        Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   service        Service?        @relation(fields: [serviceId], references: [id], onDelete: SetNull)
@@ -517,22 +537,22 @@ model BookingItem {
 }
 
 model BookingChangeRequest {
-  id               String                       @id @default(uuid()) @db.Uuid
-  bookingId        String                       @map("booking_id") @db.Uuid
-  clientId         String                       @map("client_id") @db.Uuid
-  requestType      BookingChangeRequestType     @map("request_type")
-  requestedSlotId  String?                      @map("requested_slot_id") @db.Uuid
-  reason           String?
-  status           BookingChangeRequestStatus
-  handledByUserId  String?                      @map("handled_by_user_id") @db.Uuid
-  handledAt        DateTime?                    @map("handled_at")
-  createdAt        DateTime                     @default(now()) @map("created_at")
-  updatedAt        DateTime                     @updatedAt @map("updated_at")
+  id              String                     @id @default(uuid()) @db.Uuid
+  bookingId       String                     @map("booking_id") @db.Uuid
+  clientId        String                     @map("client_id") @db.Uuid
+  requestType     BookingChangeRequestType   @map("request_type")
+  requestedSlotId String?                    @map("requested_slot_id") @db.Uuid
+  reason          String?
+  status          BookingChangeRequestStatus
+  handledByUserId String?                    @map("handled_by_user_id") @db.Uuid
+  handledAt       DateTime?                  @map("handled_at")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
 
-  booking         Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  client          Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  requestedSlot   BookingSlot? @relation("ChangeRequestTargetSlot", fields: [requestedSlotId], references: [id], onDelete: SetNull)
-  handledByUser   User?        @relation("BookingChangeRequestHandledBy", fields: [handledByUserId], references: [id], onDelete: SetNull)
+  booking       Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  client        Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  requestedSlot BookingSlot? @relation("ChangeRequestTargetSlot", fields: [requestedSlotId], references: [id], onDelete: SetNull)
+  handledByUser User?        @relation("BookingChangeRequestHandledBy", fields: [handledByUserId], references: [id], onDelete: SetNull)
 
   @@index([bookingId, status])
   @@index([clientId, createdAt(sort: Desc)])
@@ -571,17 +591,17 @@ model InvoiceNumberSequence {
 }
 
 model Payment {
-  id               String         @id @default(uuid()) @db.Uuid
-  bookingId        String         @map("booking_id") @db.Uuid
-  clientId         String         @map("client_id") @db.Uuid
-  amount           Decimal        @db.Decimal(12, 2)
-  method           PaymentMethod
-  status           PaymentStatus
-  reference        String?
-  paidAt           DateTime?      @map("paid_at")
-  createdByUserId  String?        @map("created_by_user_id") @db.Uuid
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
+  id              String        @id @default(uuid()) @db.Uuid
+  bookingId       String        @map("booking_id") @db.Uuid
+  clientId        String        @map("client_id") @db.Uuid
+  amount          Decimal       @db.Decimal(12, 2)
+  method          PaymentMethod
+  status          PaymentStatus
+  reference       String?
+  paidAt          DateTime?     @map("paid_at")
+  createdByUserId String?       @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
 
   booking       Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
   client        Client  @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -593,22 +613,22 @@ model Payment {
 }
 
 model Invoice {
-  id               String         @id @default(uuid()) @db.Uuid
-  invoiceNumber    String         @unique @map("invoice_number")
-  bookingId        String         @map("booking_id") @db.Uuid
-  clientId         String         @map("client_id") @db.Uuid
-  subtotal         Decimal        @db.Decimal(12, 2)
-  discountAmount   Decimal        @default(0) @map("discount_amount") @db.Decimal(12, 2)
-  vatRate          Decimal        @map("vat_rate") @db.Decimal(6, 5)
-  vatAmount        Decimal        @map("vat_amount") @db.Decimal(12, 2)
-  totalAmount      Decimal        @map("total_amount") @db.Decimal(12, 2)
-  paidAmount       Decimal        @default(0) @map("paid_amount") @db.Decimal(12, 2)
-  remainingAmount  Decimal        @map("remaining_amount") @db.Decimal(12, 2)
-  status           InvoiceStatus
-  paymentMethod    PaymentMethod? @map("payment_method")
-  createdByUserId  String?        @map("created_by_user_id") @db.Uuid
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @updatedAt @map("updated_at")
+  id              String         @id @default(uuid()) @db.Uuid
+  invoiceNumber   String         @unique @map("invoice_number")
+  bookingId       String         @map("booking_id") @db.Uuid
+  clientId        String         @map("client_id") @db.Uuid
+  subtotal        Decimal        @db.Decimal(12, 2)
+  discountAmount  Decimal        @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  vatRate         Decimal        @map("vat_rate") @db.Decimal(6, 5)
+  vatAmount       Decimal        @map("vat_amount") @db.Decimal(12, 2)
+  totalAmount     Decimal        @map("total_amount") @db.Decimal(12, 2)
+  paidAmount      Decimal        @default(0) @map("paid_amount") @db.Decimal(12, 2)
+  remainingAmount Decimal        @map("remaining_amount") @db.Decimal(12, 2)
+  status          InvoiceStatus
+  paymentMethod   PaymentMethod? @map("payment_method")
+  createdByUserId String?        @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
 
   booking       Booking       @relation(fields: [bookingId], references: [id], onDelete: Restrict)
   client        Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -621,19 +641,19 @@ model Invoice {
 }
 
 model InvoiceLine {
-  id                        String          @id @default(uuid()) @db.Uuid
-  invoiceId                 String          @map("invoice_id") @db.Uuid
-  sortOrder                 Int             @map("sort_order")
-  itemType                  BookingItemType @map("item_type")
-  serviceId                 String?         @map("service_id") @db.Uuid
-  serviceVariantId          String?         @map("service_variant_id") @db.Uuid
-  packageId                 String?         @map("package_id") @db.Uuid
-  bundleId                  String?         @map("bundle_id") @db.Uuid
-  nameSnapshot              String          @map("name_snapshot")
-  priceSnapshot             Decimal         @map("price_snapshot") @db.Decimal(12, 2)
-  durationMinutesSnapshot   Int             @map("duration_minutes_snapshot")
-  quantity                  Int             @default(1)
-  lineMetadata              Json?           @map("line_metadata")
+  id                      String          @id @default(uuid()) @db.Uuid
+  invoiceId               String          @map("invoice_id") @db.Uuid
+  sortOrder               Int             @map("sort_order")
+  itemType                BookingItemType @map("item_type")
+  serviceId               String?         @map("service_id") @db.Uuid
+  serviceVariantId        String?         @map("service_variant_id") @db.Uuid
+  packageId               String?         @map("package_id") @db.Uuid
+  bundleId                String?         @map("bundle_id") @db.Uuid
+  nameSnapshot            String          @map("name_snapshot")
+  priceSnapshot           Decimal         @map("price_snapshot") @db.Decimal(12, 2)
+  durationMinutesSnapshot Int             @map("duration_minutes_snapshot")
+  quantity                Int             @default(1)
+  lineMetadata            Json?           @map("line_metadata")
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 

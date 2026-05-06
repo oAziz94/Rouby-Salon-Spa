@@ -8,6 +8,7 @@ import {
 import { InvoiceStatus, PaymentMethod, Prisma } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { buildListMeta } from '../catalog/catalog.utils';
 import { INVOICE_NUMBER_SEQUENCE_ID } from './billing.constants';
 import {
@@ -37,9 +38,10 @@ function httpBusiness(
 
 @Injectable()
 export class InvoicesService {
-  constructor(private readonly prisma: PrismaService) {}
-
-  // TODO(Sprint 9): persist AuditLog — invoice.generated, invoice.edited (SRS §22).
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async syncInvoicePaymentTotalsForBooking(
     tx: Prisma.TransactionClient,
@@ -138,6 +140,21 @@ export class InvoicesService {
         },
         include: { lines: { orderBy: { sortOrder: 'asc' } } },
       });
+      await this.audit.log(
+        {
+          userId: user.userId,
+          action: 'invoice.generated',
+          module: 'billing',
+          entityId: invoice.id,
+          newValue: {
+            bookingId: invoice.bookingId,
+            invoiceNumber: invoice.invoiceNumber,
+            totalAmount: Number(invoice.totalAmount.toString()),
+            status: invoice.status,
+          },
+        },
+        tx,
+      );
 
       return this.mapInvoice(invoice);
     });

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SlotsModule } from '../slots/slots.module';
@@ -10,7 +11,7 @@ import { DashboardBookingsController } from './dashboard-bookings.controller';
 import { PublicBookingsController } from './public-bookings.controller';
 
 @Module({
-  imports: [PrismaModule, SlotsModule, AuthModule],
+  imports: [PrismaModule, SlotsModule, AuthModule, AuditModule],
   controllers: [
     PublicBookingsController,
     ClientBookingsController,

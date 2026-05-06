@@ -10,6 +10,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { buildListMeta, decimalToNumber } from './catalog.utils';
 import { validateServicePricing } from './service-pricing.validation';
 import type { CreateServiceCategoryDto } from './dto/service-category.dto';
@@ -28,7 +29,10 @@ const CURRENCY = 'EGP' as const;
 
 @Injectable()
 export class CatalogDashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   private async assertBranchesExist(branchIds: string[]): Promise<void> {
     if (branchIds.length === 0) {
@@ -428,6 +432,28 @@ export class CatalogDashboardService {
         include: { branches: true },
       });
     });
+    if (
+      dto.basePrice !== undefined ||
+      dto.basePriceMax !== undefined ||
+      dto.priceDisplayType !== undefined
+    ) {
+      await this.audit.log({
+        userId: null,
+        action: 'service.price_changed',
+        module: 'catalog',
+        entityId: row.id,
+        oldValue: {
+          priceDisplayType: existing.priceDisplayType,
+          basePrice: decimalToNumber(existing.basePrice),
+          basePriceMax: decimalToNumber(existing.basePriceMax),
+        },
+        newValue: {
+          priceDisplayType: row.priceDisplayType,
+          basePrice: decimalToNumber(row.basePrice),
+          basePriceMax: decimalToNumber(row.basePriceMax),
+        },
+      });
+    }
     return this.mapService(row);
   }
 

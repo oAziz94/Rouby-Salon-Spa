@@ -14,6 +14,8 @@ import { BookingsModule } from './bookings/bookings.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { BillingModule } from './billing/billing.module';
 import { ContentModule } from './content/content.module';
+import { AuditModule } from './audit/audit.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -35,6 +37,8 @@ import { ContentModule } from './content/content.module';
     WhatsappModule,
     BillingModule,
     ContentModule,
+    AuditModule,
+    ReportsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
