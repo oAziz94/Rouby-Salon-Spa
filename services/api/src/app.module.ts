@@ -16,6 +16,7 @@ import { BillingModule } from './billing/billing.module';
 import { ContentModule } from './content/content.module';
 import { AuditModule } from './audit/audit.module';
 import { ReportsModule } from './reports/reports.module';
+import { ClientsModule } from './clients/clients.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { ReportsModule } from './reports/reports.module';
     ContentModule,
     AuditModule,
     ReportsModule,
+    ClientsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
