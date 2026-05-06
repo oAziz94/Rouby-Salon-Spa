@@ -12,6 +12,7 @@ import { CatalogModule } from './catalog/catalog.module';
 import { SlotsModule } from './slots/slots.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     SlotsModule,
     BookingsModule,
     WhatsappModule,
+    BillingModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

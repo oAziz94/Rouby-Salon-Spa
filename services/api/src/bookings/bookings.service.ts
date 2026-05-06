@@ -12,6 +12,9 @@ import {
   BookingItemType,
   BookingSource,
   BookingStatus,
+  InvoiceStatus,
+  PaymentMethod,
+  PaymentStatus,
   Prisma,
 } from '@prisma/client';
 import type { ClientJwtUser } from '../auth/client-jwt-user';
@@ -36,6 +39,10 @@ import type {
 } from './dto/booking-item-input.dto';
 import type { RescheduleBodyDto } from './dto/reschedule-body.dto';
 import { buildListMeta } from '../catalog/catalog.utils';
+import {
+  decimalMaxZero,
+  sumPaidPayments,
+} from '../billing/payment-ledger.util';
 
 function parseDateOnly(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -412,7 +419,23 @@ export class BookingsService {
   async getDashboardBooking(user: DashboardJwtUser, bookingId: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
-      include: { items: true, slot: true, client: true },
+      include: {
+        items: true,
+        slot: true,
+        client: true,
+        payments: { orderBy: { createdAt: 'desc' } },
+        invoices: {
+          where: { status: InvoiceStatus.FINALIZED },
+          take: 1,
+          select: {
+            id: true,
+            invoiceNumber: true,
+            paidAmount: true,
+            remainingAmount: true,
+            status: true,
+          },
+        },
+      },
     });
     if (!booking) {
       throw new NotFoundException('Booking not found');
@@ -1269,6 +1292,26 @@ export class BookingsService {
       quantity: number;
       lineMetadata: Prisma.JsonValue | null;
     }>;
+    payments?: Array<{
+      id: string;
+      bookingId: string;
+      clientId: string;
+      amount: Prisma.Decimal;
+      method: PaymentMethod;
+      status: PaymentStatus;
+      reference: string | null;
+      paidAt: Date | null;
+      createdByUserId: string | null;
+      createdAt: Date;
+      updatedAt: Date;
+    }>;
+    invoices?: Array<{
+      id: string;
+      invoiceNumber: string;
+      paidAmount: Prisma.Decimal;
+      remainingAmount: Prisma.Decimal;
+      status: InvoiceStatus;
+    }>;
     slot?: { date: Date; startTime: Date; endTime: Date };
     client?: {
       id: string;
@@ -1277,6 +1320,13 @@ export class BookingsService {
       email: string | null;
     };
   }) {
+    const paidDecimal = booking.payments?.length
+      ? sumPaidPayments(booking.payments)
+      : new Prisma.Decimal(0);
+    const remainingDecimal = decimalMaxZero(
+      booking.totalAmount.minus(paidDecimal),
+    );
+    const inv = booking.invoices?.[0];
     return {
       id: booking.id,
       status: booking.status,
@@ -1288,6 +1338,8 @@ export class BookingsService {
       vatRate: Number(booking.vatRate.toString()),
       vatAmount: Number(booking.vatAmount.toString()),
       totalAmount: Number(booking.totalAmount.toString()),
+      paidAmount: Number(paidDecimal.toString()),
+      remainingAmount: Number(remainingDecimal.toString()),
       currency: 'EGP',
       clientNotes: booking.clientNotes,
       adminNotes: booking.adminNotes,
@@ -1315,6 +1367,29 @@ export class BookingsService {
           quantity: it.quantity,
           lineMetadata: it.lineMetadata,
         })) ?? [],
+      payments:
+        booking.payments?.map((p) => ({
+          id: p.id,
+          bookingId: p.bookingId,
+          clientId: p.clientId,
+          amount: Number(p.amount.toString()),
+          method: p.method,
+          status: p.status,
+          reference: p.reference,
+          paidAt: p.paidAt,
+          createdByUserId: p.createdByUserId,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        })) ?? [],
+      finalizedInvoice: inv
+        ? {
+            id: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            paidAmount: Number(inv.paidAmount.toString()),
+            remainingAmount: Number(inv.remainingAmount.toString()),
+            status: inv.status,
+          }
+        : null,
     };
   }
 }

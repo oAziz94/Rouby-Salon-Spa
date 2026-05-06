@@ -112,6 +112,8 @@ model User {
   createdBookingSlots   BookingSlot[]    @relation("BookingSlotCreatedBy")
   createdBookings       Booking[]        @relation("BookingCreatedBy")
   handledChangeRequests BookingChangeRequest[] @relation("BookingChangeRequestHandledBy")
+  recordedPayments      Payment[]        @relation("PaymentRecordedBy")
+  createdInvoices       Invoice[]        @relation("InvoiceCreatedBy")
 
   @@index([roleId])
   @@index([branchId])
@@ -384,6 +386,8 @@ model Client {
   identities      ClientIdentity[]
   bookings        Booking[]
   changeRequests    BookingChangeRequest[]
+  payments          Payment[]
+  invoices          Invoice[]
 
   @@index([phone])
   @@map("clients")
@@ -472,6 +476,8 @@ model Booking {
   createdByUser User?          @relation("BookingCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   items         BookingItem[]
   changeRequests BookingChangeRequest[]
+  payments      Payment[]
+  invoices      Invoice[]
 
   @@index([clientId, createdAt(sort: Desc)])
   @@index([branchId, status, slotId])
@@ -527,6 +533,108 @@ model BookingChangeRequest {
   @@index([bookingId, status])
   @@index([clientId, createdAt(sort: Desc)])
   @@map("booking_change_requests")
+}
+
+// --- Sprint 7: Payments & invoices (manual only; no online gateway) ---
+
+enum PaymentMethod {
+  CASH
+  CARD
+  INSTAPAY
+  MOBILE_WALLET
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  REFUNDED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  FINALIZED
+  CANCELLED
+}
+
+/// Singleton row for human-readable invoice numbers (Sprint 7). Fixed `id` in seed.
+model InvoiceNumberSequence {
+  id        String @id @db.Uuid
+  nextValue Int    @default(0) @map("next_value")
+
+  @@map("invoice_number_sequence")
+}
+
+model Payment {
+  id               String         @id @default(uuid()) @db.Uuid
+  bookingId        String         @map("booking_id") @db.Uuid
+  clientId         String         @map("client_id") @db.Uuid
+  amount           Decimal        @db.Decimal(12, 2)
+  method           PaymentMethod
+  status           PaymentStatus
+  reference        String?
+  paidAt           DateTime?      @map("paid_at")
+  createdByUserId  String?        @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  booking       Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  client        Client  @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  createdByUser User?   @relation("PaymentRecordedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([clientId])
+  @@map("payments")
+}
+
+model Invoice {
+  id               String         @id @default(uuid()) @db.Uuid
+  invoiceNumber    String         @unique @map("invoice_number")
+  bookingId        String         @map("booking_id") @db.Uuid
+  clientId         String         @map("client_id") @db.Uuid
+  subtotal         Decimal        @db.Decimal(12, 2)
+  discountAmount   Decimal        @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  vatRate          Decimal        @map("vat_rate") @db.Decimal(6, 5)
+  vatAmount        Decimal        @map("vat_amount") @db.Decimal(12, 2)
+  totalAmount      Decimal        @map("total_amount") @db.Decimal(12, 2)
+  paidAmount       Decimal        @default(0) @map("paid_amount") @db.Decimal(12, 2)
+  remainingAmount  Decimal        @map("remaining_amount") @db.Decimal(12, 2)
+  status           InvoiceStatus
+  paymentMethod    PaymentMethod? @map("payment_method")
+  createdByUserId  String?        @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  booking       Booking       @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  client        Client        @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  createdByUser User?         @relation("InvoiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  lines         InvoiceLine[]
+
+  @@index([bookingId])
+  @@index([clientId, createdAt(sort: Desc)])
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id                        String          @id @default(uuid()) @db.Uuid
+  invoiceId                 String          @map("invoice_id") @db.Uuid
+  sortOrder                 Int             @map("sort_order")
+  itemType                  BookingItemType @map("item_type")
+  serviceId                 String?         @map("service_id") @db.Uuid
+  serviceVariantId          String?         @map("service_variant_id") @db.Uuid
+  packageId                 String?         @map("package_id") @db.Uuid
+  bundleId                  String?         @map("bundle_id") @db.Uuid
+  nameSnapshot              String          @map("name_snapshot")
+  priceSnapshot             Decimal         @map("price_snapshot") @db.Decimal(12, 2)
+  durationMinutesSnapshot   Int             @map("duration_minutes_snapshot")
+  quantity                  Int             @default(1)
+  lineMetadata              Json?           @map("line_metadata")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_lines")
 }
 
 /// Editable WhatsApp message templates for dashboard deep links (SRS §11.4, Sprint 6).

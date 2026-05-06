@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
+import { PaymentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { formatEgpAmount } from './format-egp';
 import { substituteWhatsappTemplate } from './substitute-whatsapp-template';
@@ -126,6 +127,14 @@ export class WhatsappDeepLinkService {
       )
       .join(', ');
 
+    const paidAgg = await this.prisma.payment.aggregate({
+      where: { bookingId: booking.id, status: PaymentStatus.PAID },
+      _sum: { amount: true },
+    });
+    const paidNum = Number(paidAgg._sum.amount?.toString() ?? '0');
+    const totalNum = Number(booking.totalAmount.toString());
+    const remainingNum = Math.max(0, totalNum - paidNum);
+
     const values: Record<string, string> = {
       clientName: booking.client.fullName,
       bookingDate,
@@ -135,8 +144,8 @@ export class WhatsappDeepLinkService {
       salonPhone: booking.branch.phone ?? '',
       salonAddress: booking.branch.address ?? '',
       totalAmount: formatEgpAmount(booking.totalAmount),
-      paidAmount: '0 EGP',
-      remainingAmount: formatEgpAmount(booking.totalAmount),
+      paidAmount: formatEgpAmount(paidNum),
+      remainingAmount: formatEgpAmount(remainingNum),
     };
 
     const displayText = substituteWhatsappTemplate(template.content, values);

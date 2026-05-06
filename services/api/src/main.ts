@@ -37,7 +37,7 @@ async function bootstrap(): Promise<void> {
     const config = new DocumentBuilder()
       .setTitle('Alrouby Salon API')
       .setDescription(
-        'REST API (MVP). Contract: /docs/API_CONTRACT.md. Sprint 1–6: auth, RBAC, branches, settings, catalog, slots, bookings, WhatsApp templates & deep links.',
+        'REST API (MVP). Contract: /docs/API_CONTRACT.md. Sprint 1–7: auth, RBAC, branches, settings, catalog, slots, bookings, WhatsApp, manual payments & invoices.',
       )
       .setVersion('1.0')
       .addBearerAuth(

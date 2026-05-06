@@ -506,6 +506,14 @@ async function main(): Promise<void> {
     },
   });
 
+  /** Sprint 7 — keep in sync with `services/api/src/billing/billing.constants.ts`. */
+  const INVOICE_NUMBER_SEQUENCE_ID = "00000000-0000-4000-8000-000000000003";
+  await prisma.invoiceNumberSequence.upsert({
+    where: { id: INVOICE_NUMBER_SEQUENCE_ID },
+    create: { id: INVOICE_NUMBER_SEQUENCE_ID, nextValue: 0 },
+    update: {},
+  });
+
   const permissionByKey = new Map<string, { id: string }>();
 
   for (const row of PERMISSION_SEED_ROWS) {
@@ -629,7 +637,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `Seeded: branch ${defaultBranch.name}, system_settings singleton, ${PERMISSION_SEED_ROWS.length} permissions, ${ROLE_SEEDS.length} roles, owner user owner@alrouby.local, Sprint 3 catalog, Sprint 4 booking slots, ${WHATSAPP_TEMPLATE_SEED_ROWS.length} WhatsApp templates`,
+    `Seeded: branch ${defaultBranch.name}, system_settings singleton, invoice_number_sequence singleton, ${PERMISSION_SEED_ROWS.length} permissions, ${ROLE_SEEDS.length} roles, owner user owner@alrouby.local, Sprint 3 catalog, Sprint 4 booking slots, ${WHATSAPP_TEMPLATE_SEED_ROWS.length} WhatsApp templates`,
   );
 }
 
