@@ -1,7 +1,16 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { BookingStatus } from '@prisma/client';
-import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class DashboardBookingListQueryDto {
   @ApiPropertyOptional()
@@ -31,6 +40,22 @@ export class DashboardBookingListQueryDto {
   @IsOptional()
   @IsUUID('4')
   slotId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Case-insensitive search on client name, email, phone (partial digits), booking UUID, or booking id fragment (e.g. RB-… tail)',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') {
+      return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : undefined;
+  })
+  @IsString()
+  @MaxLength(120)
+  search?: string;
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()

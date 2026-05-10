@@ -22,13 +22,35 @@ function resolveApiBaseUrl(): string {
   return (raw ?? "http://localhost:4000/api/v1").replace(/\/$/, "");
 }
 
+function shouldSkipApiFetchDuringBuild(baseUrl: string): boolean {
+  const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+  const isLocalApi = /localhost|127\.0\.0\.1/i.test(baseUrl);
+  return isBuildPhase && isLocalApi;
+}
+
 export async function getJson<T>(path: string): Promise<T> {
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  const res = await fetch(`${resolveApiBaseUrl()}${normalized}`, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    next: { revalidate: 60 },
-  });
+  const baseUrl = resolveApiBaseUrl();
+  if (shouldSkipApiFetchDuringBuild(baseUrl)) {
+    throw new ApiRequestError(
+      "API is unavailable during build. Start the API service or set NEXT_PUBLIC_API_URL to a reachable endpoint.",
+      503,
+      "API_UNREACHABLE_DURING_BUILD",
+    );
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${normalized}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      next: { revalidate: 60 },
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Network request failed while contacting API.";
+    throw new ApiRequestError(message, 503, "API_UNREACHABLE");
+  }
 
   if (!res.ok) {
     let body: ApiErrorShape | null = null;

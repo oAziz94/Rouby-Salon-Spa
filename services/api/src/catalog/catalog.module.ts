@@ -6,6 +6,7 @@ import { DashboardBundlesController } from './dashboard-bundles.controller';
 import { DashboardOffersController } from './dashboard-offers.controller';
 import { DashboardPackagesController } from './dashboard-packages.controller';
 import { DashboardServiceCategoriesController } from './dashboard-service-categories.controller';
+import { DashboardServiceEnhancementsController } from './dashboard-service-enhancements.controller';
 import { DashboardServicesController } from './dashboard-services.controller';
 import { DashboardServiceVariantsController } from './dashboard-service-variants.controller';
 import { PublicCatalogController } from './public-catalog.controller';
@@ -14,6 +15,7 @@ import { PublicCatalogController } from './public-catalog.controller';
   imports: [AuditModule],
   controllers: [
     DashboardServiceCategoriesController,
+    DashboardServiceEnhancementsController,
     DashboardServicesController,
     DashboardServiceVariantsController,
     DashboardPackagesController,

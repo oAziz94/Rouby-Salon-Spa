@@ -11,8 +11,26 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { PriceDisplayType } from '@prisma/client';
+
+export class ServiceBenefitUpsertDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  label!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  displayOrder?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
 
 export class CreateServiceDto {
   @IsUUID()
@@ -31,7 +49,27 @@ export class CreateServiceDto {
   @IsOptional()
   @IsString()
   @MaxLength(2000)
+  shortDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
   imageUrl?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  displayOrder?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isFeatured?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  badgeLabel?: string | null;
 
   @IsEnum(PriceDisplayType)
   priceDisplayType!: PriceDisplayType;
@@ -77,6 +115,12 @@ export class CreateServiceDto {
   @IsArray()
   @IsUUID('4', { each: true })
   branchIds!: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ServiceBenefitUpsertDto)
+  benefits?: ServiceBenefitUpsertDto[];
 }
 
 export class PatchServiceDto {
@@ -98,7 +142,27 @@ export class PatchServiceDto {
   @IsOptional()
   @IsString()
   @MaxLength(2000)
+  shortDescription?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
   imageUrl?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  displayOrder?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isFeatured?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  badgeLabel?: string | null;
 
   @IsOptional()
   @IsEnum(PriceDisplayType)
@@ -146,6 +210,13 @@ export class PatchServiceDto {
   @IsArray()
   @IsUUID('4', { each: true })
   branchIds?: string[];
+
+  /** When provided (including empty array), replaces all benefit rows for this service. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ServiceBenefitUpsertDto)
+  benefits?: ServiceBenefitUpsertDto[];
 }
 
 export class CreateServiceVariantDto {

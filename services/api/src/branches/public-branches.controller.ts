@@ -18,7 +18,8 @@ export class PublicBranchesController {
   async list() {
     return this.prisma.branch.findMany({
       where: { isActive: true },
-      orderBy: { name: 'asc' },
+      /** Stable order: seeded main branch id sorts first; avoids booking/catalog mismatch with name order. */
+      orderBy: { id: 'asc' },
     });
   }
 

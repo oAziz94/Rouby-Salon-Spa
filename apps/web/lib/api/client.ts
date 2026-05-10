@@ -1,4 +1,4 @@
-import { getClientToken } from "@/lib/auth/client-session";
+import { clearClientSession, getClientToken } from "@/lib/auth/client-session";
 
 type ApiErrorShape = {
   statusCode?: number;
@@ -52,6 +52,9 @@ export async function getClientJson<T>(path: string): Promise<T> {
     },
   });
   if (!res.ok) {
+    if (res.status === 401) {
+      clearClientSession();
+    }
     throw await parseError(res);
   }
   return (await res.json()) as T;
@@ -69,6 +72,9 @@ export async function postClientJson<T>(path: string, body?: unknown): Promise<T
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
+    if (res.status === 401) {
+      clearClientSession();
+    }
     throw await parseError(res);
   }
   return (await res.json()) as T;

@@ -1,0 +1,18 @@
+{
+  "name": "@rouby/wall-clock",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "build": "node -e \"console.log('@rouby/wall-clock: source package, no emit');\"",
+    "lint": "node -e \"console.log('@rouby/wall-clock: no lint yet');\""
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  }
+}

@@ -37,6 +37,14 @@ export default function DashboardOffersPage() {
   const [discountValue, setDiscountValue] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [description, setDescription] = useState("");
+  const [usageLimit, setUsageLimit] = useState("");
+  const [perClientUsageLimit, setPerClientUsageLimit] = useState("");
+  const [minimumSpend, setMinimumSpend] = useState("");
+  const [appliesTo, setAppliesTo] = useState<"ALL" | "SERVICES" | "PACKAGES">("ALL");
+  const [serviceIdsText, setServiceIdsText] = useState("");
+  const [packageIdsText, setPackageIdsText] = useState("");
+  const [isActive, setIsActive] = useState(true);
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -71,6 +79,14 @@ export default function DashboardOffersPage() {
     setDiscountValue("");
     setStartDate("");
     setEndDate("");
+    setDescription("");
+    setUsageLimit("");
+    setPerClientUsageLimit("");
+    setMinimumSpend("");
+    setAppliesTo("ALL");
+    setServiceIdsText("");
+    setPackageIdsText("");
+    setIsActive(true);
     setSaveError("");
     setModalOpen(true);
   }
@@ -83,6 +99,21 @@ export default function DashboardOffersPage() {
     setDiscountValue(row.discountValue.toString());
     setStartDate(row.startDate.slice(0, 10));
     setEndDate(row.endDate.slice(0, 10));
+    setDescription(row.description ?? "");
+    setUsageLimit(row.usageLimit?.toString() ?? "");
+    setPerClientUsageLimit(row.perClientUsageLimit?.toString() ?? "");
+    setMinimumSpend(row.minimumSpend?.toString() ?? "");
+    setAppliesTo(row.appliesTo);
+    const rules = row.eligibilityRules ?? {};
+    const ruleServiceIds = Array.isArray((rules as { serviceIds?: unknown }).serviceIds)
+      ? ((rules as { serviceIds: unknown[] }).serviceIds as string[]).join(", ")
+      : "";
+    const rulePackageIds = Array.isArray((rules as { packageIds?: unknown }).packageIds)
+      ? ((rules as { packageIds: unknown[] }).packageIds as string[]).join(", ")
+      : "";
+    setServiceIdsText(ruleServiceIds);
+    setPackageIdsText(rulePackageIds);
+    setIsActive(row.isActive);
     setSaveError("");
     setModalOpen(true);
   }
@@ -93,13 +124,31 @@ export default function DashboardOffersPage() {
     setSaving(true);
     setSaveError("");
     try {
+      const serviceIds = serviceIdsText
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
+      const packageIds = packageIdsText
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
       const payload = {
         name,
+        description: description.trim() || null,
         offerCode: offerCode || null,
         discountType,
         discountValue: Number(discountValue),
         startDate: new Date(startDate).toISOString(),
         endDate: new Date(endDate).toISOString(),
+        usageLimit: usageLimit.trim() ? Number(usageLimit) : null,
+        perClientUsageLimit: perClientUsageLimit.trim()
+          ? Number(perClientUsageLimit)
+          : null,
+        minimumSpend: minimumSpend.trim() ? Number(minimumSpend) : null,
+        appliesTo,
+        isActive,
+        serviceIds: serviceIds.length > 0 ? serviceIds : undefined,
+        packageIds: packageIds.length > 0 ? packageIds : undefined,
       };
       if (editingRow) await patchDashboardOffer(token, editingRow.id, payload);
       else await postDashboardOffer(token, payload);
@@ -159,6 +208,7 @@ export default function DashboardOffersPage() {
                   <tr className="border-b border-border text-left text-[#7A6A58]">
                     <th className="py-2 pr-3 font-medium">Name</th>
                     <th className="py-2 pr-3 font-medium">Code</th>
+                    <th className="py-2 pr-3 font-medium">Applies To</th>
                     <th className="py-2 pr-3 font-medium">Discount</th>
                     <th className="py-2 pr-3 font-medium">Window</th>
                     <th className="py-2 pr-3 font-medium">Status</th>
@@ -170,6 +220,7 @@ export default function DashboardOffersPage() {
                     <tr key={row.id} className="border-b border-border/60 hover:bg-[#FFF9EE]">
                       <td className="py-3 pr-3 font-medium text-[#1F2420]">{row.name}</td>
                       <td className="py-3 pr-3 text-[#7A6A58]">{row.offerCode ?? "-"}</td>
+                      <td className="py-3 pr-3 text-[#7A6A58]">{row.appliesTo}</td>
                       <td className="py-3 pr-3 text-[#1F2420]">{row.discountType} {row.discountValue}</td>
                       <td className="py-3 pr-3 text-[#7A6A58]">{row.startDate.slice(0, 10)} to {row.endDate.slice(0, 10)}</td>
                       <td className="py-3 pr-3 text-[#7A6A58]">{row.isActive ? "Active" : "Inactive"}</td>
@@ -193,11 +244,19 @@ export default function DashboardOffersPage() {
               <h2 className="text-lg font-semibold text-[#1F2420]">{editingRow ? "Edit offer" : "Create offer"}</h2>
               <form className="mt-4 grid gap-3 md:grid-cols-2" onSubmit={onSave}>
                 <label className="text-sm md:col-span-2"><span className="mb-1 block font-medium text-[#1F2420]">Name</span><input value={name} onChange={(e) => setName(e.target.value)} required className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
+                <label className="text-sm md:col-span-2"><span className="mb-1 block font-medium text-[#1F2420]">Description</span><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
                 <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Offer code</span><input value={offerCode} onChange={(e) => setOfferCode(e.target.value)} className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
                 <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Discount type</span><select value={discountType} onChange={(e) => setDiscountType(e.target.value)} className="w-full rounded-md border border-border bg-white px-3 py-2"><option value="PERCENTAGE">PERCENTAGE</option><option value="FIXED_AMOUNT">FIXED_AMOUNT</option></select></label>
                 <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Discount value</span><input type="number" min={0} step="0.01" value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} required className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
+                <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Minimum spend</span><input type="number" min={0} step="0.01" value={minimumSpend} onChange={(e) => setMinimumSpend(e.target.value)} className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
                 <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Start date</span><input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
                 <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">End date</span><input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
+                <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Usage limit</span><input type="number" min={0} value={usageLimit} onChange={(e) => setUsageLimit(e.target.value)} className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
+                <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Per-client usage limit</span><input type="number" min={0} value={perClientUsageLimit} onChange={(e) => setPerClientUsageLimit(e.target.value)} className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
+                <label className="text-sm"><span className="mb-1 block font-medium text-[#1F2420]">Applies to</span><select value={appliesTo} onChange={(e) => setAppliesTo(e.target.value as "ALL" | "SERVICES" | "PACKAGES")} className="w-full rounded-md border border-border bg-white px-3 py-2"><option value="ALL">ALL</option><option value="SERVICES">SERVICES</option><option value="PACKAGES">PACKAGES</option></select></label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /><span className="font-medium text-[#1F2420]">Active</span></label>
+                <label className="text-sm md:col-span-2"><span className="mb-1 block font-medium text-[#1F2420]">Target service IDs (optional, comma separated)</span><input value={serviceIdsText} onChange={(e) => setServiceIdsText(e.target.value)} className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
+                <label className="text-sm md:col-span-2"><span className="mb-1 block font-medium text-[#1F2420]">Target package IDs (optional, comma separated)</span><input value={packageIdsText} onChange={(e) => setPackageIdsText(e.target.value)} className="w-full rounded-md border border-border bg-white px-3 py-2" /></label>
                 {saveError ? <p className="rounded border border-[#E7B9A4] bg-[#FFF1EC] px-3 py-2 text-sm text-danger md:col-span-2">{saveError}</p> : null}
                 <div className="md:col-span-2 flex justify-end gap-2">
                   <button type="button" onClick={() => setModalOpen(false)} className="rounded border border-border bg-white px-3 py-2 text-sm">Cancel</button>

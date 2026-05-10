@@ -27,7 +27,7 @@ type DashboardAuthContextType = {
   permissions: string[];
   token: string | null;
   authError: ApiClientError | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => void;
   hasPermission: (permission?: string) => boolean;
 };
@@ -38,17 +38,25 @@ function readToken(): string | null {
   if (typeof window === "undefined") {
     return null;
   }
-  return sessionStorage.getItem(TOKEN_KEY);
+  const fromSession = sessionStorage.getItem(TOKEN_KEY);
+  if (fromSession) {
+    return fromSession;
+  }
+  return localStorage.getItem(TOKEN_KEY);
 }
 
-function writeToken(token: string | null): void {
+function writeToken(token: string | null, rememberMe = false): void {
   if (typeof window === "undefined") {
     return;
   }
+  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
   if (token) {
-    sessionStorage.setItem(TOKEN_KEY, token);
-  } else {
-    sessionStorage.removeItem(TOKEN_KEY);
+    if (rememberMe) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      sessionStorage.setItem(TOKEN_KEY, token);
+    }
   }
 }
 
@@ -127,9 +135,9 @@ export function DashboardAuthProvider({
   }, [bootstrap]);
 
   const login = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, rememberMe = false) => {
       const loginResponse = await postDashboardAuthLogin(email, password);
-      writeToken(loginResponse.accessToken);
+      writeToken(loginResponse.accessToken, rememberMe);
       setStatus("loading");
       await bootstrap(loginResponse.accessToken);
       router.replace("/dashboard");

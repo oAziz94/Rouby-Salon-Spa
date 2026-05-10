@@ -82,4 +82,12 @@ export class PublicCatalogController {
       pageSize: query.pageSize,
     });
   }
+
+  @Get('service-enhancements')
+  @ApiOperation({
+    summary: 'List active service enhancements for public website',
+  })
+  listServiceEnhancements() {
+    return this.catalog.listServiceEnhancements();
+  }
 }

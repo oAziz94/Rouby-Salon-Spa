@@ -6,7 +6,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { BookingSlotStatus, Prisma } from '@prisma/client';
+import { BookingSlotStatus, BookingStatus, Prisma } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { buildListMeta } from '../catalog/catalog.utils';
 import { PrismaService } from '../prisma/prisma.service';
@@ -17,11 +17,33 @@ import type { PatchSlotCapacityDto } from './dto/patch-slot-capacity.dto';
 import type { PatchSlotOnlineBookableDto } from './dto/patch-slot-online-bookable.dto';
 import type { PatchSlotStatusDto } from './dto/patch-slot-status.dto';
 import type { PatchSlotDto } from './dto/patch-slot.dto';
+import type { GenerateWeekSlotsDto } from './dto/generate-week-slots.dto';
 import {
+  addUtcDaysToDateString,
+  assertValidSlotGeneration,
+  mergeSlotGeneration,
+  minutesToTimeString,
+  parseStoredSlotGeneration,
+  pickOverridesFromSlotDto,
+  slotDuplicateKey,
+  slotOverlapsAnyBreak,
+  timeToMinutes,
+} from './slot-generation.utils';
+import {
+  cairoWeekdayIndexFromDateString,
   isSlotStartStrictlyInFutureCairo,
   toDateOnlyUtc,
   toTimeOnlyUtc,
 } from '../common/cairo-slot-time';
+import { SYSTEM_SETTINGS_ID } from '../settings/settings.constants';
+
+/** Bookings excluded from dashboard “live” occupancy on a slot (historical / voided). */
+const SLOT_LIVE_BOOKING_COUNT_EXCLUDED: BookingStatus[] = [
+  BookingStatus.CANCELLED,
+  BookingStatus.REJECTED,
+  BookingStatus.COMPLETED,
+  BookingStatus.NO_SHOW,
+];
 
 @Injectable()
 export class SlotsService {
@@ -67,22 +89,25 @@ export class SlotsService {
     return new Date(`1970-01-01T${this.normalizeTime(value)}.000Z`);
   }
 
-  private mapSlot(row: {
-    id: string;
-    branchId: string;
-    date: Date;
-    startTime: Date;
-    endTime: Date;
-    capacity: number;
-    bookedCount: number;
-    status: BookingSlotStatus;
-    isOnlineBookable: boolean;
-    notes: string | null;
-    createdByUserId: string | null;
-    deletedAt: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-  }) {
+  private mapSlot(
+    row: {
+      id: string;
+      branchId: string;
+      date: Date;
+      startTime: Date;
+      endTime: Date;
+      capacity: number;
+      bookedCount: number;
+      status: BookingSlotStatus;
+      isOnlineBookable: boolean;
+      notes: string | null;
+      createdByUserId: string | null;
+      deletedAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+    },
+    liveBookingsCount?: number,
+  ) {
     return {
       id: row.id,
       branchId: row.branchId,
@@ -91,6 +116,9 @@ export class SlotsService {
       endTime: toTimeOnlyUtc(row.endTime),
       capacity: row.capacity,
       bookedCount: row.bookedCount,
+      ...(liveBookingsCount !== undefined
+        ? { liveBookingsCount }
+        : {}),
       status: row.status,
       isOnlineBookable: row.isOnlineBookable,
       notes: row.notes,
@@ -99,6 +127,74 @@ export class SlotsService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
+  }
+
+  private async liveBookingsCountBySlotIds(
+    slotIds: string[],
+  ): Promise<Map<string, number>> {
+    if (slotIds.length === 0) {
+      return new Map();
+    }
+    const grouped = await this.prisma.booking.groupBy({
+      by: ['slotId'],
+      where: {
+        slotId: { in: slotIds },
+        status: { notIn: SLOT_LIVE_BOOKING_COUNT_EXCLUDED },
+      },
+      _count: { _all: true },
+    });
+    const map = new Map<string, number>();
+    for (const row of grouped) {
+      map.set(row.slotId, row._count._all);
+    }
+    return map;
+  }
+
+  /**
+   * Sets slot to FILLED when bookedCount reaches capacity, and back to AVAILABLE
+   * when below capacity. BLOCKED / CLOSED are never changed here.
+   */
+  async syncBookingSlotFilledFromCapacityTx(
+    tx: Prisma.TransactionClient,
+    slotId: string,
+  ): Promise<void> {
+    const slot = await tx.bookingSlot.findUnique({
+      where: { id: slotId },
+      select: {
+        bookedCount: true,
+        capacity: true,
+        status: true,
+        deletedAt: true,
+      },
+    });
+    if (!slot || slot.deletedAt !== null) {
+      return;
+    }
+    if (
+      slot.status === BookingSlotStatus.BLOCKED ||
+      slot.status === BookingSlotStatus.CLOSED
+    ) {
+      return;
+    }
+    if (slot.capacity <= 0) {
+      return;
+    }
+    if (slot.bookedCount >= slot.capacity) {
+      if (
+        slot.status === BookingSlotStatus.AVAILABLE ||
+        slot.status === BookingSlotStatus.PENDING
+      ) {
+        await tx.bookingSlot.update({
+          where: { id: slotId },
+          data: { status: BookingSlotStatus.FILLED },
+        });
+      }
+    } else if (slot.status === BookingSlotStatus.FILLED) {
+      await tx.bookingSlot.update({
+        where: { id: slotId },
+        data: { status: BookingSlotStatus.AVAILABLE },
+      });
+    }
   }
 
   private async getBranchOrFail(
@@ -165,8 +261,12 @@ export class SlotsService {
       }),
     ]);
 
+    const liveBySlot = await this.liveBookingsCountBySlotIds(rows.map((r) => r.id));
+
     return {
-      data: rows.map((row) => this.mapSlot(row)),
+      data: rows.map((row) =>
+        this.mapSlot(row, liveBySlot.get(row.id) ?? 0),
+      ),
       meta: buildListMeta({
         page: query.page,
         pageSize: query.pageSize,
@@ -193,7 +293,8 @@ export class SlotsService {
     if (!row) {
       throw new NotFoundException('Slot not found');
     }
-    return this.mapSlot(row);
+    const liveBySlot = await this.liveBookingsCountBySlotIds([row.id]);
+    return this.mapSlot(row, liveBySlot.get(row.id) ?? 0);
   }
 
   async createDashboardSlot(
@@ -233,7 +334,7 @@ export class SlotsService {
       },
     });
 
-    return this.mapSlot(row);
+    return this.mapSlot(row, 0);
   }
 
   async patchDashboardSlot(
@@ -291,7 +392,8 @@ export class SlotsService {
       },
     });
 
-    return this.mapSlot(row);
+    const liveBySlot = await this.liveBookingsCountBySlotIds([row.id]);
+    return this.mapSlot(row, liveBySlot.get(row.id) ?? 0);
   }
 
   async patchDashboardSlotCapacity(
@@ -322,7 +424,14 @@ export class SlotsService {
       oldValue: { capacity: before?.capacity ?? null },
       newValue: { capacity: row.capacity },
     });
-    return this.mapSlot(row);
+    await this.prisma.$transaction(async (tx) => {
+      await this.syncBookingSlotFilledFromCapacityTx(tx, slotId);
+    });
+    const finalRow =
+      (await this.prisma.bookingSlot.findUnique({ where: { id: slotId } })) ??
+      row;
+    const liveBySlot = await this.liveBookingsCountBySlotIds([finalRow.id]);
+    return this.mapSlot(finalRow, liveBySlot.get(finalRow.id) ?? 0);
   }
 
   async patchDashboardSlotOnlineBookable(
@@ -353,7 +462,8 @@ export class SlotsService {
       oldValue: { isOnlineBookable: before?.isOnlineBookable ?? null },
       newValue: { isOnlineBookable: row.isOnlineBookable },
     });
-    return this.mapSlot(row);
+    const liveBySlot = await this.liveBookingsCountBySlotIds([row.id]);
+    return this.mapSlot(row, liveBySlot.get(row.id) ?? 0);
   }
 
   async patchDashboardSlotStatus(
@@ -388,7 +498,8 @@ export class SlotsService {
       oldValue: { status: before?.status ?? null },
       newValue: { status: row.status },
     });
-    return this.mapSlot(row);
+    const liveBySlot = await this.liveBookingsCountBySlotIds([row.id]);
+    return this.mapSlot(row, liveBySlot.get(row.id) ?? 0);
   }
 
   async softDeleteDashboardSlot(
@@ -406,7 +517,180 @@ export class SlotsService {
       where: { id: slotId },
       data: { deletedAt: new Date() },
     });
-    return this.mapSlot(row);
+    const liveBySlot = await this.liveBookingsCountBySlotIds([row.id]);
+    return this.mapSlot(row, liveBySlot.get(row.id) ?? 0);
+  }
+
+  async generateWeekSlots(
+    user: DashboardJwtUser,
+    branchId: string,
+    dto: GenerateWeekSlotsDto,
+  ) {
+    this.assertBranchScope(user, branchId);
+    await this.getBranchOrFail(branchId);
+
+    const settingsRow = await this.prisma.systemSettings.findUnique({
+      where: { id: SYSTEM_SETTINGS_ID },
+      select: { slotGenerationDefaults: true },
+    });
+    const stored = parseStoredSlotGeneration(
+      settingsRow?.slotGenerationDefaults,
+    );
+    const overrides = pickOverridesFromSlotDto(dto);
+    const effective = mergeSlotGeneration(stored, overrides);
+    assertValidSlotGeneration(effective);
+
+    const dateStart = dto.weekStartDate;
+    const dateEnd = addUtcDaysToDateString(dateStart, 6);
+
+    const existingRows = await this.prisma.bookingSlot.findMany({
+      where: {
+        branchId,
+        deletedAt: null,
+        date: {
+          gte: this.parseDateOnly(dateStart),
+          lte: this.parseDateOnly(dateEnd),
+        },
+      },
+      select: {
+        id: true,
+        date: true,
+        startTime: true,
+        endTime: true,
+        capacity: true,
+        bookedCount: true,
+        status: true,
+        isOnlineBookable: true,
+      },
+    });
+    const existingByKey = new Map<
+      string,
+      {
+        id: string;
+        date: Date;
+        startTime: Date;
+        endTime: Date;
+        capacity: number;
+        bookedCount: number;
+        status: BookingSlotStatus;
+        isOnlineBookable: boolean;
+      }
+    >();
+    for (const row of existingRows) {
+      existingByKey.set(slotDuplicateKey(row), row);
+    }
+    const existingKeys = new Set(existingByKey.keys());
+    const localKeys = new Set<string>();
+    const slotIdsToAlignDefaults = new Set<string>();
+
+    const breakRanges = effective.breakPeriods.map((b) => ({
+      start: timeToMinutes(b.startTime),
+      end: timeToMinutes(b.endTime),
+    }));
+
+    const startM = timeToMinutes(effective.startTime);
+    const endM = timeToMinutes(effective.endTime);
+    const dur = effective.slotDurationMinutes;
+
+    const createRows: Prisma.BookingSlotCreateManyInput[] = [];
+    let skippedCount = 0;
+
+    for (let day = 0; day < 7; day += 1) {
+      const dateStr = addUtcDaysToDateString(dateStart, day);
+      const dateObj = this.parseDateOnly(dateStr);
+      const cairoDow = cairoWeekdayIndexFromDateString(dateStr);
+      if (!effective.workingDays.includes(cairoDow)) {
+        continue;
+      }
+      for (let cursor = startM; cursor + dur <= endM; cursor += dur) {
+        const slotEndM = cursor + dur;
+        if (slotOverlapsAnyBreak(cursor, slotEndM, breakRanges)) {
+          continue;
+        }
+        const startStr = minutesToTimeString(cursor);
+        const endStr = minutesToTimeString(slotEndM);
+        const key = slotDuplicateKey({
+          date: dateObj,
+          startTime: this.parseTimeOnly(startStr),
+          endTime: this.parseTimeOnly(endStr),
+        });
+        if (existingKeys.has(key) || localKeys.has(key)) {
+          skippedCount += 1;
+          const hit = existingByKey.get(key);
+          if (
+            hit &&
+            hit.bookedCount === 0 &&
+            hit.status === BookingSlotStatus.AVAILABLE &&
+            (hit.capacity !== effective.defaultCapacity ||
+              hit.isOnlineBookable !== effective.defaultOnlineBookable)
+          ) {
+            slotIdsToAlignDefaults.add(hit.id);
+          }
+          continue;
+        }
+        localKeys.add(key);
+        createRows.push({
+          branchId,
+          date: dateObj,
+          startTime: this.parseTimeOnly(startStr),
+          endTime: this.parseTimeOnly(endStr),
+          capacity: effective.defaultCapacity,
+          bookedCount: 0,
+          status: BookingSlotStatus.AVAILABLE,
+          isOnlineBookable: effective.defaultOnlineBookable,
+          notes: null,
+          createdByUserId: user.userId,
+        });
+      }
+    }
+
+    let createdCount = 0;
+    if (createRows.length > 0) {
+      const res = await this.prisma.bookingSlot.createMany({
+        data: createRows,
+      });
+      createdCount = res.count;
+    }
+
+    let alignedDefaultsCount = 0;
+    if (slotIdsToAlignDefaults.size > 0) {
+      const alignRes = await this.prisma.bookingSlot.updateMany({
+        where: {
+          id: { in: [...slotIdsToAlignDefaults] },
+          branchId,
+          deletedAt: null,
+          bookedCount: 0,
+          status: BookingSlotStatus.AVAILABLE,
+        },
+        data: {
+          capacity: effective.defaultCapacity,
+          isOnlineBookable: effective.defaultOnlineBookable,
+        },
+      });
+      alignedDefaultsCount = alignRes.count;
+    }
+
+    await this.audit.log({
+      userId: user.userId,
+      action: 'slots.week_generated',
+      module: 'slots',
+      entityId: branchId,
+      newValue: {
+        createdCount,
+        skippedCount,
+        alignedDefaultsCount,
+        dateFrom: dateStart,
+        dateTo: dateEnd,
+      },
+    });
+
+    return {
+      createdCount,
+      skippedCount,
+      alignedDefaultsCount,
+      dateFrom: dateStart,
+      dateTo: dateEnd,
+    };
   }
 
   async listPublicSlots(branchId: string, date: string) {
@@ -423,7 +707,9 @@ export class SlotsService {
         branchId,
         date: this.parseDateOnly(date),
         deletedAt: null,
-        status: BookingSlotStatus.AVAILABLE,
+        status: {
+          in: [BookingSlotStatus.AVAILABLE, BookingSlotStatus.FILLED],
+        },
         isOnlineBookable: true,
         branch: { isActive: true },
         capacity: { gt: 0 },
@@ -432,7 +718,6 @@ export class SlotsService {
     });
 
     const data = rows
-      .filter((slot) => slot.bookedCount < slot.capacity)
       .filter((slot) => isSlotStartStrictlyInFutureCairo(slot))
       .map((slot) => this.mapSlot(slot));
 
@@ -440,7 +725,8 @@ export class SlotsService {
   }
 
   /**
-   * Validates a slot for **public website booking submission** (same predicate as `listPublicSlots`).
+   * Validates a slot for **public website booking submission** (stricter than `listPublicSlots`,
+   * which also returns full slots so the client can show them disabled).
    * Dashboard bookings may target offline / non-available slots via separate validation.
    */
   async assertSlotPubliclyBookable(
@@ -489,7 +775,19 @@ export class SlotsService {
       );
     }
 
-    if (slot.status !== BookingSlotStatus.AVAILABLE || !slot.isOnlineBookable) {
+    if (!slot.isOnlineBookable) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is not available for online booking',
+          error: 'Bad Request',
+          code: 'SLOT_NOT_ONLINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (slot.status !== BookingSlotStatus.AVAILABLE) {
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_REQUEST,
@@ -526,5 +824,131 @@ export class SlotsService {
     }
 
     return slot;
+  }
+
+  /**
+   * Public policy checks for a website submit (branch, slot flags, time window).
+   * Capacity is enforced separately via {@link tryReserveOneSlotCapacityTx} to avoid races.
+   */
+  async assertWebsiteSubmitSlotPolicyTx(
+    tx: Prisma.TransactionClient,
+    branchId: string,
+    slotId: string,
+  ): Promise<void> {
+    const branch = await tx.branch.findUnique({
+      where: { id: branchId },
+      select: { id: true, isActive: true },
+    });
+    if (!branch?.isActive) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Branch is not available for booking',
+          error: 'Bad Request',
+          code: 'BRANCH_INACTIVE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const slot = await tx.bookingSlot.findFirst({
+      where: { id: slotId, branchId, deletedAt: null },
+    });
+    if (!slot) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is not available for online booking',
+          error: 'Bad Request',
+          code: 'SLOT_NOT_ONLINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (!slot.isOnlineBookable) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is not available for online booking',
+          error: 'Bad Request',
+          code: 'SLOT_NOT_ONLINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (slot.status !== BookingSlotStatus.AVAILABLE) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is not available for online booking',
+          error: 'Bad Request',
+          code: 'SLOT_NOT_ONLINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (slot.capacity <= 0) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Selected slot is full',
+          error: 'Bad Request',
+          code: 'SLOT_FULL',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (!isSlotStartStrictlyInFutureCairo(slot)) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is not available for online booking',
+          error: 'Bad Request',
+          code: 'SLOT_NOT_ONLINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  /**
+   * Atomically consumes one seat if `booked_count < capacity`.
+   * @returns whether a row was updated
+   */
+  async tryReserveOneSlotCapacityTx(
+    tx: Prisma.TransactionClient,
+    slotId: string,
+  ): Promise<boolean> {
+    const updated = await tx.$executeRaw(
+      Prisma.sql`
+        UPDATE booking_slots
+        SET booked_count = booked_count + 1
+        WHERE id = ${slotId}::uuid
+          AND deleted_at IS NULL
+          AND booked_count < capacity
+      `,
+    );
+    return updated > 0;
+  }
+
+  /**
+   * Releases one reserved seat (never below zero).
+   */
+  async releaseOneSlotCapacityTx(
+    tx: Prisma.TransactionClient,
+    slotId: string,
+  ): Promise<void> {
+    await tx.$executeRaw(
+      Prisma.sql`
+        UPDATE booking_slots
+        SET booked_count = GREATEST(0, booked_count - 1)
+        WHERE id = ${slotId}::uuid
+          AND deleted_at IS NULL
+      `,
+    );
   }
 }

@@ -9,6 +9,7 @@ import {
   type DashboardInvoiceDetail,
   type DashboardInvoiceListItem,
 } from "@rouby/api-client";
+import { formatDateTimeAmPm } from "@rouby/wall-clock";
 import { useEffect, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
@@ -268,7 +269,7 @@ export default function DashboardInvoicesPage() {
                       <td className="py-3 pr-3 text-[#7A6A58]">{formatEGP(row.paidAmount)}</td>
                       <td className="py-3 pr-3 text-[#7A6A58]">{formatEGP(row.remainingAmount)}</td>
                       <td className="py-3 pr-3 text-[#7A6A58]">
-                        {new Date(row.createdAt).toLocaleDateString("en-GB")}
+                        {formatDateTimeAmPm(row.createdAt)}
                       </td>
                     </tr>
                   ))}

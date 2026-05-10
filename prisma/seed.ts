@@ -30,8 +30,16 @@ const VAR_COLOR_LONG = "30000000-0000-4000-8000-000000000022";
 const PKG_LUXURY = "30000000-0000-4000-8000-000000000031";
 const PKG_ESCAPE = "30000000-0000-4000-8000-000000000032";
 const PKG_ROYAL = "30000000-0000-4000-8000-000000000033";
+const PKG_BRIDAL = "30000000-0000-4000-8000-000000000034";
+const PKG_COLOR_SHINE = "30000000-0000-4000-8000-000000000035";
+const PKG_GENTLEMENS = "30000000-0000-4000-8000-000000000036";
 const BND_NAILS = "30000000-0000-4000-8000-000000000041";
 const OFF_SUMMER = "30000000-0000-4000-8000-000000000051";
+const ENH_AROMA = "30000000-0000-4000-8000-000000000061";
+const ENH_SCALP = "30000000-0000-4000-8000-000000000062";
+const ENH_GOLD_MASK = "30000000-0000-4000-8000-000000000063";
+const ENH_NAIL_ART = "30000000-0000-4000-8000-000000000064";
+const ENH_HAIR_BOOSTER = "30000000-0000-4000-8000-000000000065";
 const SLOT_AVAILABLE_ONLINE_1 = "40000000-0000-4000-8000-000000000001";
 const SLOT_AVAILABLE_OFFLINE = "40000000-0000-4000-8000-000000000002";
 const SLOT_FILLED = "40000000-0000-4000-8000-000000000003";
@@ -87,6 +95,10 @@ async function seedCatalog(branchId: string): Promise<void> {
       categoryId: CAT_HAIR,
       name: "Signature Haircut",
       description: "Wash, cut, blow-dry",
+      shortDescription: "Precision cut with personalized styling for a polished finish.",
+      displayOrder: 1,
+      isFeatured: true,
+      badgeLabel: "Signature",
       priceDisplayType: PriceDisplayType.FIXED,
       basePrice: new Prisma.Decimal("350"),
       basePriceMax: null,
@@ -97,6 +109,10 @@ async function seedCatalog(branchId: string): Promise<void> {
     },
     update: {
       name: "Signature Haircut",
+      shortDescription: "Precision cut with personalized styling for a polished finish.",
+      displayOrder: 1,
+      isFeatured: true,
+      badgeLabel: "Signature",
       priceDisplayType: PriceDisplayType.FIXED,
       basePrice: new Prisma.Decimal("350"),
       basePriceMax: null,
@@ -118,6 +134,10 @@ async function seedCatalog(branchId: string): Promise<void> {
       categoryId: CAT_HAIR,
       name: "Hair Coloring",
       description: "Professional color",
+      shortDescription: "Custom color service designed for rich tone and lasting shine.",
+      displayOrder: 2,
+      isFeatured: true,
+      badgeLabel: "Popular",
       priceDisplayType: PriceDisplayType.RANGE,
       basePrice: new Prisma.Decimal("900"),
       basePriceMax: new Prisma.Decimal("1600"),
@@ -127,6 +147,10 @@ async function seedCatalog(branchId: string): Promise<void> {
       isActive: true,
     },
     update: {
+      shortDescription: "Custom color service designed for rich tone and lasting shine.",
+      displayOrder: 2,
+      isFeatured: true,
+      badgeLabel: "Popular",
       priceDisplayType: PriceDisplayType.RANGE,
       basePrice: new Prisma.Decimal("900"),
       basePriceMax: new Prisma.Decimal("1600"),
@@ -148,6 +172,10 @@ async function seedCatalog(branchId: string): Promise<void> {
       categoryId: CAT_SPA,
       name: "Orphan Service (no branches)",
       description: "Not linked to any branch — hidden from public lists",
+      shortDescription: "Internal-only seed row without branch linking.",
+      displayOrder: 99,
+      isFeatured: false,
+      badgeLabel: null,
       priceDisplayType: PriceDisplayType.CONTACT,
       basePrice: null,
       basePriceMax: null,
@@ -156,7 +184,13 @@ async function seedCatalog(branchId: string): Promise<void> {
       bookingAvailability: false,
       isActive: true,
     },
-    update: { isActive: true },
+    update: {
+      shortDescription: "Internal-only seed row without branch linking.",
+      displayOrder: 99,
+      isFeatured: false,
+      badgeLabel: null,
+      isActive: true,
+    },
   });
   await prisma.serviceBranch.deleteMany({ where: { serviceId: SVC_ORPHAN } });
 
@@ -167,6 +201,10 @@ async function seedCatalog(branchId: string): Promise<void> {
       categoryId: CAT_NAILS,
       name: "Classic Manicure",
       description: null,
+      shortDescription: "Nail shaping and polish prep for elegant everyday hands.",
+      displayOrder: 3,
+      isFeatured: false,
+      badgeLabel: null,
       priceDisplayType: PriceDisplayType.FIXED,
       basePrice: new Prisma.Decimal("300"),
       basePriceMax: null,
@@ -175,7 +213,14 @@ async function seedCatalog(branchId: string): Promise<void> {
       bookingAvailability: true,
       isActive: true,
     },
-    update: { basePrice: new Prisma.Decimal("300"), isActive: true },
+    update: {
+      shortDescription: "Nail shaping and polish prep for elegant everyday hands.",
+      displayOrder: 3,
+      isFeatured: false,
+      badgeLabel: null,
+      basePrice: new Prisma.Decimal("300"),
+      isActive: true,
+    },
   });
   await prisma.serviceBranch.upsert({
     where: {
@@ -192,6 +237,10 @@ async function seedCatalog(branchId: string): Promise<void> {
       categoryId: CAT_NAILS,
       name: "Spa Pedicure",
       description: null,
+      shortDescription: "Comfort-focused foot care ritual with a restorative finish.",
+      displayOrder: 4,
+      isFeatured: false,
+      badgeLabel: null,
       priceDisplayType: PriceDisplayType.STARTS_FROM,
       basePrice: new Prisma.Decimal("400"),
       basePriceMax: null,
@@ -200,7 +249,13 @@ async function seedCatalog(branchId: string): Promise<void> {
       bookingAvailability: true,
       isActive: true,
     },
-    update: { isActive: true },
+    update: {
+      shortDescription: "Comfort-focused foot care ritual with a restorative finish.",
+      displayOrder: 4,
+      isFeatured: false,
+      badgeLabel: null,
+      isActive: true,
+    },
   });
   await prisma.serviceBranch.upsert({
     where: {
@@ -223,6 +278,26 @@ async function seedCatalog(branchId: string): Promise<void> {
     },
     update: { price: new Prisma.Decimal("900"), isActive: true },
   });
+
+  await prisma.serviceBenefit.deleteMany({
+    where: {
+      serviceId: { in: [SVC_CUT, SVC_COLOR, SVC_MANI, SVC_PEDI] },
+    },
+  });
+  await prisma.serviceBenefit.createMany({
+    data: [
+      { serviceId: SVC_CUT, label: "Stress Relief", displayOrder: 0, isActive: true },
+      { serviceId: SVC_CUT, label: "Relaxation", displayOrder: 1, isActive: true },
+      { serviceId: SVC_COLOR, label: "Deep Hydration", displayOrder: 0, isActive: true },
+      { serviceId: SVC_COLOR, label: "Brightening", displayOrder: 1, isActive: true },
+      { serviceId: SVC_COLOR, label: "Anti-Aging", displayOrder: 2, isActive: true },
+      { serviceId: SVC_MANI, label: "Nail Strengthening", displayOrder: 0, isActive: true },
+      { serviceId: SVC_MANI, label: "Cuticle Care", displayOrder: 1, isActive: true },
+      { serviceId: SVC_PEDI, label: "Muscle Tension", displayOrder: 0, isActive: true },
+      { serviceId: SVC_PEDI, label: "Circulation", displayOrder: 1, isActive: true },
+      { serviceId: SVC_PEDI, label: "Relaxation", displayOrder: 2, isActive: true },
+    ],
+  });
   await prisma.serviceVariant.upsert({
     where: { id: VAR_COLOR_LONG },
     create: {
@@ -237,7 +312,14 @@ async function seedCatalog(branchId: string): Promise<void> {
     update: { price: new Prisma.Decimal("1600"), isActive: true },
   });
 
-  for (const packageId of [PKG_LUXURY, PKG_ESCAPE, PKG_ROYAL] as const) {
+  for (const packageId of [
+    PKG_LUXURY,
+    PKG_ESCAPE,
+    PKG_ROYAL,
+    PKG_BRIDAL,
+    PKG_COLOR_SHINE,
+    PKG_GENTLEMENS,
+  ] as const) {
     await prisma.packageFeature.deleteMany({ where: { packageId } });
     await prisma.packageService.deleteMany({ where: { packageId } });
     await prisma.packageBranch.deleteMany({ where: { packageId } });
@@ -371,6 +453,136 @@ async function seedCatalog(branchId: string): Promise<void> {
     ],
   });
 
+  await prisma.package.upsert({
+    where: { id: PKG_BRIDAL },
+    create: {
+      id: PKG_BRIDAL,
+      name: "Bridal Beauty Suite",
+      description: "Hair, color touch-up, and polished nails for the big day.",
+      shortDescription: "Camera-ready hair and nails with a calm, unhurried pace.",
+      imageUrl: "/brand/home-experience.jpeg",
+      originalPrice: new Prisma.Decimal("2200"),
+      packagePrice: new Prisma.Decimal("1899"),
+      durationMinutes: 240,
+      startDate: null,
+      endDate: null,
+      isTaxable: true,
+      isActive: true,
+      isFeatured: false,
+      badgeLabel: "New",
+    },
+    update: {
+      description: "Hair, color touch-up, and polished nails for the big day.",
+      shortDescription: "Camera-ready hair and nails with a calm, unhurried pace.",
+      imageUrl: "/brand/home-experience.jpeg",
+      packagePrice: new Prisma.Decimal("1899"),
+      isActive: true,
+      badgeLabel: "New",
+    },
+  });
+  await prisma.packageService.createMany({
+    data: [
+      { packageId: PKG_BRIDAL, serviceId: SVC_CUT, sortOrder: 0 },
+      { packageId: PKG_BRIDAL, serviceId: SVC_COLOR, sortOrder: 1 },
+      { packageId: PKG_BRIDAL, serviceId: SVC_MANI, sortOrder: 2 },
+    ],
+  });
+  await prisma.packageBranch.createMany({
+    data: [{ packageId: PKG_BRIDAL, branchId }],
+  });
+  await prisma.packageFeature.createMany({
+    data: [
+      { packageId: PKG_BRIDAL, label: "Consultation & trial styling notes", displayOrder: 0, isActive: true },
+      { packageId: PKG_BRIDAL, label: "Wash, cut, and blow-dry", displayOrder: 1, isActive: true },
+      { packageId: PKG_BRIDAL, label: "Gloss refresh or toner", displayOrder: 2, isActive: true },
+      { packageId: PKG_BRIDAL, label: "Classic manicure finish", displayOrder: 3, isActive: true },
+    ],
+  });
+
+  await prisma.package.upsert({
+    where: { id: PKG_COLOR_SHINE },
+    create: {
+      id: PKG_COLOR_SHINE,
+      name: "Color & Shine Duo",
+      description: "Full color service plus a fresh cut and blow-dry.",
+      shortDescription: "Vibrant color and a sharp silhouette in one visit.",
+      imageUrl: "/brand/home-hero.jpeg",
+      originalPrice: new Prisma.Decimal("1950"),
+      packagePrice: new Prisma.Decimal("1699"),
+      durationMinutes: 200,
+      startDate: null,
+      endDate: null,
+      isTaxable: true,
+      isActive: true,
+      isFeatured: false,
+      badgeLabel: null,
+    },
+    update: {
+      description: "Full color service plus a fresh cut and blow-dry.",
+      shortDescription: "Vibrant color and a sharp silhouette in one visit.",
+      imageUrl: "/brand/home-hero.jpeg",
+      packagePrice: new Prisma.Decimal("1699"),
+      isActive: true,
+    },
+  });
+  await prisma.packageService.createMany({
+    data: [
+      { packageId: PKG_COLOR_SHINE, serviceId: SVC_COLOR, sortOrder: 0 },
+      { packageId: PKG_COLOR_SHINE, serviceId: SVC_CUT, sortOrder: 1 },
+    ],
+  });
+  await prisma.packageBranch.createMany({
+    data: [{ packageId: PKG_COLOR_SHINE, branchId }],
+  });
+  await prisma.packageFeature.createMany({
+    data: [
+      { packageId: PKG_COLOR_SHINE, label: "Color consultation", displayOrder: 0, isActive: true },
+      { packageId: PKG_COLOR_SHINE, label: "Application & processing", displayOrder: 1, isActive: true },
+      { packageId: PKG_COLOR_SHINE, label: "Cut and style finish", displayOrder: 2, isActive: true },
+    ],
+  });
+
+  await prisma.package.upsert({
+    where: { id: PKG_GENTLEMENS },
+    create: {
+      id: PKG_GENTLEMENS,
+      name: "Gentleman's Classic",
+      description: "Sharp haircut plus a relaxing pedicure.",
+      shortDescription: "Crisp grooming from head to toe without the fuss.",
+      originalPrice: new Prisma.Decimal("580"),
+      packagePrice: new Prisma.Decimal("479"),
+      durationMinutes: 120,
+      startDate: null,
+      endDate: null,
+      isTaxable: true,
+      isActive: true,
+      isFeatured: false,
+      badgeLabel: null,
+    },
+    update: {
+      description: "Sharp haircut plus a relaxing pedicure.",
+      shortDescription: "Crisp grooming from head to toe without the fuss.",
+      packagePrice: new Prisma.Decimal("479"),
+      isActive: true,
+    },
+  });
+  await prisma.packageService.createMany({
+    data: [
+      { packageId: PKG_GENTLEMENS, serviceId: SVC_CUT, sortOrder: 0 },
+      { packageId: PKG_GENTLEMENS, serviceId: SVC_PEDI, sortOrder: 1 },
+    ],
+  });
+  await prisma.packageBranch.createMany({
+    data: [{ packageId: PKG_GENTLEMENS, branchId }],
+  });
+  await prisma.packageFeature.createMany({
+    data: [
+      { packageId: PKG_GENTLEMENS, label: "Precision cut & style", displayOrder: 0, isActive: true },
+      { packageId: PKG_GENTLEMENS, label: "Foot soak and tidy", displayOrder: 1, isActive: true },
+      { packageId: PKG_GENTLEMENS, label: "Refreshments on arrival", displayOrder: 2, isActive: true },
+    ],
+  });
+
   await prisma.bundleService.deleteMany({ where: { bundleId: BND_NAILS } });
   await prisma.bundle.upsert({
     where: { id: BND_NAILS },
@@ -421,6 +633,166 @@ async function seedCatalog(branchId: string): Promise<void> {
       isActive: true,
     },
   });
+
+  await prisma.serviceEnhancement.upsert({
+    where: { id: ENH_AROMA },
+    create: {
+      id: ENH_AROMA,
+      title: "Aromatherapy Upgrade",
+      shortDescription: "Personalized botanical blend to deepen relaxation.",
+      price: new Prisma.Decimal("150"),
+      durationMinutes: 15,
+      imageUrl: null,
+      displayOrder: 0,
+      isActive: true,
+    },
+    update: {
+      title: "Aromatherapy Upgrade",
+      shortDescription: "Personalized botanical blend to deepen relaxation.",
+      price: new Prisma.Decimal("150"),
+      durationMinutes: 15,
+      imageUrl: null,
+      displayOrder: 0,
+      isActive: true,
+    },
+  });
+  await prisma.serviceEnhancement.upsert({
+    where: { id: ENH_SCALP },
+    create: {
+      id: ENH_SCALP,
+      title: "Scalp Massage",
+      shortDescription: "A tension-releasing scalp ritual to support circulation.",
+      price: new Prisma.Decimal("220"),
+      durationMinutes: 20,
+      imageUrl: null,
+      displayOrder: 1,
+      isActive: true,
+    },
+    update: {
+      title: "Scalp Massage",
+      shortDescription: "A tension-releasing scalp ritual to support circulation.",
+      price: new Prisma.Decimal("220"),
+      durationMinutes: 20,
+      imageUrl: null,
+      displayOrder: 1,
+      isActive: true,
+    },
+  });
+  await prisma.serviceEnhancement.upsert({
+    where: { id: ENH_GOLD_MASK },
+    create: {
+      id: ENH_GOLD_MASK,
+      title: "Gold Leaf Facial Mask",
+      shortDescription: "Instant glow boost and luminosity ritual for tired skin.",
+      price: new Prisma.Decimal("280"),
+      durationMinutes: 20,
+      imageUrl: null,
+      displayOrder: 2,
+      isActive: true,
+    },
+    update: {
+      title: "Gold Leaf Facial Mask",
+      shortDescription: "Instant glow boost and luminosity ritual for tired skin.",
+      price: new Prisma.Decimal("280"),
+      durationMinutes: 20,
+      imageUrl: null,
+      displayOrder: 2,
+      isActive: true,
+    },
+  });
+  await prisma.serviceEnhancement.upsert({
+    where: { id: ENH_NAIL_ART },
+    create: {
+      id: ENH_NAIL_ART,
+      title: "Nail Art Add-on",
+      shortDescription: "Custom nail detailing to elevate your final look.",
+      price: new Prisma.Decimal("180"),
+      durationMinutes: 25,
+      imageUrl: null,
+      displayOrder: 3,
+      isActive: true,
+    },
+    update: {
+      title: "Nail Art Add-on",
+      shortDescription: "Custom nail detailing to elevate your final look.",
+      price: new Prisma.Decimal("180"),
+      durationMinutes: 25,
+      imageUrl: null,
+      displayOrder: 3,
+      isActive: true,
+    },
+  });
+  await prisma.serviceEnhancement.upsert({
+    where: { id: ENH_HAIR_BOOSTER },
+    create: {
+      id: ENH_HAIR_BOOSTER,
+      title: "Hair Treatment Booster",
+      shortDescription: "Intensive nourishment boost for softness and shine.",
+      price: new Prisma.Decimal("250"),
+      durationMinutes: 20,
+      imageUrl: null,
+      displayOrder: 4,
+      isActive: true,
+    },
+    update: {
+      title: "Hair Treatment Booster",
+      shortDescription: "Intensive nourishment boost for softness and shine.",
+      price: new Prisma.Decimal("250"),
+      durationMinutes: 20,
+      imageUrl: null,
+      displayOrder: 4,
+      isActive: true,
+    },
+  });
+}
+
+/**
+ * Copies service/package branch links from the seeded main branch onto any other active
+ * branches that have no catalog links yet (e.g. branches created in the dashboard).
+ * Ensures public booking lists and estimates work for every branch after `seedCatalog`.
+ */
+async function mirrorCatalogToBranchesWithoutLinks(sourceBranchId: string): Promise<void> {
+  const serviceLinks = await prisma.serviceBranch.findMany({
+    where: { branchId: sourceBranchId },
+    select: { serviceId: true },
+  });
+  const packageLinks = await prisma.packageBranch.findMany({
+    where: { branchId: sourceBranchId },
+    select: { packageId: true },
+  });
+  if (serviceLinks.length === 0 && packageLinks.length === 0) {
+    return;
+  }
+  const otherBranches = await prisma.branch.findMany({
+    where: { isActive: true, id: { not: sourceBranchId } },
+    select: { id: true },
+  });
+  for (const { id: targetId } of otherBranches) {
+    const existingServices = await prisma.serviceBranch.count({
+      where: { branchId: targetId },
+    });
+    if (existingServices > 0) {
+      continue;
+    }
+    if (serviceLinks.length > 0) {
+      await prisma.serviceBranch.createMany({
+        data: serviceLinks.map((s) => ({
+          serviceId: s.serviceId,
+          branchId: targetId,
+        })),
+        skipDuplicates: true,
+      });
+    }
+    if (packageLinks.length > 0) {
+      await prisma.packageBranch.createMany({
+        data: packageLinks.map((p) => ({
+          packageId: p.packageId,
+          branchId: targetId,
+        })),
+        skipDuplicates: true,
+      });
+    }
+  }
 }
 
 function isoDateDaysFromNow(daysFromNow: number): string {
@@ -723,10 +1095,10 @@ async function seedContent(): Promise<void> {
           "A premium salon and spa destination delivering personalized beauty and wellness services.",
       },
       contactSection: {
-        phone: "+201234567890",
-        whatsapp: "+201234567890",
-        address: "Cairo, Egypt",
-        openingHours: "Daily 10:00 AM - 10:00 PM",
+        phone: "015 11100956",
+        whatsapp: "+201511100956",
+        address: "15 Radwan Ibn AlTabib Off Murad st., Giza",
+        openingHours: "Daily 11:00 AM - 9:00 PM",
       },
       footerSection: {
         copyright: "Alrouby Salon & Spa",
@@ -740,7 +1112,7 @@ async function seedContent(): Promise<void> {
       seoDefaults: {
         title: "Alrouby Salon & Spa",
         description:
-          "Premium salon and spa services in Cairo. Explore services, book appointments, and connect on WhatsApp.",
+          "Premium salon and spa services in Giza. Explore services, book appointments, and connect on WhatsApp.",
       },
       updatedByUserId: null,
     },
@@ -756,10 +1128,10 @@ async function seedContent(): Promise<void> {
           "A premium salon and spa destination delivering personalized beauty and wellness services.",
       },
       contactSection: {
-        phone: "+201234567890",
-        whatsapp: "+201234567890",
-        address: "Cairo, Egypt",
-        openingHours: "Daily 10:00 AM - 10:00 PM",
+        phone: "015 11100956",
+        whatsapp: "+201511100956",
+        address: "15 Radwan Ibn AlTabib Off Murad st., Giza",
+        openingHours: "Daily 11:00 AM - 9:00 PM",
       },
       footerSection: {
         copyright: "Alrouby Salon & Spa",
@@ -773,7 +1145,7 @@ async function seedContent(): Promise<void> {
       seoDefaults: {
         title: "Alrouby Salon & Spa",
         description:
-          "Premium salon and spa services in Cairo. Explore services, book appointments, and connect on WhatsApp.",
+          "Premium salon and spa services in Giza. Explore services, book appointments, and connect on WhatsApp.",
       },
       updatedByUserId: null,
     },
@@ -793,17 +1165,33 @@ async function main(): Promise<void> {
     create: {
       id: "00000000-0000-4000-8000-000000000001",
       name: "Alrouby Main",
-      address: "",
-      phone: "",
-      whatsapp: "",
+      address: "15 Radwan Ibn AlTabib Off Murad st., Giza",
+      phone: "015 11100956",
+      whatsapp: "+201511100956",
       mapUrl: "",
+      workingHours: "Daily 11:00 AM - 9:00 PM",
       isActive: true,
     },
     update: {
       name: "Alrouby Main",
       isActive: true,
+      address: "15 Radwan Ibn AlTabib Off Murad st., Giza",
+      phone: "015 11100956",
+      whatsapp: "+201511100956",
+      workingHours: "Daily 11:00 AM - 9:00 PM",
     },
   });
+
+  const defaultSlotGenerationDefaults = {
+    schemaVersion: 1,
+    workingDays: [1, 2, 3, 4, 5, 6],
+    startTime: "10:00",
+    endTime: "20:00",
+    slotDurationMinutes: 60,
+    defaultCapacity: 1,
+    defaultOnlineBookable: true,
+    breakPeriods: [] as { startTime: string; endTime: string }[],
+  };
 
   await prisma.systemSettings.upsert({
     where: { id: SYSTEM_SETTINGS_ID },
@@ -815,6 +1203,7 @@ async function main(): Promise<void> {
       showVatOnInvoice: true,
       taxRegistrationNumber: null,
       paymentDepositPolicy: "PAY_AT_SALON",
+      slotGenerationDefaults: defaultSlotGenerationDefaults,
       updatedByUserId: null,
     },
     update: {
@@ -824,6 +1213,14 @@ async function main(): Promise<void> {
       showVatOnInvoice: true,
       paymentDepositPolicy: "PAY_AT_SALON",
     },
+  });
+
+  await prisma.systemSettings.updateMany({
+    where: {
+      id: SYSTEM_SETTINGS_ID,
+      slotGenerationDefaults: { equals: Prisma.DbNull },
+    },
+    data: { slotGenerationDefaults: defaultSlotGenerationDefaults },
   });
 
   /** Sprint 7 — keep in sync with `services/api/src/billing/billing.constants.ts`. */
@@ -934,6 +1331,7 @@ async function main(): Promise<void> {
   }
 
   await seedCatalog(defaultBranch.id);
+  await mirrorCatalogToBranchesWithoutLinks(defaultBranch.id);
   await seedBookingSlots(defaultBranch.id);
   await seedContent();
 

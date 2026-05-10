@@ -136,6 +136,8 @@ export type DashboardSlot = {
   endTime: string;
   capacity: number;
   bookedCount: number;
+  /** Active bookings on this slot (excludes cancelled / rejected / completed / no-show). */
+  liveBookingsCount: number;
   status: DashboardSlotStatus;
   isOnlineBookable: boolean;
   notes: string | null;
@@ -162,12 +164,28 @@ export type DashboardBookingsListItem = {
   id: string;
   status: string;
   branchId: string;
+  /** Branch display name when relation is loaded (dashboard list). */
+  branchName?: string | null;
   slotId: string | null;
+  slot?: {
+    date: string;
+    startTime: string;
+    endTime: string;
+  } | null;
   clientId: string;
+  client?: {
+    id: string;
+    fullName: string;
+    phone: string;
+    email: string | null;
+  } | null;
   source: string;
   totalAmount: number;
   currency: "EGP" | string;
   createdAt: string;
+  itemsPreview?: Array<{ nameSnapshot: string; quantity: number }>;
+  /** Short human-readable summary of line items for list rows. */
+  servicesSummary?: string;
 };
 
 export type DashboardBookingsListResponse = {
@@ -181,6 +199,8 @@ export type DashboardBookingDetail = {
   branchId: string;
   slotId: string;
   source: string;
+  /** Present when API returns booking promo snapshot fields. */
+  appliedPromoCode?: string | null;
   subtotal: number;
   discountAmount: number;
   vatRate: number;
@@ -347,6 +367,8 @@ export type DashboardBookingsListQuery = {
   dateTo?: string;
   clientId?: string;
   slotId?: string;
+  /** Trimmed server-side; searches name, email, phone, booking id / reference fragment. */
+  search?: string;
   page?: number;
   pageSize?: number;
 };
@@ -407,6 +429,47 @@ export type DashboardPaymentPolicyResponse = {
 
 export type PatchDashboardPaymentPolicyInput = {
   paymentDepositPolicy: string;
+};
+
+export type SlotGenerationBreakPeriodInput = {
+  startTime: string;
+  endTime: string;
+};
+
+/** Global slot generation defaults (SystemSettings.slot_generation_defaults). */
+export type SlotGenerationDefaults = {
+  schemaVersion: 1;
+  /** 0 = Sunday … 6 = Saturday (UTC calendar day, same as slot `date` storage). */
+  workingDays: number[];
+  startTime: string;
+  endTime: string;
+  slotDurationMinutes: number;
+  defaultCapacity: number;
+  defaultOnlineBookable: boolean;
+  breakPeriods: SlotGenerationBreakPeriodInput[];
+};
+
+export type PatchSlotGenerationSettingsInput = Partial<{
+  workingDays: number[];
+  startTime: string;
+  endTime: string;
+  slotDurationMinutes: number;
+  defaultCapacity: number;
+  defaultOnlineBookable: boolean;
+  breakPeriods: SlotGenerationBreakPeriodInput[];
+}>;
+
+export type GenerateWeekSlotsInput = PatchSlotGenerationSettingsInput & {
+  weekStartDate: string;
+};
+
+export type GenerateWeekSlotsResponse = {
+  createdCount: number;
+  skippedCount: number;
+  /** Existing empty `AVAILABLE` slots on the same grid had capacity / online flag refreshed from effective defaults. */
+  alignedDefaultsCount: number;
+  dateFrom: string;
+  dateTo: string;
 };
 
 export type DashboardWhatsappTemplate = {
@@ -520,7 +583,11 @@ export type DashboardService = {
   categoryId: string;
   name: string;
   description: string | null;
+  shortDescription: string | null;
   imageUrl: string | null;
+  displayOrder: number;
+  isFeatured: boolean;
+  badgeLabel: string | null;
   priceDisplayType: "FIXED" | "STARTS_FROM" | "RANGE" | "CONTACT" | string;
   basePrice: number | null;
   basePriceMax: number | null;
@@ -534,6 +601,16 @@ export type DashboardService = {
   updatedAt: string;
   currency: "EGP" | string;
   branchIds: string[];
+  benefits: DashboardServiceBenefit[];
+};
+
+export type DashboardServiceBenefit = {
+  id: string;
+  label: string;
+  displayOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type DashboardServiceVariant = {
@@ -599,6 +676,7 @@ export type DashboardBundle = {
 export type DashboardOffer = {
   id: string;
   name: string;
+  description: string | null;
   offerCode: string | null;
   discountType: "PERCENTAGE" | "FIXED_AMOUNT" | string;
   discountValue: number;
@@ -606,8 +684,24 @@ export type DashboardOffer = {
   endDate: string;
   usageLimit: number | null;
   perClientUsageLimit: number | null;
+  minimumSpend: number | null;
+  appliesTo: "ALL" | "SERVICES" | "PACKAGES";
   isActive: boolean;
   eligibilityRules: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+  currency: "EGP" | string;
+};
+
+export type DashboardServiceEnhancement = {
+  id: string;
+  title: string;
+  shortDescription: string | null;
+  price: number | null;
+  durationMinutes: number | null;
+  imageUrl: string | null;
+  displayOrder: number;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
   currency: "EGP" | string;
@@ -852,6 +946,7 @@ export async function getDashboardBookings(
       dateTo: query.dateTo,
       clientId: query.clientId,
       slotId: query.slotId,
+      search: query.search,
       page: query.page,
       pageSize: query.pageSize,
     }),
@@ -1022,7 +1117,6 @@ export async function postDashboardBookingAction(
   action:
     | "confirm"
     | "reject"
-    | "require-follow-up"
     | "reschedule"
     | "confirm-reschedule"
     | "cancel"
@@ -1211,6 +1305,43 @@ export async function patchDashboardPaymentPolicy(
     accessToken,
     "/dashboard/settings/payment-policy",
     "PATCH",
+    payload,
+  );
+}
+
+export async function getSlotGenerationSettings(
+  accessToken: string,
+): Promise<SlotGenerationDefaults> {
+  const res = await fetch(apiUrl("/dashboard/settings/slot-generation"), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as SlotGenerationDefaults;
+}
+
+export async function updateSlotGenerationSettings(
+  accessToken: string,
+  payload: PatchSlotGenerationSettingsInput,
+): Promise<SlotGenerationDefaults> {
+  return jsonMutation<SlotGenerationDefaults>(
+    accessToken,
+    "/dashboard/settings/slot-generation",
+    "PATCH",
+    payload,
+  );
+}
+
+export async function generateWeekSlots(
+  accessToken: string,
+  branchId: string,
+  payload: GenerateWeekSlotsInput,
+): Promise<GenerateWeekSlotsResponse> {
+  return jsonMutation<GenerateWeekSlotsResponse>(
+    accessToken,
+    `/dashboard/branches/${branchId}/slots/generate-week`,
+    "POST",
     payload,
   );
 }
@@ -1626,6 +1757,62 @@ export async function getDashboardOffers(
     throw await parseApiError(res);
   }
   return (await res.json()) as { data: DashboardOffer[]; meta: DashboardListMeta };
+}
+
+export async function getDashboardServiceEnhancements(
+  accessToken: string,
+  query: { page?: number; pageSize?: number; isActive?: boolean } = {},
+): Promise<{ data: DashboardServiceEnhancement[]; meta: DashboardListMeta }> {
+  const res = await fetch(
+    withQuery("/dashboard/service-enhancements", {
+      page: query.page,
+      pageSize: query.pageSize,
+      isActive: query.isActive,
+    }),
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as { data: DashboardServiceEnhancement[]; meta: DashboardListMeta };
+}
+
+export async function postDashboardServiceEnhancement(
+  accessToken: string,
+  payload: Record<string, unknown>,
+): Promise<DashboardServiceEnhancement> {
+  return jsonMutation<DashboardServiceEnhancement>(
+    accessToken,
+    "/dashboard/service-enhancements",
+    "POST",
+    payload,
+  );
+}
+
+export async function patchDashboardServiceEnhancement(
+  accessToken: string,
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<DashboardServiceEnhancement> {
+  return jsonMutation<DashboardServiceEnhancement>(
+    accessToken,
+    `/dashboard/service-enhancements/${id}`,
+    "PATCH",
+    payload,
+  );
+}
+
+export async function patchDashboardServiceEnhancementStatus(
+  accessToken: string,
+  id: string,
+  isActive: boolean,
+): Promise<DashboardServiceEnhancement> {
+  return jsonMutation<DashboardServiceEnhancement>(
+    accessToken,
+    `/dashboard/service-enhancements/${id}/status`,
+    "PATCH",
+    { isActive },
+  );
 }
 
 export async function postDashboardOffer(

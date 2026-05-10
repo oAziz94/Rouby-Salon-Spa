@@ -13,6 +13,8 @@ import {
   BookingSource,
   BookingStatus,
   InvoiceStatus,
+  OfferAppliesTo,
+  OfferDiscountType,
   PaymentMethod,
   PaymentStatus,
   Prisma,
@@ -58,6 +60,44 @@ function countsTowardCapacity(status: BookingStatus): boolean {
   );
 }
 
+/** Normalize dashboard booking search input to a canonical UUID string, or null. */
+function normalizeUuidSearchString(raw: string): string | null {
+  const trimmed = raw.trim();
+  const compact = trimmed.replace(/-/g, '').toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(compact)) {
+    return null;
+  }
+  return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20, 32)}`;
+}
+
+/**
+ * Extracts a 4–32 hex-char fragment used to match booking ids (supports RB-… style references).
+ */
+function extractBookingIdSearchCompact(raw: string): string | null {
+  let s = raw.trim();
+  if (/^rb-/i.test(s)) {
+    s = s.slice(3).trim();
+  }
+  s = s.replace(/\s+/g, '').replace(/-/g, '').toLowerCase();
+  if (!/^[0-9a-f]+$/.test(s)) {
+    return null;
+  }
+  if (s.length < 4 || s.length > 32) {
+    return null;
+  }
+  return s;
+}
+
+type PromoComputationResult =
+  | {
+      ok: true;
+      offerId: string;
+      appliedPromoCode: string;
+      discountAmount: number;
+      promoSnapshot: Record<string, unknown>;
+    }
+  | { ok: false; message: string };
+
 @Injectable()
 export class BookingsService {
   constructor(
@@ -98,7 +138,27 @@ export class BookingsService {
   async estimatePublic(body: PublicBookingEstimateBodyDto) {
     const settings = await this.pricing.getSystemSettings();
     const lines = await this.pricing.resolveLines(body.branchId, body.items);
-    const totals = this.pricing.computeTotals(lines, settings, 0);
+    let discountAmount = 0;
+    let appliedPromoCode: string | null = null;
+    let appliedOfferId: string | null = null;
+    let promoError: string | null = null;
+    const promoCode = body.promoCode?.trim();
+    if (promoCode) {
+      const promo = await this.computePromoDiscount(
+        promoCode,
+        lines,
+        settings,
+        body.branchId,
+      );
+      if (promo.ok) {
+        discountAmount = promo.discountAmount;
+        appliedPromoCode = promo.appliedPromoCode;
+        appliedOfferId = promo.offerId;
+      } else {
+        promoError = promo.message;
+      }
+    }
+    const totals = this.pricing.computeTotals(lines, settings, discountAmount);
     return {
       subtotal: Number(totals.subtotal.toString()),
       discountAmount: Number(totals.discountAmount.toString()),
@@ -107,6 +167,9 @@ export class BookingsService {
       totalAmount: Number(totals.totalAmount.toString()),
       currency: 'EGP',
       pricesIncludeVat: settings.pricesIncludeVat,
+      appliedPromoCode,
+      appliedOfferId,
+      promoError,
     };
   }
 
@@ -129,51 +192,117 @@ export class BookingsService {
       );
     }
 
-    await this.slots.assertSlotPubliclyBookable(body.branchId, body.slotId);
-
     const settings = await this.pricing.getSystemSettings();
     const lines = await this.pricing.resolveLines(body.branchId, body.items);
-    const totals = this.pricing.computeTotals(lines, settings, 0);
+    let discountAmount = 0;
+    let appliedOfferId: string | null = null;
+    let appliedPromoCode: string | null = null;
+    let promoSnapshot: Record<string, unknown> | null = null;
+    const promoCode = body.promoCode?.trim();
+    if (promoCode) {
+      const promo = await this.computePromoDiscount(
+        promoCode,
+        lines,
+        settings,
+        body.branchId,
+      );
+      if (!promo.ok) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: promo.message,
+            error: 'Bad Request',
+            code: 'PROMO_INVALID',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      discountAmount = promo.discountAmount;
+      appliedOfferId = promo.offerId;
+      appliedPromoCode = promo.appliedPromoCode;
+      promoSnapshot = promo.promoSnapshot;
+    }
+    const totals = this.pricing.computeTotals(lines, settings, discountAmount);
 
-    const booking = await this.prisma.booking.create({
-      data: {
-        clientId: client.clientId,
-        branchId: body.branchId,
-        slotId: body.slotId,
-        status: BookingStatus.PENDING,
-        source: BookingSource.WEBSITE,
-        subtotal: totals.subtotal,
-        discountAmount: totals.discountAmount,
-        vatRate: totals.vatRate,
-        vatAmount: totals.vatAmount,
-        totalAmount: totals.totalAmount,
-        clientNotes: body.clientNotes ?? null,
-        adminNotes: null,
-        createdByUserId: null,
-        items: {
-          create: lines.map((l) => ({
-            itemType: l.itemType,
-            serviceId: l.serviceId,
-            serviceVariantId: l.serviceVariantId,
-            packageId: l.packageId,
-            bundleId: l.bundleId,
-            nameSnapshot: l.nameSnapshot,
-            priceSnapshot: l.priceSnapshot,
-            durationMinutesSnapshot: l.durationMinutesSnapshot,
-            quantity: l.quantity,
-            lineMetadata: l.lineMetadata ?? Prisma.JsonNull,
-          })),
-        },
+    const booking = await this.prisma.$transaction(
+      async (tx) => {
+        await this.slots.assertWebsiteSubmitSlotPolicyTx(
+          tx,
+          body.branchId,
+          body.slotId,
+        );
+        const reserved = await this.slots.tryReserveOneSlotCapacityTx(
+          tx,
+          body.slotId,
+        );
+        if (!reserved) {
+          throw new HttpException(
+            {
+              statusCode: HttpStatus.BAD_REQUEST,
+              message: 'Selected slot is full',
+              error: 'Bad Request',
+              code: 'SLOT_FULL',
+            },
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+
+        const created = await tx.booking.create({
+          data: {
+            clientId: client.clientId,
+            branchId: body.branchId,
+            slotId: body.slotId,
+            status: BookingStatus.PENDING,
+            source: BookingSource.WEBSITE,
+            subtotal: totals.subtotal,
+            discountAmount: totals.discountAmount,
+            appliedOfferId,
+            appliedPromoCode,
+            promoSnapshot:
+              promoSnapshot !== null
+                ? (promoSnapshot as Prisma.InputJsonValue)
+                : Prisma.JsonNull,
+            vatRate: totals.vatRate,
+            vatAmount: totals.vatAmount,
+            totalAmount: totals.totalAmount,
+            clientNotes: body.clientNotes ?? null,
+            adminNotes: null,
+            createdByUserId: null,
+            items: {
+              create: lines.map((l) => ({
+                itemType: l.itemType,
+                serviceId: l.serviceId,
+                serviceVariantId: l.serviceVariantId,
+                packageId: l.packageId,
+                bundleId: l.bundleId,
+                nameSnapshot: l.nameSnapshot,
+                priceSnapshot: l.priceSnapshot,
+                durationMinutesSnapshot: l.durationMinutesSnapshot,
+                quantity: l.quantity,
+                lineMetadata: l.lineMetadata ?? Prisma.JsonNull,
+              })),
+            },
+          },
+          select: {
+            id: true,
+            status: true,
+            branchId: true,
+            slotId: true,
+            totalAmount: true,
+            createdAt: true,
+          },
+        });
+
+        await this.slots.syncBookingSlotFilledFromCapacityTx(tx, body.slotId);
+
+        return created;
       },
-      select: {
-        id: true,
-        status: true,
-        branchId: true,
-        slotId: true,
-        totalAmount: true,
-        createdAt: true,
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        maxWait: 5000,
+        timeout: 10_000,
       },
-    });
+    );
     await this.audit.log({
       userId: null,
       action: 'booking.created',
@@ -184,6 +313,8 @@ export class BookingsService {
         slotId: booking.slotId,
         status: booking.status,
         totalAmount: Number(booking.totalAmount.toString()),
+        appliedOfferId,
+        appliedPromoCode,
       },
     });
 
@@ -195,6 +326,165 @@ export class BookingsService {
       totalAmount: Number(booking.totalAmount.toString()),
       currency: 'EGP',
       createdAt: booking.createdAt,
+      appliedOfferId,
+      appliedPromoCode,
+    };
+  }
+
+  private async computePromoDiscount(
+    rawPromoCode: string,
+    lines: ResolvedBookingLine[],
+    settings: Awaited<ReturnType<BookingPricingService['getSystemSettings']>>,
+    branchId: string,
+  ): Promise<PromoComputationResult> {
+    const promoCode = rawPromoCode.trim();
+    if (!promoCode) {
+      return { ok: false, message: 'Promo code is required' };
+    }
+
+    const offer = await this.prisma.offer.findFirst({
+      where: { offerCode: { equals: promoCode, mode: 'insensitive' } },
+    });
+    if (!offer || !offer.offerCode) {
+      return { ok: false, message: 'Promo code not found' };
+    }
+    if (!offer.isActive) {
+      return { ok: false, message: 'Promo code is inactive' };
+    }
+    const today = new Date();
+    if (today < offer.startDate || today > offer.endDate) {
+      return {
+        ok: false,
+        message: 'Promo code is outside its validity period',
+      };
+    }
+
+    // usageLimit/perClientUsageLimit are intentionally not enforced yet:
+    // redemption tracking is out of this MVP scope.
+    const allSubtotal = lines.reduce(
+      (sum, line) => sum + this.pricing.lineExclusiveAmount(line, settings),
+      0,
+    );
+    if (
+      offer.minimumSpend !== null &&
+      allSubtotal < Number(offer.minimumSpend.toString())
+    ) {
+      return {
+        ok: false,
+        message: 'Minimum spend is not met for this promo code',
+      };
+    }
+
+    const rules =
+      offer.eligibilityRules &&
+      typeof offer.eligibilityRules === 'object' &&
+      !Array.isArray(offer.eligibilityRules)
+        ? (offer.eligibilityRules as Record<string, unknown>)
+        : {};
+    const ruleServiceIds = Array.isArray(rules.serviceIds)
+      ? new Set(
+          rules.serviceIds
+            .filter((v): v is string => typeof v === 'string')
+            .map((v) => v.trim()),
+        )
+      : null;
+    const rulePackageIds = Array.isArray(rules.packageIds)
+      ? new Set(
+          rules.packageIds
+            .filter((v): v is string => typeof v === 'string')
+            .map((v) => v.trim()),
+        )
+      : null;
+
+    const eligibleLines = lines.filter((line) => {
+      if (offer.appliesTo === OfferAppliesTo.SERVICES) {
+        if (
+          line.itemType !== BookingItemType.SERVICE &&
+          line.itemType !== BookingItemType.SERVICE_VARIANT &&
+          line.itemType !== BookingItemType.ADD_ON
+        ) {
+          return false;
+        }
+        if (!ruleServiceIds || ruleServiceIds.size === 0) {
+          return true;
+        }
+        return Boolean(line.serviceId && ruleServiceIds.has(line.serviceId));
+      }
+      if (offer.appliesTo === OfferAppliesTo.PACKAGES) {
+        if (line.itemType !== BookingItemType.PACKAGE) {
+          return false;
+        }
+        if (!rulePackageIds || rulePackageIds.size === 0) {
+          return true;
+        }
+        return Boolean(line.packageId && rulePackageIds.has(line.packageId));
+      }
+
+      if (
+        line.itemType === BookingItemType.SERVICE ||
+        line.itemType === BookingItemType.SERVICE_VARIANT ||
+        line.itemType === BookingItemType.ADD_ON
+      ) {
+        if (ruleServiceIds && ruleServiceIds.size > 0) {
+          return Boolean(line.serviceId && ruleServiceIds.has(line.serviceId));
+        }
+        return true;
+      }
+      if (line.itemType === BookingItemType.PACKAGE) {
+        if (rulePackageIds && rulePackageIds.size > 0) {
+          return Boolean(line.packageId && rulePackageIds.has(line.packageId));
+        }
+        return true;
+      }
+      return ruleServiceIds == null && rulePackageIds == null;
+    });
+
+    const eligibleSubtotal = eligibleLines.reduce(
+      (sum, line) => sum + this.pricing.lineExclusiveAmount(line, settings),
+      0,
+    );
+    if (eligibleSubtotal <= 0) {
+      return {
+        ok: false,
+        message: 'Promo code does not apply to selected items',
+      };
+    }
+
+    let discountAmount = 0;
+    if (offer.discountType === OfferDiscountType.PERCENTAGE) {
+      const pct = Number(offer.discountValue.toString());
+      discountAmount = (eligibleSubtotal * pct) / 100;
+    } else if (offer.discountType === OfferDiscountType.FIXED_AMOUNT) {
+      discountAmount = Number(offer.discountValue.toString());
+    } else {
+      return {
+        ok: false,
+        message: 'Promo code discount type is not supported for booking yet',
+      };
+    }
+
+    discountAmount = Math.max(0, Math.min(discountAmount, eligibleSubtotal));
+    return {
+      ok: true,
+      offerId: offer.id,
+      appliedPromoCode: offer.offerCode,
+      discountAmount,
+      promoSnapshot: {
+        offerId: offer.id,
+        offerCode: offer.offerCode,
+        name: offer.name,
+        discountType: offer.discountType,
+        discountValue: Number(offer.discountValue.toString()),
+        minimumSpend:
+          offer.minimumSpend === null
+            ? null
+            : Number(offer.minimumSpend.toString()),
+        appliesTo: offer.appliesTo,
+        usageLimit: offer.usageLimit,
+        perClientUsageLimit: offer.perClientUsageLimit,
+        eligibilityRules: offer.eligibilityRules,
+        branchId,
+      },
     };
   }
 
@@ -355,6 +645,49 @@ export class BookingsService {
     return row;
   }
 
+  private async findBookingIdsMatchingCompactId(
+    compactHex: string,
+    scope: {
+      branchId?: string;
+      status?: BookingStatus;
+      clientId?: string;
+      slotId?: string;
+      dateFrom?: Date;
+      dateTo?: Date;
+    },
+  ): Promise<string[]> {
+    const pattern = `%${compactHex.toLowerCase()}%`;
+    const checks: Prisma.Sql[] = [
+      Prisma.sql`replace(lower(b.id::text), '-', '') LIKE ${pattern}`,
+    ];
+    if (scope.branchId) {
+      checks.push(Prisma.sql`b.branch_id = ${scope.branchId}::uuid`);
+    }
+    if (scope.status) {
+      checks.push(Prisma.sql`b.status = ${scope.status}::"BookingStatus"`);
+    }
+    if (scope.clientId) {
+      checks.push(Prisma.sql`b.client_id = ${scope.clientId}::uuid`);
+    }
+    if (scope.slotId) {
+      checks.push(Prisma.sql`b.slot_id = ${scope.slotId}::uuid`);
+    }
+    if (scope.dateFrom) {
+      checks.push(Prisma.sql`s.date >= ${scope.dateFrom}::date`);
+    }
+    if (scope.dateTo) {
+      checks.push(Prisma.sql`s.date <= ${scope.dateTo}::date`);
+    }
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT b.id
+      FROM bookings b
+      INNER JOIN booking_slots s ON s.id = b.slot_id
+      WHERE ${Prisma.join(checks, ' AND ')}
+      LIMIT 500
+    `);
+    return rows.map((r) => String(r.id));
+  }
+
   async listDashboardBookings(
     user: DashboardJwtUser,
     query: DashboardBookingListQueryDto,
@@ -368,18 +701,18 @@ export class BookingsService {
       throw new ForbiddenException('Insufficient permissions');
     }
 
-    const where: Prisma.BookingWhereInput = {};
+    const filters: Prisma.BookingWhereInput[] = [];
     if (branchFilter) {
-      where.branchId = branchFilter;
+      filters.push({ branchId: branchFilter });
     }
     if (query.status) {
-      where.status = query.status;
+      filters.push({ status: query.status });
     }
     if (query.clientId) {
-      where.clientId = query.clientId;
+      filters.push({ clientId: query.clientId });
     }
     if (query.slotId) {
-      where.slotId = query.slotId;
+      filters.push({ slotId: query.slotId });
     }
     if (query.dateFrom || query.dateTo) {
       const dateFilter: Prisma.DateTimeFilter = {};
@@ -389,8 +722,66 @@ export class BookingsService {
       if (query.dateTo) {
         dateFilter.lte = parseDateOnly(query.dateTo);
       }
-      where.slot = { date: dateFilter };
+      filters.push({ slot: { date: dateFilter } });
     }
+
+    const searchRaw = query.search?.trim() ?? '';
+    if (searchRaw) {
+      const searchOr: Prisma.BookingWhereInput[] = [
+        {
+          client: {
+            fullName: { contains: searchRaw, mode: 'insensitive' },
+          },
+        },
+        {
+          client: {
+            email: { contains: searchRaw, mode: 'insensitive' },
+          },
+        },
+        {
+          client: {
+            phone: { contains: searchRaw, mode: 'insensitive' },
+          },
+        },
+      ];
+      const digitsOnly = searchRaw.replace(/\D/g, '');
+      if (digitsOnly.length >= 3) {
+        searchOr.push({
+          client: { phone: { contains: digitsOnly, mode: 'insensitive' } },
+        });
+      }
+      const uuidNorm = normalizeUuidSearchString(searchRaw);
+      if (uuidNorm) {
+        searchOr.push({ id: uuidNorm });
+      }
+      const compactId = extractBookingIdSearchCompact(searchRaw);
+      if (compactId && compactId.length >= 4) {
+        const idMatches = await this.findBookingIdsMatchingCompactId(
+          compactId,
+          {
+            branchId: branchFilter,
+            status: query.status,
+            clientId: query.clientId,
+            slotId: query.slotId,
+            dateFrom: query.dateFrom
+              ? parseDateOnly(query.dateFrom)
+              : undefined,
+            dateTo: query.dateTo ? parseDateOnly(query.dateTo) : undefined,
+          },
+        );
+        if (idMatches.length) {
+          searchOr.push({ id: { in: idMatches } });
+        }
+      }
+      filters.push({ OR: searchOr });
+    }
+
+    const where: Prisma.BookingWhereInput =
+      filters.length === 0
+        ? {}
+        : filters.length === 1
+          ? filters[0]
+          : { AND: filters };
 
     const skip = (query.page - 1) * query.pageSize;
     const [totalItems, rows] = await Promise.all([
@@ -409,16 +800,80 @@ export class BookingsService {
           source: true,
           totalAmount: true,
           createdAt: true,
+          client: {
+            select: {
+              id: true,
+              fullName: true,
+              phone: true,
+              email: true,
+            },
+          },
+          branch: { select: { name: true } },
+          slot: {
+            select: {
+              date: true,
+              startTime: true,
+              endTime: true,
+            },
+          },
+          items: {
+            orderBy: { createdAt: 'asc' },
+            take: 4,
+            select: {
+              nameSnapshot: true,
+              quantity: true,
+            },
+          },
         },
       }),
     ]);
 
     return {
-      data: rows.map((b) => ({
-        ...b,
-        totalAmount: Number(b.totalAmount.toString()),
-        currency: 'EGP',
-      })),
+      data: rows.map((b) => {
+        const slot = b.slot
+          ? {
+              date: b.slot.date.toISOString().slice(0, 10),
+              startTime: b.slot.startTime.toISOString().slice(11, 19),
+              endTime: b.slot.endTime.toISOString().slice(11, 19),
+            }
+          : null;
+        const itemsPreview =
+          b.items?.map((it) => ({
+            nameSnapshot: it.nameSnapshot,
+            quantity: it.quantity,
+          })) ?? [];
+        let servicesSummary = '—';
+        if (itemsPreview.length > 0) {
+          const first = itemsPreview[0]?.nameSnapshot ?? 'Item';
+          servicesSummary =
+            itemsPreview.length === 1
+              ? first
+              : `${first} +${itemsPreview.length - 1} more`;
+        }
+        return {
+          id: b.id,
+          status: b.status,
+          branchId: b.branchId,
+          branchName: b.branch?.name ?? null,
+          slotId: b.slotId,
+          slot,
+          clientId: b.clientId,
+          client: b.client
+            ? {
+                id: b.client.id,
+                fullName: b.client.fullName,
+                phone: b.client.phone,
+                email: b.client.email,
+              }
+            : null,
+          source: b.source,
+          totalAmount: Number(b.totalAmount.toString()),
+          currency: 'EGP',
+          createdAt: b.createdAt,
+          itemsPreview,
+          servicesSummary,
+        };
+      }),
       meta: buildListMeta({
         page: query.page,
         pageSize: query.pageSize,
@@ -482,6 +937,25 @@ export class BookingsService {
 
     const booking = await this.prisma.$transaction(
       async (tx) => {
+        if (countsTowardCapacity(initialStatus)) {
+          const ok = await this.slots.tryReserveOneSlotCapacityTx(
+            tx,
+            dto.slotId,
+          );
+          if (!ok) {
+            throw new HttpException(
+              {
+                statusCode: HttpStatus.BAD_REQUEST,
+                message: 'Slot is at capacity',
+                error: 'Bad Request',
+                code: 'SLOT_AT_CAPACITY',
+              },
+              HttpStatus.BAD_REQUEST,
+            );
+          }
+          await this.slots.syncBookingSlotFilledFromCapacityTx(tx, dto.slotId);
+        }
+
         const created = await tx.booking.create({
           data: {
             clientId: dto.clientId,
@@ -514,14 +988,6 @@ export class BookingsService {
           },
           include: { items: true, slot: true, client: true },
         });
-
-        if (countsTowardCapacity(initialStatus)) {
-          await this.assertSlotHasCapacity(tx, dto.slotId);
-          await tx.bookingSlot.update({
-            where: { id: dto.slotId },
-            data: { bookedCount: { increment: 1 } },
-          });
-        }
 
         return created;
       },
@@ -559,15 +1025,40 @@ export class BookingsService {
           HttpStatus.BAD_REQUEST,
         );
       }
-      await this.assertSlotHasCapacity(tx, booking.slotId);
-      await tx.bookingSlot.update({
-        where: { id: booking.slotId },
-        data: { bookedCount: { increment: 1 } },
-      });
-      await tx.booking.update({
-        where: { id: booking.id },
-        data: { status: BookingStatus.CONFIRMED },
-      });
+      if (booking.source === BookingSource.WEBSITE) {
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { status: BookingStatus.CONFIRMED },
+        });
+        await this.slots.syncBookingSlotFilledFromCapacityTx(
+          tx,
+          booking.slotId,
+        );
+      } else {
+        const ok = await this.slots.tryReserveOneSlotCapacityTx(
+          tx,
+          booking.slotId,
+        );
+        if (!ok) {
+          throw new HttpException(
+            {
+              statusCode: HttpStatus.BAD_REQUEST,
+              message: 'Slot is at capacity',
+              error: 'Bad Request',
+              code: 'SLOT_AT_CAPACITY',
+            },
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { status: BookingStatus.CONFIRMED },
+        });
+        await this.slots.syncBookingSlotFilledFromCapacityTx(
+          tx,
+          booking.slotId,
+        );
+      }
     });
     const updated = await this.getDashboardBooking(user, bookingId);
     await this.audit.log({
@@ -593,6 +1084,13 @@ export class BookingsService {
           HttpStatus.BAD_REQUEST,
         );
       }
+      if (booking.source === BookingSource.WEBSITE) {
+        await this.slots.releaseOneSlotCapacityTx(tx, booking.slotId);
+        await this.slots.syncBookingSlotFilledFromCapacityTx(
+          tx,
+          booking.slotId,
+        );
+      }
       await tx.booking.update({
         where: { id: booking.id },
         data: { status: BookingStatus.REJECTED },
@@ -602,35 +1100,6 @@ export class BookingsService {
     await this.audit.log({
       userId: user.userId,
       action: 'booking.rejected',
-      module: 'bookings',
-      entityId: bookingId,
-      newValue: { status: updated.status },
-    });
-    return updated;
-  }
-
-  async requireFollowUp(user: DashboardJwtUser, bookingId: string) {
-    await this.mutateBookingStatus(user, bookingId, async (tx, booking) => {
-      if (booking.status !== BookingStatus.PENDING) {
-        throw new HttpException(
-          {
-            statusCode: HttpStatus.BAD_REQUEST,
-            message: 'Only PENDING bookings can be moved to REQUIRES_FOLLOW_UP',
-            error: 'Bad Request',
-            code: 'INVALID_STATUS_TRANSITION',
-          },
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      await tx.booking.update({
-        where: { id: booking.id },
-        data: { status: BookingStatus.REQUIRES_FOLLOW_UP },
-      });
-    });
-    const updated = await this.getDashboardBooking(user, bookingId);
-    await this.audit.log({
-      userId: user.userId,
-      action: 'booking.requires_follow_up',
       module: 'bookings',
       entityId: bookingId,
       newValue: { status: updated.status },
@@ -1181,6 +1650,13 @@ export class BookingsService {
         where: { id: booking.slotId },
         data: { bookedCount: { decrement: 1 } },
       });
+      await this.slots.syncBookingSlotFilledFromCapacityTx(tx, booking.slotId);
+    } else if (
+      booking.source === BookingSource.WEBSITE &&
+      booking.status === BookingStatus.PENDING
+    ) {
+      await this.slots.releaseOneSlotCapacityTx(tx, booking.slotId);
+      await this.slots.syncBookingSlotFilledFromCapacityTx(tx, booking.slotId);
     }
     await tx.booking.update({
       where: { id: booking.id },
@@ -1213,20 +1689,34 @@ export class BookingsService {
       );
     }
 
-    const oldCounted = countsTowardCapacity(booking.status);
-    if (oldCounted) {
+    const oldSlotHeld =
+      countsTowardCapacity(booking.status) ||
+      (booking.source === BookingSource.WEBSITE &&
+        booking.status === BookingStatus.PENDING);
+    if (oldSlotHeld) {
       await tx.bookingSlot.update({
         where: { id: booking.slotId },
         data: { bookedCount: { decrement: 1 } },
       });
+      await this.slots.syncBookingSlotFilledFromCapacityTx(tx, booking.slotId);
     }
 
-    await this.assertSlotHasCapacity(tx, newSlot.id);
-
-    await tx.bookingSlot.update({
-      where: { id: newSlot.id },
-      data: { bookedCount: { increment: 1 } },
-    });
+    const reservedNew = await this.slots.tryReserveOneSlotCapacityTx(
+      tx,
+      newSlot.id,
+    );
+    if (!reservedNew) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is at capacity',
+          error: 'Bad Request',
+          code: 'SLOT_AT_CAPACITY',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    await this.slots.syncBookingSlotFilledFromCapacityTx(tx, newSlot.id);
 
     await tx.booking.update({
       where: { id: booking.id },
@@ -1258,6 +1748,7 @@ export class BookingsService {
         branchId: string;
         slotId: string;
         status: BookingStatus;
+        source: BookingSource;
       },
     ) => Promise<void>,
   ): Promise<void> {
@@ -1308,33 +1799,13 @@ export class BookingsService {
           where: { id: booking.slotId },
           data: { bookedCount: { decrement: 1 } },
         });
+        await this.slots.syncBookingSlotFilledFromCapacityTx(tx, booking.slotId);
       }
       await tx.booking.update({
         where: { id: booking.id },
         data: { status: spec.to },
       });
     });
-  }
-
-  private async assertSlotHasCapacity(
-    tx: Prisma.TransactionClient,
-    slotId: string,
-  ): Promise<void> {
-    const slot = await tx.bookingSlot.findUnique({ where: { id: slotId } });
-    if (!slot || slot.deletedAt) {
-      throw new NotFoundException('Slot not found');
-    }
-    if (slot.bookedCount >= slot.capacity) {
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: 'Slot is at capacity',
-          error: 'Bad Request',
-          code: 'SLOT_AT_CAPACITY',
-        },
-        HttpStatus.BAD_REQUEST,
-      );
-    }
   }
 
   private async assertDashboardSlotAssignable(
@@ -1391,6 +1862,7 @@ export class BookingsService {
     branchId: string;
     slotId: string;
     source: BookingSource;
+    appliedPromoCode: string | null;
     subtotal: Prisma.Decimal;
     discountAmount: Prisma.Decimal;
     vatRate: Prisma.Decimal;
@@ -1454,6 +1926,7 @@ export class BookingsService {
       branchId: booking.branchId,
       slotId: booking.slotId,
       source: booking.source,
+      appliedPromoCode: booking.appliedPromoCode,
       subtotal: Number(booking.subtotal.toString()),
       discountAmount: Number(booking.discountAmount.toString()),
       vatRate: Number(booking.vatRate.toString()),

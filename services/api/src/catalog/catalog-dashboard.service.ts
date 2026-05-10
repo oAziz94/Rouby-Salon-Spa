@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  OfferAppliesTo,
   BundleType,
   OfferDiscountType,
   PriceDisplayType,
@@ -21,6 +22,10 @@ import type {
   PatchServiceDto,
   PatchServiceVariantDto,
 } from './dto/service.dto';
+import type {
+  CreateServiceEnhancementDto,
+  PatchServiceEnhancementDto,
+} from './dto/service-enhancement.dto';
 import type { CreatePackageDto, PatchPackageDto } from './dto/package.dto';
 import type { CreateBundleDto, PatchBundleDto } from './dto/bundle.dto';
 import type { CreateOfferDto, PatchOfferDto } from './dto/offer.dto';
@@ -66,7 +71,11 @@ export class CatalogDashboardService {
     categoryId: string;
     name: string;
     description: string | null;
+    shortDescription: string | null;
     imageUrl: string | null;
+    displayOrder: number;
+    isFeatured: boolean;
+    badgeLabel: string | null;
     priceDisplayType: PriceDisplayType;
     basePrice: Prisma.Decimal | null;
     basePriceMax: Prisma.Decimal | null;
@@ -79,6 +88,14 @@ export class CatalogDashboardService {
     createdAt: Date;
     updatedAt: Date;
     branches?: { branchId: string }[];
+    benefits?: Array<{
+      id: string;
+      label: string;
+      displayOrder: number;
+      isActive: boolean;
+      createdAt: Date;
+      updatedAt: Date;
+    }>;
   }) {
     const branchIds = row.branches?.map((b) => b.branchId) ?? [];
     return {
@@ -86,7 +103,11 @@ export class CatalogDashboardService {
       categoryId: row.categoryId,
       name: row.name,
       description: row.description,
+      shortDescription: row.shortDescription,
       imageUrl: row.imageUrl,
+      displayOrder: row.displayOrder,
+      isFeatured: row.isFeatured,
+      badgeLabel: row.badgeLabel,
       priceDisplayType: row.priceDisplayType,
       basePrice: decimalToNumber(row.basePrice),
       basePriceMax: decimalToNumber(row.basePriceMax),
@@ -100,6 +121,41 @@ export class CatalogDashboardService {
       updatedAt: row.updatedAt,
       currency: CURRENCY,
       branchIds,
+      benefits: (row.benefits ?? []).map((benefit) => ({
+        id: benefit.id,
+        label: benefit.label,
+        displayOrder: benefit.displayOrder,
+        isActive: benefit.isActive,
+        createdAt: benefit.createdAt,
+        updatedAt: benefit.updatedAt,
+      })),
+    };
+  }
+
+  private mapServiceEnhancement(row: {
+    id: string;
+    title: string;
+    shortDescription: string | null;
+    price: Prisma.Decimal | null;
+    durationMinutes: number | null;
+    imageUrl: string | null;
+    displayOrder: number;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: row.id,
+      title: row.title,
+      shortDescription: row.shortDescription,
+      price: decimalToNumber(row.price),
+      durationMinutes: row.durationMinutes,
+      imageUrl: row.imageUrl,
+      displayOrder: row.displayOrder,
+      isActive: row.isActive,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      currency: CURRENCY,
     };
   }
 
@@ -217,6 +273,7 @@ export class CatalogDashboardService {
   private mapOffer(row: {
     id: string;
     name: string;
+    description: string | null;
     offerCode: string | null;
     discountType: OfferDiscountType;
     discountValue: Prisma.Decimal;
@@ -224,6 +281,8 @@ export class CatalogDashboardService {
     endDate: Date;
     usageLimit: number | null;
     perClientUsageLimit: number | null;
+    minimumSpend: Prisma.Decimal | null;
+    appliesTo: OfferAppliesTo;
     isActive: boolean;
     eligibilityRules: Prisma.JsonValue | null;
     createdAt: Date;
@@ -232,9 +291,38 @@ export class CatalogDashboardService {
     return {
       ...row,
       discountValue: decimalToNumber(row.discountValue),
+      minimumSpend: decimalToNumber(row.minimumSpend),
       eligibilityRules: row.eligibilityRules,
       currency: CURRENCY,
     };
+  }
+
+  private buildOfferEligibilityRules(input: {
+    eligibilityRules?: Record<string, unknown> | null;
+    serviceIds?: string[];
+    packageIds?: string[];
+  }): Prisma.InputJsonValue | undefined {
+    const next: Record<string, unknown> = {
+      ...(input.eligibilityRules ?? {}),
+    };
+    if (input.serviceIds !== undefined) {
+      next.serviceIds = input.serviceIds;
+    }
+    if (input.packageIds !== undefined) {
+      next.packageIds = input.packageIds;
+    }
+    return Object.keys(next).length
+      ? (next as Prisma.InputJsonValue)
+      : undefined;
+  }
+
+  private readEligibilityRulesObject(
+    value: Prisma.JsonValue | null,
+  ): Record<string, unknown> | null {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value;
+    }
+    return null;
   }
 
   // --- Categories ---
@@ -304,8 +392,13 @@ export class CatalogDashboardService {
         where,
         skip,
         take: query.pageSize,
-        orderBy: { name: 'asc' },
-        include: { branches: true },
+        orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
+        include: {
+          branches: true,
+          benefits: {
+            orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
       }),
     ]);
     return {
@@ -338,7 +431,11 @@ export class CatalogDashboardService {
           categoryId: dto.categoryId,
           name: dto.name,
           description: dto.description ?? null,
+          shortDescription: dto.shortDescription ?? null,
           imageUrl: dto.imageUrl ?? null,
+          displayOrder: dto.displayOrder ?? 0,
+          isFeatured: dto.isFeatured ?? false,
+          badgeLabel: dto.badgeLabel ?? null,
           priceDisplayType: dto.priceDisplayType,
           basePrice:
             dto.basePrice === null || dto.basePrice === undefined
@@ -357,8 +454,24 @@ export class CatalogDashboardService {
           branches: {
             create: uniqueBranches.map((branchId) => ({ branchId })),
           },
+          ...(dto.benefits?.length
+            ? {
+                benefits: {
+                  create: dto.benefits.map((benefit, index) => ({
+                    label: benefit.label.trim(),
+                    displayOrder: benefit.displayOrder ?? index,
+                    isActive: benefit.isActive ?? true,
+                  })),
+                },
+              }
+            : {}),
         },
-        include: { branches: true },
+        include: {
+          branches: true,
+          benefits: {
+            orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
       });
       return s;
     });
@@ -368,7 +481,7 @@ export class CatalogDashboardService {
   async patchService(id: string, dto: PatchServiceDto) {
     const existing = await this.prisma.service.findUnique({
       where: { id },
-      include: { branches: true },
+      include: { branches: true, benefits: true },
     });
     if (!existing) {
       throw new NotFoundException('Service not found');
@@ -411,6 +524,19 @@ export class CatalogDashboardService {
           });
         }
       }
+      if (dto.benefits !== undefined) {
+        await tx.serviceBenefit.deleteMany({ where: { serviceId: id } });
+        if (dto.benefits.length > 0) {
+          await tx.serviceBenefit.createMany({
+            data: dto.benefits.map((benefit, index) => ({
+              serviceId: id,
+              label: benefit.label.trim(),
+              displayOrder: benefit.displayOrder ?? index,
+              isActive: benefit.isActive ?? true,
+            })),
+          });
+        }
+      }
       return tx.service.update({
         where: { id },
         data: {
@@ -419,7 +545,15 @@ export class CatalogDashboardService {
           ...(dto.description !== undefined && {
             description: dto.description,
           }),
+          ...(dto.shortDescription !== undefined && {
+            shortDescription: dto.shortDescription,
+          }),
           ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
+          ...(dto.displayOrder !== undefined && {
+            displayOrder: dto.displayOrder,
+          }),
+          ...(dto.isFeatured !== undefined && { isFeatured: dto.isFeatured }),
+          ...(dto.badgeLabel !== undefined && { badgeLabel: dto.badgeLabel }),
           ...(dto.priceDisplayType !== undefined && {
             priceDisplayType: dto.priceDisplayType,
           }),
@@ -448,7 +582,12 @@ export class CatalogDashboardService {
           }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
         },
-        include: { branches: true },
+        include: {
+          branches: true,
+          benefits: {
+            orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
       });
     });
     if (
@@ -481,7 +620,12 @@ export class CatalogDashboardService {
       const row = await this.prisma.service.update({
         where: { id },
         data: { isActive },
-        include: { branches: true },
+        include: {
+          branches: true,
+          benefits: {
+            orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+        },
       });
       return this.mapService(row);
     } catch {
@@ -1053,6 +1197,7 @@ export class CatalogDashboardService {
     const row = await this.prisma.offer.create({
       data: {
         name: dto.name,
+        description: dto.description ?? null,
         offerCode,
         discountType: dto.discountType,
         discountValue: new Prisma.Decimal(dto.discountValue),
@@ -1060,13 +1205,22 @@ export class CatalogDashboardService {
         endDate: dto.endDate,
         usageLimit: dto.usageLimit ?? null,
         perClientUsageLimit: dto.perClientUsageLimit ?? null,
+        minimumSpend:
+          dto.minimumSpend === undefined || dto.minimumSpend === null
+            ? null
+            : new Prisma.Decimal(dto.minimumSpend),
+        appliesTo: dto.appliesTo ?? OfferAppliesTo.ALL,
         isActive: dto.isActive ?? true,
-        ...(dto.eligibilityRules !== undefined
+        ...(dto.eligibilityRules !== undefined ||
+        dto.serviceIds !== undefined ||
+        dto.packageIds !== undefined
           ? {
               eligibilityRules:
-                dto.eligibilityRules === null
-                  ? Prisma.JsonNull
-                  : (dto.eligibilityRules as Prisma.InputJsonValue),
+                this.buildOfferEligibilityRules({
+                  eligibilityRules: dto.eligibilityRules,
+                  serviceIds: dto.serviceIds,
+                  packageIds: dto.packageIds,
+                }) ?? Prisma.JsonNull,
             }
           : {}),
       },
@@ -1099,6 +1253,9 @@ export class CatalogDashboardService {
         where: { id },
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.description !== undefined && {
+            description: dto.description,
+          }),
           ...(dto.offerCode !== undefined && { offerCode: normalizedCode }),
           ...(dto.discountType !== undefined && {
             discountType: dto.discountType,
@@ -1112,12 +1269,28 @@ export class CatalogDashboardService {
           ...(dto.perClientUsageLimit !== undefined && {
             perClientUsageLimit: dto.perClientUsageLimit,
           }),
+          ...(dto.minimumSpend !== undefined && {
+            minimumSpend:
+              dto.minimumSpend === null
+                ? null
+                : new Prisma.Decimal(dto.minimumSpend),
+          }),
+          ...(dto.appliesTo !== undefined && { appliesTo: dto.appliesTo }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-          ...(dto.eligibilityRules !== undefined && {
+          ...((dto.eligibilityRules !== undefined ||
+            dto.serviceIds !== undefined ||
+            dto.packageIds !== undefined) && {
             eligibilityRules:
-              dto.eligibilityRules === null
-                ? Prisma.JsonNull
-                : (dto.eligibilityRules as Prisma.InputJsonValue),
+              this.buildOfferEligibilityRules({
+                eligibilityRules:
+                  dto.eligibilityRules === undefined
+                    ? (this.readEligibilityRulesObject(
+                        existing.eligibilityRules,
+                      ) ?? null)
+                    : dto.eligibilityRules,
+                serviceIds: dto.serviceIds,
+                packageIds: dto.packageIds,
+              }) ?? Prisma.JsonNull,
           }),
         },
       });
@@ -1142,6 +1315,95 @@ export class CatalogDashboardService {
       return this.mapOffer(row);
     } catch {
       throw new NotFoundException('Offer not found');
+    }
+  }
+
+  // --- Service Enhancements ---
+
+  async listServiceEnhancements(query: {
+    page: number;
+    pageSize: number;
+    isActive?: boolean;
+  }) {
+    const where: Prisma.ServiceEnhancementWhereInput = {};
+    if (query.isActive !== undefined) {
+      where.isActive = query.isActive;
+    }
+    const skip = (query.page - 1) * query.pageSize;
+    const [totalItems, rows] = await Promise.all([
+      this.prisma.serviceEnhancement.count({ where }),
+      this.prisma.serviceEnhancement.findMany({
+        where,
+        skip,
+        take: query.pageSize,
+        orderBy: [{ displayOrder: 'asc' }, { title: 'asc' }],
+      }),
+    ]);
+    return {
+      data: rows.map((row) => this.mapServiceEnhancement(row)),
+      meta: buildListMeta({
+        page: query.page,
+        pageSize: query.pageSize,
+        totalItems,
+      }),
+    };
+  }
+
+  async createServiceEnhancement(dto: CreateServiceEnhancementDto) {
+    const row = await this.prisma.serviceEnhancement.create({
+      data: {
+        title: dto.title,
+        shortDescription: dto.shortDescription ?? null,
+        price:
+          dto.price === null || dto.price === undefined
+            ? null
+            : new Prisma.Decimal(dto.price),
+        durationMinutes: dto.durationMinutes ?? null,
+        imageUrl: dto.imageUrl ?? null,
+        displayOrder: dto.displayOrder ?? 0,
+        isActive: dto.isActive ?? true,
+      },
+    });
+    return this.mapServiceEnhancement(row);
+  }
+
+  async patchServiceEnhancement(id: string, dto: PatchServiceEnhancementDto) {
+    try {
+      const row = await this.prisma.serviceEnhancement.update({
+        where: { id },
+        data: {
+          ...(dto.title !== undefined && { title: dto.title }),
+          ...(dto.shortDescription !== undefined && {
+            shortDescription: dto.shortDescription,
+          }),
+          ...(dto.price !== undefined && {
+            price: dto.price === null ? null : new Prisma.Decimal(dto.price),
+          }),
+          ...(dto.durationMinutes !== undefined && {
+            durationMinutes: dto.durationMinutes,
+          }),
+          ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
+          ...(dto.displayOrder !== undefined && {
+            displayOrder: dto.displayOrder,
+          }),
+          ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        },
+      });
+      return this.mapServiceEnhancement(row);
+    } catch {
+      throw new NotFoundException('Service enhancement not found');
+    }
+  }
+
+  async patchServiceEnhancementStatus(id: string, isActive: boolean) {
+    try {
+      const row = await this.prisma.serviceEnhancement.update({
+        where: { id },
+        data: { isActive },
+      });
+      return this.mapServiceEnhancement(row);
+    } catch {
+      throw new NotFoundException('Service enhancement not found');
     }
   }
 }

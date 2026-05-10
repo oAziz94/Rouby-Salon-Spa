@@ -111,6 +111,22 @@ export class BookingPricingService {
     };
   }
 
+  lineExclusiveAmount(
+    line: ResolvedBookingLine,
+    settings: SystemSettings,
+  ): number {
+    const unit = Number(line.priceSnapshot.toString());
+    const ext = unit * line.quantity;
+    if (!line.isTaxable || !settings.vatEnabled) {
+      return ext;
+    }
+    if (!settings.pricesIncludeVat) {
+      return ext;
+    }
+    const rate = Number(settings.defaultVatRate.toString());
+    return ext / (1 + rate);
+  }
+
   async resolveLines(
     branchId: string,
     items: BookingItemInputDto[],

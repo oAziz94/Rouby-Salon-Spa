@@ -10,29 +10,79 @@ import {
   type DashboardBookingDetail,
   type DashboardBookingsListItem,
   type DashboardBranch,
+  type DashboardListMeta,
   type DashboardSlot,
 } from "@rouby/api-client";
-import { useEffect, useMemo, useState } from "react";
+import { formatDateTimeAmPm, formatWallClock12h, formatWallClockRange12h } from "@rouby/wall-clock";
+import {
+  AlertCircle,
+  Building2,
+  CalendarClock,
+  ChevronRight,
+  ClipboardList,
+  Loader2,
+  MapPin,
+  Receipt,
+  Sparkles,
+  StickyNote,
+  UserRound,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 
 type PageState = "loading" | "loaded" | "empty" | "error";
 
+const BOOKING_STATUS_ORDER = [
+  "PENDING",
+  "CONFIRMED",
+  "RESCHEDULED",
+  "ARRIVED",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "CANCELLED",
+  "REJECTED",
+  "NO_SHOW",
+] as const;
+
 const BOOKING_STATUS_STYLES: Record<string, string> = {
-  PENDING: "bg-[#FFF6E6] text-[#8B6A1D]",
-  CONFIRMED: "bg-[#EAF7EE] text-[#1E6A3A]",
-  REQUIRES_FOLLOW_UP: "bg-[#EFEAF8] text-[#4C3E77]",
-  RESCHEDULED: "bg-[#EAF1F8] text-[#2C567A]",
-  ARRIVED: "bg-[#F5F0DF] text-[#6D5A1A]",
-  IN_PROGRESS: "bg-[#E7F0E8] text-[#2E5A3A]",
-  COMPLETED: "bg-[#EEF2EC] text-[#355032]",
-  CANCELLED: "bg-[#F3F0EF] text-[#6A615A]",
-  REJECTED: "bg-[#FBECEA] text-[#8B4428]",
-  NO_SHOW: "bg-[#FCEEE8] text-[#8B4428]",
+  PENDING:
+    "border border-[#E8D4A0]/80 bg-[#FFF9ED] text-[#6B5420] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]",
+  CONFIRMED:
+    "border border-[#0E342B]/25 bg-[#E8F2EE] text-[#0E342B] shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]",
+  RESCHEDULED:
+    "border border-[#B8D4EA]/90 bg-[#EEF6FC] text-[#1E4A6E] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]",
+  ARRIVED:
+    "border border-[#B9974A]/45 bg-[#FBF6E8] text-[#5C4A18] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]",
+  IN_PROGRESS:
+    "border border-[#0E342B]/20 bg-[#E4EFE6] text-[#1A4D2E] shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]",
+  COMPLETED:
+    "border border-[#0E342B]/30 bg-[#DCEAE0] text-[#0E342B] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]",
+  CANCELLED:
+    "border border-[#E8E0D4] bg-[#F4F1EC] text-[#5E574C] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]",
+  REJECTED:
+    "border border-[#E7B9A4]/80 bg-[#FFF1EC] text-[#8B4428] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]",
+  NO_SHOW:
+    "border border-[#E7B9A4]/70 bg-[#FCEEE8] text-[#7A3A28] shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]",
 };
 
 function statusBadge(status: string): string {
-  return BOOKING_STATUS_STYLES[status] ?? "bg-[#F3EBDD] text-[#4A3C2F]";
+  return BOOKING_STATUS_STYLES[status] ?? "border border-[#E8E0D4] bg-[#F8F4EC] text-[#4A3C2F]";
+}
+
+function statusLabel(status: string): string {
+  const map: Record<string, string> = {
+    PENDING: "Pending",
+    CONFIRMED: "Confirmed",
+    RESCHEDULED: "Rescheduled",
+    ARRIVED: "Arrived",
+    IN_PROGRESS: "In progress",
+    COMPLETED: "Completed",
+    CANCELLED: "Cancelled",
+    REJECTED: "Rejected",
+    NO_SHOW: "No-show",
+  };
+  return map[status] ?? status.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
 
 function toDateInput(value: Date): string {
@@ -74,10 +124,47 @@ function formatApiError(error: unknown): string {
   return "Unexpected API error.";
 }
 
+function formatBookingRef(id: string): string {
+  const tail = id.replace(/-/g, "").slice(-8).toUpperCase();
+  return `RB-${tail}`;
+}
+
+function summarizeBookingItems(detail: DashboardBookingDetail): string {
+  if (detail.items.length === 0) {
+    return "No line items";
+  }
+  const first = detail.items[0]?.nameSnapshot ?? "Item";
+  if (detail.items.length === 1) {
+    return first;
+  }
+  return `${first} +${detail.items.length - 1} more`;
+}
+
+function formatAppointmentFromListRow(row: DashboardBookingsListItem): string {
+  if (!row.slot?.date) {
+    return "—";
+  }
+  const { date, startTime, endTime } = row.slot;
+  if (startTime && endTime) {
+    return `${date} · ${formatWallClockRange12h(startTime, endTime)}`;
+  }
+  if (startTime) {
+    return `${date} · ${formatWallClock12h(startTime)}`;
+  }
+  return date;
+}
+
+function listRowClientLabel(row: DashboardBookingsListItem): string {
+  const name = row.client?.fullName?.trim();
+  if (name) {
+    return name;
+  }
+  return "Unknown client";
+}
+
 type DrawerAction =
   | "confirm"
   | "reject"
-  | "require-follow-up"
   | "reschedule"
   | "confirm-reschedule"
   | "cancel"
@@ -88,17 +175,26 @@ type DrawerAction =
   | "recalculate-pricing"
   | "discount";
 
+const primaryActionClass =
+  "inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#062A2D] px-3.5 py-2 text-xs font-semibold text-[#F6F2EA] shadow-sm transition hover:bg-[#0A3F35] disabled:cursor-not-allowed disabled:opacity-50";
+const secondaryActionClass =
+  "inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#E8E0D4] bg-white px-3.5 py-2 text-xs font-semibold text-[#1F2420] shadow-sm transition hover:border-[#B9974A]/45 hover:text-[#062A2D] disabled:cursor-not-allowed disabled:opacity-50";
+const dangerOutlineClass =
+  "inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#E7B9A4]/90 bg-[#FFF9F6] px-3.5 py-2 text-xs font-semibold text-[#8B4428] shadow-sm transition hover:bg-[#FFF1EC] disabled:cursor-not-allowed disabled:opacity-50";
+
 export default function DashboardBookingsPage() {
   const { token, user, hasPermission } = useDashboardAuth();
   const [state, setState] = useState<PageState>("loading");
   const [error, setError] = useState("");
   const [rows, setRows] = useState<DashboardBookingsListItem[]>([]);
+  const [listMeta, setListMeta] = useState<DashboardListMeta | null>(null);
   const [branches, setBranches] = useState<DashboardBranch[]>([]);
   const [branchId, setBranchId] = useState<string>("");
   const [status, setStatus] = useState<string>("");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
-  const [clientIdFilter, setClientIdFilter] = useState<string>("");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchApplied, setSearchApplied] = useState("");
   const [page, setPage] = useState(1);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedBookingId, setSelectedBookingId] = useState<string>("");
@@ -121,6 +217,27 @@ export default function DashboardBookingsPage() {
   const canUpdate = hasPermission("bookings.update");
   const canDiscount = hasPermission("bookings.discount.apply");
   const canReadBranches = hasPermission("branches.read");
+
+  const branchNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of branches) {
+      map.set(b.id, b.name);
+    }
+    return map;
+  }, [branches]);
+
+  const pageStats = useMemo(() => {
+    if (rows.length === 0) {
+      return null;
+    }
+    const pageTotal = rows.reduce((sum, r) => sum + r.totalAmount, 0);
+    const byStatus = rows.reduce<Record<string, number>>((acc, r) => {
+      acc[r.status] = (acc[r.status] ?? 0) + 1;
+      return acc;
+    }, {});
+    return { count: rows.length, pageTotal, byStatus };
+  }, [rows]);
+
   function openDrawer(bookingId: string) {
     setDrawerOpen(true);
     setSelectedBookingId(bookingId);
@@ -134,41 +251,68 @@ export default function DashboardBookingsPage() {
     setActionError("");
   }
 
-
   const canAccessMultipleBranches = useMemo(
     () => user?.branchId === null && canReadBranches,
     [canReadBranches, user?.branchId],
   );
 
-  async function loadList() {
+  const loadList = useCallback(async () => {
     if (!token || !canRead) {
       return;
     }
     if (!branchId && canAccessMultipleBranches) {
       return;
     }
-    if (!dateFrom || !dateTo) {
-      return;
-    }
     setState("loading");
     setError("");
+    setListMeta(null);
     try {
       const response = await getDashboardBookings(token, {
         branchId: branchId || undefined,
         status: status || undefined,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
-        clientId: clientIdFilter || undefined,
+        search: searchApplied || undefined,
         page,
         pageSize: 20,
       });
       setRows(response.data);
+      setListMeta(response.meta);
       setState(response.data.length > 0 ? "loaded" : "empty");
     } catch (requestError) {
       setError(formatApiError(requestError));
       setState("error");
     }
-  }
+  }, [
+    branchId,
+    canAccessMultipleBranches,
+    canRead,
+    dateFrom,
+    dateTo,
+    page,
+    searchApplied,
+    status,
+    token,
+  ]);
+
+  const prevSearchAppliedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchApplied(searchInput.trim());
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (prevSearchAppliedRef.current === null) {
+      prevSearchAppliedRef.current = searchApplied;
+      return;
+    }
+    if (prevSearchAppliedRef.current !== searchApplied) {
+      prevSearchAppliedRef.current = searchApplied;
+      setPage(1);
+    }
+  }, [searchApplied]);
 
   async function loadDetail(bookingId: string) {
     if (!token) {
@@ -241,8 +385,7 @@ export default function DashboardBookingsPage() {
 
   useEffect(() => {
     void loadList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchId, status, dateFrom, dateTo, clientIdFilter, page, token, canRead]);
+  }, [loadList]);
 
   useEffect(() => {
     if (!drawerOpen) {
@@ -298,141 +441,248 @@ export default function DashboardBookingsPage() {
     }
   }
 
+  const hasNextPage = listMeta?.hasNextPage ?? false;
+
+  function clearFilters() {
+    const today = toDateInput(new Date());
+    setSearchInput("");
+    setSearchApplied("");
+    setStatus("");
+    setDateFrom(today);
+    setDateTo(today);
+    setPage(1);
+    if (canAccessMultipleBranches) {
+      setBranchId(user?.branchId ?? branches[0]?.id ?? "");
+    } else if (user?.branchId) {
+      setBranchId(user.branchId);
+    }
+  }
+
   return (
     <PermissionGuard permission="bookings.read">
-      <section className="space-y-6">
-        <header className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h1 className="text-2xl font-semibold text-[#1F2420]">Bookings</h1>
-          <p className="mt-2 text-sm text-[#7A6A58]">
-            Pending requests and booking lifecycle operations.
-          </p>
+      <section className="space-y-6 md:space-y-8">
+        <header className="rounded-2xl bg-white/90 p-6 shadow-[0_8px_30px_rgba(31,36,32,0.05)] ring-1 ring-[#E8E0D4]/70 md:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-semibold tracking-tight text-[#1F2420] md:text-3xl">Bookings</h1>
+                <Sparkles className="h-5 w-5 text-[#B9974A]" strokeWidth={1.75} aria-hidden />
+              </div>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[#7A6A58] md:text-base">
+                Manage appointment requests, confirmations, arrivals, and completion.
+              </p>
+            </div>
+          </div>
+
+          {state === "loaded" && pageStats ? (
+            <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-xl border border-[#E8E0D4]/80 bg-[#FFFCF7] p-4 shadow-sm">
+                <p className="text-xs font-medium uppercase tracking-wide text-[#7A6A58]">On this page</p>
+                <p className="mt-1 text-2xl font-semibold tracking-tight text-[#1F2420]">{pageStats.count}</p>
+                <p className="mt-0.5 text-xs text-[#7A6A58]">Bookings listed</p>
+              </div>
+              <div className="rounded-xl border border-[#E8E0D4]/80 bg-[#FFFCF7] p-4 shadow-sm">
+                <p className="text-xs font-medium uppercase tracking-wide text-[#7A6A58]">Page total</p>
+                <p className="mt-1 text-xl font-semibold tracking-tight text-[#1F2420] md:text-2xl">
+                  {formatEGP(pageStats.pageTotal)}
+                </p>
+                <p className="mt-0.5 text-xs text-[#7A6A58]">Sum of totals in view</p>
+              </div>
+              <div className="rounded-xl border border-[#E8E0D4]/80 bg-[#FFFCF7] p-4 shadow-sm sm:col-span-2 lg:col-span-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-[#7A6A58]">Status mix (this page)</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {Object.entries(pageStats.byStatus).map(([st, n]) => (
+                    <span
+                      key={st}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadge(st)}`}
+                    >
+                      {statusLabel(st)}
+                      <span className="tabular-nums opacity-80">{n}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </header>
 
-        <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="text-sm">
-              <span className="mb-1 block font-medium text-[#1F2420]">Status</span>
-              <select
-                value={status}
-                onChange={(event) => {
-                  setPage(1);
-                  setStatus(event.target.value);
-                }}
-                className="w-full rounded-md border border-border bg-white px-3 py-2"
-              >
-                <option value="">All statuses</option>
-                {Object.keys(BOOKING_STATUS_STYLES).map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium text-[#1F2420]">Date from</span>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(event) => {
-                  setPage(1);
-                  setDateFrom(event.target.value);
-                }}
-                className="w-full rounded-md border border-border bg-white px-3 py-2"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium text-[#1F2420]">Date to</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(event) => {
-                  setPage(1);
-                  setDateTo(event.target.value);
-                }}
-                className="w-full rounded-md border border-border bg-white px-3 py-2"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium text-[#1F2420]">Branch</span>
-              <select
-                value={branchId}
-                disabled={!canAccessMultipleBranches}
-                onChange={(event) => {
-                  setPage(1);
-                  setBranchId(event.target.value);
-                }}
-                className="w-full rounded-md border border-border bg-white px-3 py-2 disabled:bg-[#F5F1EA] disabled:text-[#7A6A58]"
-              >
-                <option value="">Select branch</option>
-                {branches.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium text-[#1F2420]">
-                Client filter (UUID)
+        <section className="rounded-2xl bg-white p-5 shadow-[0_8px_30px_rgba(31,36,32,0.06)] ring-1 ring-[#E8E0D4]/60 md:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#F0EBE3] pb-4">
+            <div>
+              <h2 className="text-sm font-semibold text-[#1F2420]">Filters</h2>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[#7A6A58]">
+                Search clients and bookings, then narrow by appointment window, branch, or status. Dates filter by
+                appointment slot day (optional).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => clearFilters()}
+              className="shrink-0 rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-4 py-2 text-xs font-semibold text-[#1F2420] shadow-sm transition hover:border-[#B9974A]/45 hover:text-[#062A2D]"
+            >
+              Clear filters
+            </button>
+          </div>
+          <div className="mt-5 flex flex-col gap-4">
+            <label className="block w-full">
+              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                Search
               </span>
               <input
-                value={clientIdFilter}
+                value={searchInput}
                 onChange={(event) => {
-                  setPage(1);
-                  setClientIdFilter(event.target.value.trim());
+                  setSearchInput(event.target.value);
                 }}
-                placeholder="clientId"
-                className="w-full rounded-md border border-border bg-white px-3 py-2"
+                placeholder="Search by client name, phone, or booking reference"
+                className="w-full rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-3 py-2.5 text-sm text-[#1F2420] shadow-sm outline-none transition placeholder:text-[#B5A896] focus:border-[#B9974A]/50"
               />
             </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium text-[#1F2420]">
-                Source filter
-              </span>
-              <input
-                disabled
-                value="Not available in /dashboard/bookings query"
-                className="w-full rounded-md border border-border bg-[#F5F1EA] px-3 py-2 text-[#7A6A58]"
-              />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                  Status
+                </span>
+                <select
+                  value={status}
+                  onChange={(event) => {
+                    setPage(1);
+                    setStatus(event.target.value);
+                  }}
+                  className="w-full rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-3 py-2.5 text-sm text-[#1F2420] shadow-sm outline-none transition focus:border-[#B9974A]/50"
+                >
+                  <option value="">All statuses</option>
+                  {BOOKING_STATUS_ORDER.map((value) => (
+                    <option key={value} value={value}>
+                      {statusLabel(value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                  Date from
+                </span>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(event) => {
+                    setPage(1);
+                    setDateFrom(event.target.value);
+                  }}
+                  className="w-full rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-3 py-2.5 text-sm text-[#1F2420] shadow-sm outline-none transition focus:border-[#B9974A]/50"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                  Date to
+                </span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(event) => {
+                    setPage(1);
+                    setDateTo(event.target.value);
+                  }}
+                  className="w-full rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-3 py-2.5 text-sm text-[#1F2420] shadow-sm outline-none transition focus:border-[#B9974A]/50"
+                />
+              </label>
+              <label className="block sm:col-span-2 xl:col-span-2">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                  Branch
+                </span>
+                <select
+                  value={branchId}
+                  disabled={!canAccessMultipleBranches}
+                  onChange={(event) => {
+                    setPage(1);
+                    setBranchId(event.target.value);
+                  }}
+                  className="w-full rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-3 py-2.5 text-sm text-[#1F2420] shadow-sm outline-none transition focus:border-[#B9974A]/50 disabled:cursor-not-allowed disabled:bg-[#F5F1EA] disabled:text-[#7A6A58]"
+                >
+                  <option value="">Select branch</option>
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
         </section>
 
         {state === "loading" ? (
-          <section className="rounded-xl border border-border bg-card p-5 shadow-sm text-sm text-[#7A6A58]">
-            Loading bookings...
+          <section className="rounded-2xl bg-white p-6 shadow-[0_8px_30px_rgba(31,36,32,0.04)] ring-1 ring-[#E8E0D4]/50 md:p-8">
+            <div className="flex items-center gap-3 text-sm text-[#7A6A58]">
+              <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#B9974A]" aria-hidden />
+              <span>Loading bookings for the selected filters…</span>
+            </div>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={`sk-${i}`}
+                  className="animate-pulse rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-4"
+                >
+                  <div className="h-3 w-1/3 rounded bg-[#E6DCCB]/80" />
+                  <div className="mt-3 h-4 w-2/3 rounded bg-[#E6DCCB]/70" />
+                  <div className="mt-2 h-3 w-1/2 rounded bg-[#E6DCCB]/60" />
+                </div>
+              ))}
+            </div>
           </section>
         ) : null}
+
         {state === "error" ? (
-          <section className="rounded-xl border border-[#E7B9A4] bg-[#FFF1EC] p-5 shadow-sm text-sm text-danger">
-            {error}
+          <section className="rounded-2xl bg-[#FFF1EC] p-5 shadow-sm ring-1 ring-[#E7B9A4]/60 md:p-6">
+            <div className="flex gap-3">
+              <AlertCircle className="h-5 w-5 shrink-0 text-[#8B4428]" aria-hidden />
+              <p className="text-sm leading-relaxed text-[#8B4428]">{error}</p>
+            </div>
           </section>
         ) : null}
+
         {state === "empty" ? (
-          <section className="rounded-xl border border-border bg-card p-5 shadow-sm text-sm text-[#7A6A58]">
-            No bookings found.
+          <section className="rounded-2xl bg-white p-8 text-center shadow-[0_8px_30px_rgba(31,36,32,0.06)] ring-1 ring-[#E8E0D4]/60 md:p-10">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#062A2D]/10 text-[#062A2D]">
+              <CalendarClock className="h-6 w-6" strokeWidth={1.75} aria-hidden />
+            </div>
+            <p className="mt-4 text-base font-semibold text-[#1F2420]">No bookings match these filters</p>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-[#7A6A58]">
+              Try changing the search, date range, branch, or status.
+            </p>
+            <button
+              type="button"
+              onClick={() => clearFilters()}
+              className="mt-6 inline-flex items-center justify-center rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-5 py-2.5 text-sm font-semibold text-[#062A2D] shadow-sm transition hover:border-[#B9974A]/45"
+            >
+              Clear filters
+            </button>
           </section>
         ) : null}
 
         {state === "loaded" ? (
-          <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <section className="rounded-2xl bg-white shadow-[0_8px_30px_rgba(31,36,32,0.06)] ring-1 ring-[#E8E0D4]/60">
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full border-collapse text-sm">
+              <table className="w-full min-w-[960px] border-separate border-spacing-0 text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-[#7A6A58]">
-                    <th className="py-2 pr-3 font-medium">Booking</th>
-                    <th className="py-2 pr-3 font-medium">Status</th>
-                    <th className="py-2 pr-3 font-medium">Source</th>
-                    <th className="py-2 pr-3 font-medium">Branch</th>
-                    <th className="py-2 pr-3 font-medium">Total</th>
-                    <th className="py-2 pr-3 font-medium">Created</th>
+                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                    <th className="border-b border-[#F0EBE3] px-5 py-3.5">Reference</th>
+                    <th className="border-b border-[#F0EBE3] px-3 py-3.5">Client</th>
+                    <th className="border-b border-[#F0EBE3] px-3 py-3.5">Phone</th>
+                    <th className="border-b border-[#F0EBE3] px-3 py-3.5">Appointment</th>
+                    <th className="border-b border-[#F0EBE3] px-3 py-3.5">Services</th>
+                    <th className="border-b border-[#F0EBE3] px-3 py-3.5">Branch</th>
+                    <th className="border-b border-[#F0EBE3] px-3 py-3.5">Source</th>
+                    <th className="border-b border-[#F0EBE3] px-3 py-3.5 text-right">Total</th>
+                    <th className="border-b border-[#F0EBE3] px-3 py-3.5">Status</th>
+                    <th className="border-b border-[#F0EBE3] px-5 py-3.5 text-right"> </th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((row) => (
                     <tr
                       key={row.id}
-                      className="cursor-pointer border-b border-border/60 hover:bg-[#FFF9EE]"
+                      className="cursor-pointer text-[#1F2420] transition hover:bg-[#FFFCF7]"
                       role="button"
                       tabIndex={0}
                       onClick={() => openDrawer(row.id)}
@@ -443,26 +693,74 @@ export default function DashboardBookingsPage() {
                         }
                       }}
                     >
-                      <td className="py-3 pr-3 font-medium text-[#1F2420]">{row.id}</td>
-                      <td className="py-3 pr-3">
-                        <span
-                          className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${statusBadge(
-                            row.status,
-                          )}`}
-                        >
-                          {row.status}
+                      <td className="border-b border-[#F7F4EE] px-5 py-4">
+                        <p className="font-mono text-xs font-semibold tracking-wide text-[#062A2D]">
+                          {formatBookingRef(row.id)}
+                        </p>
+                        <p className="mt-1 text-[11px] text-[#B5A896]">Booked {formatDateTimeAmPm(row.createdAt)}</p>
+                      </td>
+                      <td className="border-b border-[#F7F4EE] px-3 py-4">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#062A2D]/10 text-[#062A2D]">
+                            <UserRound className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                          </span>
+                          <p className="font-medium leading-snug">{listRowClientLabel(row)}</p>
+                        </div>
+                      </td>
+                      <td className="border-b border-[#F7F4EE] px-3 py-4 text-[#5E574C] tabular-nums">
+                        {row.client?.phone?.trim() ? row.client.phone : "—"}
+                      </td>
+                      <td className="border-b border-[#F7F4EE] px-3 py-4 text-[#5E574C]">
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                          <CalendarClock className="h-3.5 w-3.5 shrink-0 text-[#B9974A]" aria-hidden />
+                          {formatAppointmentFromListRow(row)}
                         </span>
                       </td>
-                      <td className="py-3 pr-3 text-[#7A6A58]">{row.source}</td>
-                      <td className="py-3 pr-3 text-[#7A6A58]">{row.branchId}</td>
-                      <td className="py-3 pr-3 text-[#1F2420]">{formatEGP(row.totalAmount)}</td>
-                      <td className="py-3 pr-3 text-[#7A6A58]">{row.createdAt}</td>
+                      <td className="max-w-[200px] border-b border-[#F7F4EE] px-3 py-4 text-[#5E574C]">
+                        <span className="line-clamp-2 inline-flex items-start gap-1">
+                          <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#B9974A]" aria-hidden />
+                          {row.servicesSummary ?? "—"}
+                        </span>
+                      </td>
+                      <td className="border-b border-[#F7F4EE] px-3 py-4">
+                        <span className="inline-flex items-center gap-1.5 text-[#5E574C]">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-[#B9974A]" aria-hidden />
+                          <span className="line-clamp-2">
+                            {row.branchName ?? branchNameById.get(row.branchId) ?? "—"}
+                          </span>
+                        </span>
+                      </td>
+                      <td className="border-b border-[#F7F4EE] px-3 py-4 text-[#5E574C]">{row.source}</td>
+                      <td className="border-b border-[#F7F4EE] px-3 py-4 text-right font-semibold tabular-nums">
+                        {formatEGP(row.totalAmount)}
+                      </td>
+                      <td className="border-b border-[#F7F4EE] px-3 py-4">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadge(row.status)}`}
+                        >
+                          {statusLabel(row.status)}
+                        </span>
+                      </td>
+                      <td className="border-b border-[#F7F4EE] px-5 py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDrawer(row.id);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-full border border-[#E8E0D4] bg-white px-3 py-1.5 text-xs font-semibold text-[#062A2D] shadow-sm transition hover:border-[#B9974A]/45"
+                        >
+                          View
+                          <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="space-y-3 md:hidden">
+
+            <div className="space-y-3 p-4 md:hidden">
               {rows.map((row) => (
                 <article
                   key={row.id}
@@ -475,46 +773,81 @@ export default function DashboardBookingsPage() {
                   }}
                   role="button"
                   tabIndex={0}
-                  className="rounded-lg border border-border bg-white p-4"
+                  className="cursor-pointer rounded-2xl border border-[#E8E0D4]/80 bg-[#FFFCF7] p-4 shadow-sm transition active:scale-[0.99]"
                 >
-                  <p className="text-sm font-semibold text-[#1F2420]">{row.id}</p>
-                  <p className="mt-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-mono text-xs font-semibold tracking-wide text-[#062A2D]">
+                        {formatBookingRef(row.id)}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[#1F2420]">{listRowClientLabel(row)}</p>
+                      <p className="mt-0.5 text-xs text-[#5E574C] tabular-nums">
+                        {row.client?.phone?.trim() ? row.client.phone : "Phone —"}
+                      </p>
+                    </div>
                     <span
-                      className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${statusBadge(
-                        row.status,
-                      )}`}
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadge(row.status)}`}
                     >
-                      {row.status}
+                      {statusLabel(row.status)}
                     </span>
+                  </div>
+                  <p className="mt-2 text-xs text-[#7A6A58]">
+                    <span className="font-medium text-[#5E574C]">Appointment:</span>{" "}
+                    {formatAppointmentFromListRow(row)}
                   </p>
-                  <p className="mt-2 text-xs text-[#7A6A58]">{row.source}</p>
-                  <p className="mt-1 text-xs text-[#1F2420]">{formatEGP(row.totalAmount)}</p>
+                  <p className="mt-1 text-xs text-[#7A6A58]">
+                    <span className="font-medium text-[#5E574C]">Booked:</span> {formatDateTimeAmPm(row.createdAt)}
+                  </p>
+                  <p className="mt-2 text-xs leading-relaxed text-[#5E574C]">
+                    <span className="font-medium text-[#7A6A58]">Services:</span> {row.servicesSummary ?? "—"}
+                  </p>
+                  <p className="mt-1 text-xs text-[#7A6A58]">
+                    <span className="font-medium text-[#5E574C]">Branch:</span>{" "}
+                    {row.branchName ?? branchNameById.get(row.branchId) ?? "—"}
+                  </p>
+                  <p className="mt-1 text-xs text-[#7A6A58]">
+                    <span className="font-medium text-[#5E574C]">Source:</span> {row.source}
+                  </p>
+                  <div className="mt-4 flex items-center justify-between gap-2 border-t border-[#F0EBE3] pt-3">
+                    <p className="text-sm font-semibold tabular-nums text-[#1F2420]">{formatEGP(row.totalAmount)}</p>
+                    <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-[#062A2D]">
+                      View <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                    </span>
+                  </div>
                 </article>
               ))}
             </div>
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                className="rounded border border-border bg-white px-3 py-1 text-sm disabled:opacity-50"
-              >
-                Prev
-              </button>
-              <span className="text-sm text-[#7A6A58]">Page {page}</span>
-              <button
-                type="button"
-                onClick={() => setPage((prev) => prev + 1)}
-                className="rounded border border-border bg-white px-3 py-1 text-sm"
-              >
-                Next
-              </button>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#F0EBE3] px-4 py-4 md:px-5">
+              <p className="text-xs text-[#7A6A58]">
+                {listMeta
+                  ? `Page ${listMeta.page} of ${Math.max(listMeta.totalPages, 1)} · ${listMeta.totalItems} total`
+                  : `Page ${page}`}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1 || state !== "loaded"}
+                  onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                  className="rounded-xl border border-[#E8E0D4] bg-white px-4 py-2 text-sm font-medium text-[#1F2420] shadow-sm transition hover:border-[#B9974A]/45 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={!hasNextPage || state !== "loaded"}
+                  onClick={() => setPage((prev) => prev + 1)}
+                  className="rounded-xl border border-[#E8E0D4] bg-[#062A2D] px-4 py-2 text-sm font-medium text-[#F6F2EA] shadow-sm transition hover:bg-[#0A3F35] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
             </div>
           </section>
         ) : null}
 
         {drawerOpen ? (
-          <div className="fixed inset-0 z-50 flex justify-end bg-[#2A1722]/35">
+          <div className="fixed inset-0 z-50 flex justify-end bg-[#062A2D]/40 backdrop-blur-[2px]">
             <button
               type="button"
               className="absolute inset-0 cursor-default"
@@ -522,283 +855,365 @@ export default function DashboardBookingsPage() {
               onClick={closeDrawer}
             />
             <aside
-              className="relative z-10 h-full w-full overflow-y-auto border-l border-border bg-[#FFFDF9] p-4 shadow-xl sm:max-w-2xl sm:p-5"
+              className="relative z-10 flex h-full w-full max-w-full flex-col overflow-hidden border-l border-[#E8E0D4]/90 bg-[#FFFCF7] shadow-[0_0_48px_rgba(6,42,45,0.18)] sm:max-w-lg"
               role="dialog"
               aria-modal="true"
               aria-label="Booking details"
             >
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-[#1F2420]">Booking details</h2>
-                <button
-                  type="button"
-                  onClick={closeDrawer}
-                  className="rounded border border-border bg-white px-3 py-1 text-sm"
-                >
-                  Close
-                </button>
+              <div className="shrink-0 border-b border-[#F0EBE3] bg-white/95 px-4 py-4 sm:px-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">Booking reference</p>
+                    <p className="mt-1 truncate text-lg font-semibold tracking-tight text-[#1F2420]">
+                      {selectedBookingId ? formatBookingRef(selectedBookingId) : "—"}
+                    </p>
+                    {detail ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadge(detail.status)}`}
+                        >
+                          {statusLabel(detail.status)}
+                        </span>
+                        <span className="rounded-full border border-[#E8E0D4] bg-[#FFFCF7] px-2.5 py-1 text-xs font-medium text-[#5E574C]">
+                          {detail.source}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeDrawer}
+                    className="shrink-0 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-xs font-semibold text-[#1F2420] shadow-sm transition hover:border-[#B9974A]/45"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
 
-              {detailLoading ? <p className="text-sm text-[#7A6A58]">Loading detail...</p> : null}
-              {detailError ? (
-                <p className="rounded-md border border-[#E7B9A4] bg-[#FFF1EC] px-3 py-2 text-sm text-danger">
-                  {detailError}
-                </p>
-              ) : null}
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
+                {detailLoading ? (
+                  <div className="flex items-center gap-3 rounded-2xl border border-[#F0EBE3] bg-white p-5 text-sm text-[#7A6A58]">
+                    <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#B9974A]" aria-hidden />
+                    Loading booking details…
+                  </div>
+                ) : null}
+                {detailError ? (
+                  <div className="flex gap-3 rounded-2xl border border-[#E7B9A4]/70 bg-[#FFF1EC] p-4 text-sm text-[#8B4428]">
+                    <AlertCircle className="h-5 w-5 shrink-0" aria-hidden />
+                    <p>{detailError}</p>
+                  </div>
+                ) : null}
 
-              {detail ? (
-                <div className="space-y-5">
-                  <section className="rounded-lg border border-border bg-white p-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-[#1F2420]">{detail.id}</p>
-                      <span
-                        className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${statusBadge(
-                          detail.status,
-                        )}`}
-                      >
-                        {detail.status}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm text-[#7A6A58]">Source: {detail.source}</p>
-                    <p className="mt-1 text-sm text-[#7A6A58]">Branch: {detail.branchId}</p>
-                    <p className="mt-1 text-sm text-[#7A6A58]">
-                      Slot:{" "}
-                      {detail.slot
-                        ? `${detail.slot.date} ${detail.slot.startTime}-${detail.slot.endTime}`
-                        : detail.slotId}
-                    </p>
-                    <p className="mt-1 text-sm text-[#7A6A58]">
-                      Client: {detail.client?.fullName ?? "-"}{" "}
-                      {detail.client?.phone ? `(${detail.client.phone})` : ""}
-                    </p>
-                  </section>
+                {detail ? (
+                  <div className="space-y-4">
+                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                        <UserRound className="h-4 w-4 text-[#B9974A]" aria-hidden />
+                        Client
+                      </div>
+                      <p className="mt-2 text-base font-semibold text-[#1F2420]">
+                        {detail.client?.fullName ?? "—"}
+                      </p>
+                      <div className="mt-2 space-y-1 text-sm text-[#5E574C]">
+                        <p>{detail.client?.phone ? `Phone: ${detail.client.phone}` : "Phone: —"}</p>
+                        <p>{detail.client?.email ? `Email: ${detail.client.email}` : "Email: —"}</p>
+                      </div>
+                    </section>
 
-                  <section className="rounded-lg border border-border bg-white p-4">
-                    <h3 className="text-sm font-semibold text-[#1F2420]">Items</h3>
-                    {detail.items.length === 0 ? (
-                      <p className="mt-2 text-sm text-[#7A6A58]">No items found.</p>
-                    ) : (
-                      <ul className="mt-3 space-y-2">
-                        {detail.items.map((item) => (
-                          <li key={item.id} className="rounded border border-border p-3">
-                            <p className="text-sm font-medium text-[#1F2420]">
-                              {item.nameSnapshot}
-                            </p>
-                            <p className="mt-1 text-xs text-[#7A6A58]">
-                              {item.itemType} • Qty {item.quantity} •{" "}
-                              {formatEGP(item.priceSnapshot)}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </section>
+                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                        <CalendarClock className="h-4 w-4 text-[#B9974A]" aria-hidden />
+                        Appointment
+                      </div>
+                      <p className="mt-2 text-sm font-medium text-[#1F2420]">
+                        {detail.slot
+                          ? `${detail.slot.date} · ${formatWallClockRange12h(detail.slot.startTime, detail.slot.endTime)}`
+                          : `Slot ID: ${detail.slotId}`}
+                      </p>
+                      <p className="mt-1 text-xs text-[#7A6A58]">
+                        Created {formatDateTimeAmPm(detail.createdAt)} · Updated{" "}
+                        {formatDateTimeAmPm(detail.updatedAt)}
+                      </p>
+                    </section>
 
-                  <section className="rounded-lg border border-border bg-white p-4">
-                    <h3 className="text-sm font-semibold text-[#1F2420]">Totals</h3>
-                    <div className="mt-3 space-y-1 text-sm text-[#1F2420]">
-                      <p>Subtotal: {formatEGP(detail.subtotal)}</p>
-                      <p>Discount: {formatEGP(detail.discountAmount)}</p>
-                      <p>VAT ({(detail.vatRate * 100).toFixed(0)}%): {formatEGP(detail.vatAmount)}</p>
-                      <p className="font-semibold">Total: {formatEGP(detail.totalAmount)}</p>
-                      <p>Paid: {formatEGP(detail.paidAmount)}</p>
-                      <p>Remaining: {formatEGP(detail.remainingAmount)}</p>
-                    </div>
-                  </section>
+                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                        <Building2 className="h-4 w-4 text-[#B9974A]" aria-hidden />
+                        Branch
+                      </div>
+                      <p className="mt-2 text-sm font-medium text-[#1F2420]">
+                        {branchNameById.get(detail.branchId) ?? detail.branchId}
+                      </p>
+                    </section>
 
-                  <section className="rounded-lg border border-border bg-white p-4">
-                    <h3 className="text-sm font-semibold text-[#1F2420]">Notes</h3>
-                    <p className="mt-2 text-sm text-[#7A6A58]">
-                      Client notes: {detail.clientNotes || "-"}
-                    </p>
-                    <p className="mt-1 text-sm text-[#7A6A58]">
-                      Admin notes: {detail.adminNotes || "-"}
-                    </p>
-                  </section>
+                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                        <ClipboardList className="h-4 w-4 text-[#B9974A]" aria-hidden />
+                        Selected items
+                      </div>
+                      {detail.items.length === 0 ? (
+                        <p className="mt-2 text-sm text-[#7A6A58]">No items on this booking.</p>
+                      ) : (
+                        <ul className="mt-3 space-y-2">
+                          {detail.items.map((item) => (
+                            <li
+                              key={item.id}
+                              className="rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] px-3 py-2.5"
+                            >
+                              <p className="text-sm font-medium text-[#1F2420]">{item.nameSnapshot}</p>
+                              <p className="mt-1 text-xs text-[#7A6A58]">
+                                {item.itemType} · Qty {item.quantity} · {formatEGP(item.priceSnapshot)} ·{" "}
+                                {item.durationMinutesSnapshot} min
+                              </p>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="mt-2 text-xs text-[#B5A896]">Summary: {summarizeBookingItems(detail)}</p>
+                    </section>
 
-                  <section className="rounded-lg border border-border bg-white p-4">
-                    <h3 className="text-sm font-semibold text-[#1F2420]">Lifecycle actions</h3>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {canConfirm ? (
-                        <button
-                          type="button"
-                          onClick={() => void triggerAction("confirm")}
-                          disabled={actionLoading !== null}
-                          className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
-                        >
-                          Confirm
-                        </button>
+                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                        <Receipt className="h-4 w-4 text-[#B9974A]" aria-hidden />
+                        Pricing summary
+                      </div>
+                      <dl className="mt-3 space-y-2 text-sm text-[#1F2420]">
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-[#7A6A58]">Subtotal</dt>
+                          <dd className="font-medium tabular-nums">{formatEGP(detail.subtotal)}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-[#7A6A58]">Discount</dt>
+                          <dd className="font-medium tabular-nums">{formatEGP(detail.discountAmount)}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-[#7A6A58]">VAT ({(detail.vatRate * 100).toFixed(0)}%)</dt>
+                          <dd className="font-medium tabular-nums">{formatEGP(detail.vatAmount)}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4 border-t border-[#F0EBE3] pt-2 text-base font-semibold">
+                          <dt>Total</dt>
+                          <dd className="tabular-nums">{formatEGP(detail.totalAmount)}</dd>
+                        </div>
+                        {detail.appliedPromoCode ? (
+                          <div className="flex justify-between gap-4 text-sm">
+                            <dt className="text-[#7A6A58]">Promo code</dt>
+                            <dd className="font-medium text-[#1F2420]">{detail.appliedPromoCode}</dd>
+                          </div>
+                        ) : null}
+                        <div className="flex justify-between gap-4 text-sm">
+                          <dt className="text-[#7A6A58]">Paid</dt>
+                          <dd className="font-medium tabular-nums text-[#0E342B]">{formatEGP(detail.paidAmount)}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-sm">
+                          <dt className="text-[#7A6A58]">Remaining</dt>
+                          <dd className="font-medium tabular-nums text-[#8B4428]">
+                            {formatEGP(detail.remainingAmount)}
+                          </dd>
+                        </div>
+                      </dl>
+                    </section>
+
+                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
+                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                        <StickyNote className="h-4 w-4 text-[#B9974A]" aria-hidden />
+                        Notes
+                      </div>
+                      <p className="mt-2 text-sm leading-relaxed text-[#5E574C]">
+                        <span className="font-medium text-[#1F2420]">Client:</span> {detail.clientNotes || "—"}
+                      </p>
+                      <p className="mt-2 text-sm leading-relaxed text-[#5E574C]">
+                        <span className="font-medium text-[#1F2420]">Internal:</span> {detail.adminNotes || "—"}
+                      </p>
+                    </section>
+
+                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                        Lifecycle actions
+                      </h3>
+                      <p className="mt-1 text-xs leading-relaxed text-[#B5A896]">
+                        Actions stay the same as before; they are grouped for faster scanning. The API still enforces
+                        valid transitions.
+                      </p>
+
+                      {canConfirm || canReject ? (
+                        <div className="mt-4 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
+                          <p className="text-xs font-semibold text-[#1F2420]">Request handling</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {canConfirm ? (
+                              <button
+                                type="button"
+                                onClick={() => void triggerAction("confirm")}
+                                disabled={actionLoading !== null}
+                                className={primaryActionClass}
+                              >
+                                Confirm
+                              </button>
+                            ) : null}
+                            {canReject ? (
+                              <button
+                                type="button"
+                                onClick={() => void triggerAction("reject")}
+                                disabled={actionLoading !== null}
+                                className={secondaryActionClass}
+                              >
+                                Reject
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
                       ) : null}
-                      {canReject ? (
-                        <button
-                          type="button"
-                          onClick={() => void triggerAction("reject")}
-                          disabled={actionLoading !== null}
-                          className="rounded border border-border bg-white px-3 py-1.5 text-xs font-medium"
-                        >
-                          Reject
-                        </button>
-                      ) : null}
+
                       {canProgress ? (
-                        <button
-                          type="button"
-                          onClick={() => void triggerAction("require-follow-up")}
-                          disabled={actionLoading !== null}
-                          className="rounded border border-border bg-white px-3 py-1.5 text-xs font-medium"
-                        >
-                          Requires Follow-up
-                        </button>
-                      ) : null}
-                      {canCancel ? (
-                        <button
-                          type="button"
-                          onClick={() => void triggerAction("cancel")}
-                          disabled={actionLoading !== null}
-                          className="rounded border border-[#E7B9A4] bg-[#FFF1EC] px-3 py-1.5 text-xs font-medium text-danger"
-                        >
-                          Cancel
-                        </button>
-                      ) : null}
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {canProgress ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => void triggerAction("mark-arrived")}
-                            disabled={actionLoading !== null}
-                            className="rounded border border-border bg-white px-3 py-1.5 text-xs"
-                          >
-                            Mark Arrived
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void triggerAction("mark-in-progress")}
-                            disabled={actionLoading !== null}
-                            className="rounded border border-border bg-white px-3 py-1.5 text-xs"
-                          >
-                            Mark In Progress
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void triggerAction("mark-completed")}
-                            disabled={actionLoading !== null}
-                            className="rounded border border-border bg-white px-3 py-1.5 text-xs"
-                          >
-                            Mark Completed
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void triggerAction("mark-no-show")}
-                            disabled={actionLoading !== null}
-                            className="rounded border border-border bg-white px-3 py-1.5 text-xs"
-                          >
-                            Mark No-show
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-
-                    {canReschedule ? (
-                      <div className="mt-4 rounded border border-border p-3">
-                        <p className="text-xs font-semibold text-[#1F2420]">Reschedule</p>
-                        <select
-                          value={rescheduleSlotId}
-                          onChange={(event) => setRescheduleSlotId(event.target.value)}
-                          className="mt-2 w-full rounded border border-border bg-white px-3 py-2 text-sm"
-                        >
-                          <option value="">Select new slot</option>
-                          {slotsForReschedule
-                            .filter((slot) => slot.id !== detail.slotId)
-                            .map((slot) => (
-                              <option key={slot.id} value={slot.id}>
-                                {slot.date} {slot.startTime}-{slot.endTime} ({slot.status})
-                              </option>
-                            ))}
-                        </select>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void triggerAction("reschedule")}
-                            disabled={actionLoading !== null}
-                            className="rounded border border-border bg-white px-3 py-1.5 text-xs"
-                          >
-                            Reschedule
-                          </button>
-                          {canConfirm ? (
+                        <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
+                          <p className="text-xs font-semibold text-[#1F2420]">Appointment progress</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
                             <button
                               type="button"
-                              onClick={() => void triggerAction("confirm-reschedule")}
+                              onClick={() => void triggerAction("mark-arrived")}
                               disabled={actionLoading !== null}
-                              className="rounded border border-border bg-white px-3 py-1.5 text-xs"
+                              className={secondaryActionClass}
                             >
-                              Confirm Reschedule
+                              Arrived
                             </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="mt-4 rounded border border-border p-3">
-                      <p className="text-xs font-semibold text-[#1F2420]">Pricing actions</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {canUpdate ? (
-                          <button
-                            type="button"
-                            onClick={() => void triggerAction("recalculate-pricing")}
-                            disabled={actionLoading !== null}
-                            className="rounded border border-border bg-white px-3 py-1.5 text-xs"
-                          >
-                            Recalculate Pricing
-                          </button>
-                        ) : null}
-                      </div>
-                      {canDiscount ? (
-                        <div className="mt-3 space-y-2">
-                          <input
-                            type="number"
-                            min={0}
-                            value={discountAmount}
-                            onChange={(event) => setDiscountAmount(event.target.value)}
-                            placeholder="Discount amount"
-                            className="w-full rounded border border-border bg-white px-3 py-2 text-sm"
-                          />
-                          <input
-                            value={discountReason}
-                            onChange={(event) => setDiscountReason(event.target.value)}
-                            placeholder="Reason (optional)"
-                            className="w-full rounded border border-border bg-white px-3 py-2 text-sm"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void triggerAction("discount")}
-                            disabled={actionLoading !== null}
-                            className="rounded border border-border bg-white px-3 py-1.5 text-xs"
-                          >
-                            Apply Discount
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => void triggerAction("mark-in-progress")}
+                              disabled={actionLoading !== null}
+                              className={secondaryActionClass}
+                            >
+                              In progress
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void triggerAction("mark-completed")}
+                              disabled={actionLoading !== null}
+                              className={primaryActionClass}
+                            >
+                              Completed
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void triggerAction("mark-no-show")}
+                              disabled={actionLoading !== null}
+                              className={dangerOutlineClass}
+                            >
+                              No-show
+                            </button>
+                          </div>
                         </div>
                       ) : null}
-                    </div>
 
-                    <div className="mt-4 rounded border border-border p-3">
-                      <p className="text-xs font-semibold text-[#1F2420]">WhatsApp</p>
-                      <button
-                        type="button"
-                        disabled
-                        className="mt-2 rounded border border-border bg-[#F5F1EA] px-3 py-1.5 text-xs text-[#7A6A58]"
-                      >
-                        Send WhatsApp (template key selection pending, fallback placeholder)
-                      </button>
-                    </div>
+                      {canReschedule || canCancel ? (
+                        <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
+                          <p className="text-xs font-semibold text-[#1F2420]">Changes</p>
+                          {canReschedule ? (
+                            <div className="mt-2 space-y-2">
+                              <label className="block text-xs font-medium text-[#7A6A58]">New slot</label>
+                              <select
+                                value={rescheduleSlotId}
+                                onChange={(event) => setRescheduleSlotId(event.target.value)}
+                                className="w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50"
+                              >
+                                <option value="">Select new slot</option>
+                                {slotsForReschedule
+                                  .filter((slot) => slot.id !== detail.slotId)
+                                  .map((slot) => (
+                                    <option key={slot.id} value={slot.id}>
+                                      {slot.date} {formatWallClockRange12h(slot.startTime, slot.endTime, " – ")} ({slot.status})
+                                    </option>
+                                  ))}
+                              </select>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void triggerAction("reschedule")}
+                                  disabled={actionLoading !== null}
+                                  className={secondaryActionClass}
+                                >
+                                  Reschedule
+                                </button>
+                                {canConfirm ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void triggerAction("confirm-reschedule")}
+                                    disabled={actionLoading !== null}
+                                    className={secondaryActionClass}
+                                  >
+                                    Confirm reschedule
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : null}
+                          {canCancel ? (
+                            <div className={canReschedule ? "mt-3 border-t border-[#F0EBE3] pt-3" : "mt-2"}>
+                              <button
+                                type="button"
+                                onClick={() => void triggerAction("cancel")}
+                                disabled={actionLoading !== null}
+                                className={dangerOutlineClass}
+                              >
+                                Cancel booking
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
 
-                    {actionError ? (
-                      <p className="mt-3 rounded border border-[#E7B9A4] bg-[#FFF1EC] px-3 py-2 text-sm text-danger">
-                        {actionError}
-                      </p>
-                    ) : null}
-                  </section>
-                </div>
-              ) : null}
+                      {canUpdate || canDiscount ? (
+                        <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
+                          <p className="text-xs font-semibold text-[#1F2420]">Pricing</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {canUpdate ? (
+                              <button
+                                type="button"
+                                onClick={() => void triggerAction("recalculate-pricing")}
+                                disabled={actionLoading !== null}
+                                className={secondaryActionClass}
+                              >
+                                Recalculate
+                              </button>
+                            ) : null}
+                          </div>
+                          {canDiscount ? (
+                            <div className="mt-3 space-y-2 border-t border-[#F0EBE3] pt-3">
+                              <input
+                                type="number"
+                                min={0}
+                                value={discountAmount}
+                                onChange={(event) => setDiscountAmount(event.target.value)}
+                                placeholder="Discount amount"
+                                className="w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-[#B9974A]/50"
+                              />
+                              <input
+                                value={discountReason}
+                                onChange={(event) => setDiscountReason(event.target.value)}
+                                placeholder="Reason (optional)"
+                                className="w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-[#B9974A]/50"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void triggerAction("discount")}
+                                disabled={actionLoading !== null}
+                                className={primaryActionClass}
+                              >
+                                Apply discount
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {actionError ? (
+                        <p className="mt-4 flex gap-2 rounded-xl border border-[#E7B9A4]/70 bg-[#FFF1EC] px-3 py-2 text-sm text-[#8B4428]">
+                          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
+                          {actionError}
+                        </p>
+                      ) : null}
+                    </section>
+                  </div>
+                ) : null}
+              </div>
             </aside>
           </div>
         ) : null}

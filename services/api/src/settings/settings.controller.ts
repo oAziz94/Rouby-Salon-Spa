@@ -12,6 +12,7 @@ import { RequirePermissions } from '../auth/decorators/require-permissions.decor
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { DashboardJwtAuthGuard } from '../auth/guards/dashboard-jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { PatchSlotGenerationDto } from '../slots/dto/patch-slot-generation.dto';
 import { PatchPaymentPolicyDto } from './dto/patch-payment-policy.dto';
 import { PatchSystemSettingsDto } from './dto/patch-system-settings.dto';
 import { PatchVatSettingsDto } from './dto/patch-vat-settings.dto';
@@ -79,5 +80,22 @@ export class SettingsController {
   patchSystem(@Body(new DefaultValuePipe({})) dto: PatchSystemSettingsDto) {
     void dto;
     return this.settings.patchSystemNoOp();
+  }
+
+  @Get('slot-generation')
+  @RequirePermissions('slots.read')
+  @ApiOperation({ summary: 'Get global slot generation defaults' })
+  getSlotGeneration() {
+    return this.settings.getSlotGenerationDefaultsResponse();
+  }
+
+  @Patch('slot-generation')
+  @RequirePermissions('slots.create', 'slots.capacity.configure')
+  @ApiOperation({ summary: 'Update global slot generation defaults' })
+  patchSlotGeneration(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Body() dto: PatchSlotGenerationDto,
+  ) {
+    return this.settings.patchSlotGenerationDefaults(user, dto);
   }
 }

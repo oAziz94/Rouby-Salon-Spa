@@ -24,9 +24,15 @@ import { PermissionGuard } from "@/components/auth-required";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 
 type LoadState = "loading" | "loaded" | "empty" | "error";
+type ServiceBenefitFormRow = { key: string; label: string; isActive: boolean };
 type ServiceFormState = {
   name: string;
   categoryId: string;
+  shortDescription: string;
+  imageUrl: string;
+  displayOrder: string;
+  isFeatured: boolean;
+  badgeLabel: string;
   priceDisplayType: string;
   basePrice: string;
   basePriceMax: string;
@@ -73,12 +79,18 @@ export default function DashboardServicesPage() {
   const [serviceForm, setServiceForm] = useState<ServiceFormState>({
     name: "",
     categoryId: "",
+    shortDescription: "",
+    imageUrl: "",
+    displayOrder: "0",
+    isFeatured: false,
+    badgeLabel: "",
     priceDisplayType: "FIXED",
     basePrice: "",
     basePriceMax: "",
     durationMinutes: "",
     branchIdsCsv: "",
   });
+  const [serviceBenefits, setServiceBenefits] = useState<ServiceBenefitFormRow[]>([]);
 
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<DashboardServiceCategory | null>(null);
@@ -153,12 +165,18 @@ export default function DashboardServicesPage() {
     setServiceForm({
       name: "",
       categoryId: categories[0]?.id ?? "",
+      shortDescription: "",
+      imageUrl: "",
+      displayOrder: "0",
+      isFeatured: false,
+      badgeLabel: "",
       priceDisplayType: "FIXED",
       basePrice: "",
       basePriceMax: "",
       durationMinutes: "",
       branchIdsCsv: "",
     });
+    setServiceBenefits([]);
     setVariants([]);
     setServiceSaveError("");
     setServiceModalOpen(true);
@@ -169,12 +187,24 @@ export default function DashboardServicesPage() {
     setServiceForm({
       name: service.name,
       categoryId: service.categoryId,
+      shortDescription: service.shortDescription ?? "",
+      imageUrl: service.imageUrl ?? "",
+      displayOrder: String(service.displayOrder),
+      isFeatured: service.isFeatured,
+      badgeLabel: service.badgeLabel ?? "",
       priceDisplayType: service.priceDisplayType,
       basePrice: service.basePrice?.toString() ?? "",
       basePriceMax: service.basePriceMax?.toString() ?? "",
       durationMinutes: service.durationMinutes?.toString() ?? "",
       branchIdsCsv: service.branchIds.join(", "),
     });
+    setServiceBenefits(
+      (service.benefits ?? []).map((benefit) => ({
+        key: benefit.id,
+        label: benefit.label,
+        isActive: benefit.isActive,
+      })),
+    );
     setServiceSaveError("");
     setServiceModalOpen(true);
     void loadVariants(service.id);
@@ -193,11 +223,24 @@ export default function DashboardServicesPage() {
       const payload = {
         name: serviceForm.name,
         categoryId: serviceForm.categoryId,
+        shortDescription: serviceForm.shortDescription.trim() || null,
+        imageUrl: serviceForm.imageUrl.trim() || null,
+        displayOrder: Number(serviceForm.displayOrder || 0),
+        isFeatured: serviceForm.isFeatured,
+        badgeLabel: serviceForm.badgeLabel.trim() || null,
         priceDisplayType: serviceForm.priceDisplayType,
         basePrice: serviceForm.basePrice ? Number(serviceForm.basePrice) : null,
         basePriceMax: serviceForm.basePriceMax ? Number(serviceForm.basePriceMax) : null,
         durationMinutes: serviceForm.durationMinutes ? Number(serviceForm.durationMinutes) : null,
         branchIds,
+        benefits: serviceBenefits
+          .map((benefit) => ({ label: benefit.label.trim(), isActive: benefit.isActive }))
+          .filter((benefit) => benefit.label.length > 0)
+          .map((benefit, index) => ({
+            label: benefit.label,
+            displayOrder: index,
+            isActive: benefit.isActive,
+          })),
       };
       if (editingService) {
         await patchDashboardService(token, editingService.id, payload);
@@ -295,6 +338,30 @@ export default function DashboardServicesPage() {
     } catch (requestError) {
       setVariantsError(formatApiError(requestError));
     }
+  }
+
+  function addBenefitRow() {
+    const key =
+      typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+        ? globalThis.crypto.randomUUID()
+        : `tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setServiceBenefits((prev) => [...prev, { key, label: "", isActive: true }]);
+  }
+
+  function removeBenefitRow(key: string) {
+    setServiceBenefits((prev) => prev.filter((row) => row.key !== key));
+  }
+
+  function moveBenefitRow(key: string, direction: -1 | 1) {
+    setServiceBenefits((prev) => {
+      const i = prev.findIndex((row) => row.key === key);
+      if (i < 0) return prev;
+      const j = i + direction;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j]!, next[i]!];
+      return next;
+    });
   }
 
   return (
@@ -551,6 +618,57 @@ export default function DashboardServicesPage() {
                     ))}
                   </select>
                 </label>
+                <label className="text-sm md:col-span-2">
+                  <span className="mb-1 block font-medium text-[#1F2420]">Short description</span>
+                  <textarea
+                    value={serviceForm.shortDescription}
+                    onChange={(event) =>
+                      setServiceForm((prev) => ({ ...prev, shortDescription: event.target.value }))
+                    }
+                    rows={2}
+                    className="w-full rounded-md border border-border bg-white px-3 py-2"
+                  />
+                </label>
+                <label className="text-sm md:col-span-2">
+                  <span className="mb-1 block font-medium text-[#1F2420]">Image URL</span>
+                  <input
+                    value={serviceForm.imageUrl}
+                    onChange={(event) => setServiceForm((prev) => ({ ...prev, imageUrl: event.target.value }))}
+                    className="w-full rounded-md border border-border bg-white px-3 py-2"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium text-[#1F2420]">Display order</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={serviceForm.displayOrder}
+                    onChange={(event) =>
+                      setServiceForm((prev) => ({ ...prev, displayOrder: event.target.value }))
+                    }
+                    className="w-full rounded-md border border-border bg-white px-3 py-2"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium text-[#1F2420]">Badge label</span>
+                  <input
+                    value={serviceForm.badgeLabel}
+                    onChange={(event) =>
+                      setServiceForm((prev) => ({ ...prev, badgeLabel: event.target.value }))
+                    }
+                    className="w-full rounded-md border border-border bg-white px-3 py-2"
+                  />
+                </label>
+                <label className="text-sm md:col-span-2 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={serviceForm.isFeatured}
+                    onChange={(event) =>
+                      setServiceForm((prev) => ({ ...prev, isFeatured: event.target.checked }))
+                    }
+                  />
+                  <span className="font-medium text-[#1F2420]">Featured service</span>
+                </label>
                 <label className="text-sm">
                   <span className="mb-1 block font-medium text-[#1F2420]">Price display type</span>
                   <select
@@ -615,6 +733,85 @@ export default function DashboardServicesPage() {
                       : "Branch list unavailable for this user/session."}
                   </p>
                 </label>
+                <div className="md:col-span-2 space-y-2 rounded-md border border-border bg-white p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-[#1F2420]">Service benefits</span>
+                    <button
+                      type="button"
+                      onClick={addBenefitRow}
+                      className="rounded border border-border bg-[#FFF9EE] px-2 py-1 text-xs font-medium"
+                    >
+                      Add benefit
+                    </button>
+                  </div>
+                  <p className="text-xs text-[#7A6A58]">
+                    Order matches public chip display. Saving replaces all benefit rows for this service.
+                  </p>
+                  {serviceBenefits.length === 0 ? (
+                    <p className="text-xs text-[#7A6A58]">No benefits yet.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {serviceBenefits.map((row, index) => (
+                        <li
+                          key={row.key}
+                          className="flex flex-wrap items-center gap-2 rounded border border-border/80 bg-[#FFFCF6] p-2"
+                        >
+                          <input
+                            value={row.label}
+                            onChange={(event) =>
+                              setServiceBenefits((prev) =>
+                                prev.map((r) =>
+                                  r.key === row.key ? { ...r, label: event.target.value } : r,
+                                ),
+                              )
+                            }
+                            placeholder="Benefit label"
+                            className="min-w-[12rem] flex-1 rounded border border-border px-2 py-1 text-sm"
+                          />
+                          <label className="flex items-center gap-1 text-xs text-[#1F2420]">
+                            <input
+                              type="checkbox"
+                              checked={row.isActive}
+                              onChange={(event) =>
+                                setServiceBenefits((prev) =>
+                                  prev.map((r) =>
+                                    r.key === row.key ? { ...r, isActive: event.target.checked } : r,
+                                  ),
+                                )
+                              }
+                            />
+                            Active
+                          </label>
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              disabled={index === 0}
+                              onClick={() => moveBenefitRow(row.key, -1)}
+                              className="rounded border border-border bg-white px-2 py-1 text-xs disabled:opacity-40"
+                            >
+                              Up
+                            </button>
+                            <button
+                              type="button"
+                              disabled={index === serviceBenefits.length - 1}
+                              onClick={() => moveBenefitRow(row.key, 1)}
+                              className="rounded border border-border bg-white px-2 py-1 text-xs disabled:opacity-40"
+                            >
+                              Down
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeBenefitRow(row.key)}
+                              className="rounded border border-border bg-white px-2 py-1 text-xs text-danger"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
 
                 {serviceSaveError ? (
                   <p className="rounded border border-[#E7B9A4] bg-[#FFF1EC] px-3 py-2 text-sm text-danger md:col-span-2">

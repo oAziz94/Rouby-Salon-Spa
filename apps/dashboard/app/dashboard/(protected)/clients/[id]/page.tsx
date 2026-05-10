@@ -8,6 +8,7 @@ import {
   type DashboardBookingsListItem,
   type DashboardClient,
 } from "@rouby/api-client";
+import { formatDateTimeAmPm } from "@rouby/wall-clock";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -309,7 +310,7 @@ export default function DashboardClientProfilePage() {
                     >
                       <p className="text-sm font-medium text-[#1F2420]">{booking.id}</p>
                       <p className="mt-1 text-xs text-[#7A6A58]">
-                        {booking.status} • {booking.source} • {booking.createdAt}
+                        {booking.status} • {booking.source} • {formatDateTimeAmPm(booking.createdAt)}
                       </p>
                       <p className="mt-1 text-xs text-[#1F2420]">
                         {formatEGP(booking.totalAmount)}

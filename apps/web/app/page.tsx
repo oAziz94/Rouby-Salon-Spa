@@ -392,7 +392,7 @@ export default async function HomePage() {
               return (
                 <article
                   key={pkg.id}
-                  className={`relative overflow-hidden rounded-[1.6rem] border p-6 shadow-[0_16px_30px_rgba(42,62,46,0.13)] ${
+                  className={`relative rounded-[1.6rem] border p-6 shadow-[0_16px_30px_rgba(42,62,46,0.13)] ${
                     isFeaturedCard
                       ? "border-[#d7b87a] bg-[#fff9ee] md:-translate-y-2"
                       : "border-[#e7d8bf] bg-[#fffdf8]"

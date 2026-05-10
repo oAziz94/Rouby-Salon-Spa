@@ -76,16 +76,6 @@ export class DashboardBookingsController {
     return this.bookings.rejectBooking(user, bookingId);
   }
 
-  @Post(':bookingId/require-follow-up')
-  @RequirePermissions('bookings.status.progress')
-  @ApiOperation({ summary: 'Mark pending as requires follow-up' })
-  requireFollowUp(
-    @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
-  ) {
-    return this.bookings.requireFollowUp(user, bookingId);
-  }
-
   @Post(':bookingId/reschedule')
   @RequirePermissions('bookings.reschedule')
   @ApiOperation({

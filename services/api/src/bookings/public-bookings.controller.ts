@@ -4,8 +4,10 @@ import { ClientJwtAuthGuard } from '../auth/guards/client-jwt-auth.guard';
 import { CurrentClient } from '../auth/decorators/current-client.decorator';
 import type { ClientJwtUser } from '../auth/client-jwt-user';
 import { BookingsService } from './bookings.service';
-import type { PublicBookingCreateBodyDto } from './dto/booking-item-input.dto';
-import type { PublicBookingEstimateBodyDto } from './dto/booking-item-input.dto';
+import {
+  PublicBookingCreateBodyDto,
+  PublicBookingEstimateBodyDto,
+} from './dto/booking-item-input.dto';
 
 @ApiTags('public-bookings')
 @Controller('public/bookings')

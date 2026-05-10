@@ -3,13 +3,12 @@ import { FaFacebookF, FaInstagram, FaTiktok } from "react-icons/fa6";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import type { PublicSiteContent } from "@/lib/api/public";
 import { getPublicSiteContent } from "@/lib/api/public";
+import { PUBLIC_SALON_PHONE } from "@/lib/contact-display";
 
 const footerLinks = [
   { href: "/services", label: "Services" },
   { href: "/packages", label: "Packages" },
-  { href: "/bundles", label: "Bundles" },
-  { href: "/gallery", label: "Gallery" },
-  { href: "/testimonials", label: "Testimonials" },
+  { href: "/about", label: "About" },
   { href: "/contact", label: "Contact" },
 ] as const;
 
@@ -80,9 +79,13 @@ export async function SiteFooter() {
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#f1d595]">Contact</p>
             <div className="mt-4 space-y-2 text-sm text-[#d5dbc8]">
-              <p>+20 106 345 6789</p>
-              <p>R2, New Cairo, Egypt</p>
-              <p>Daily: 10:00 AM - 11:00 PM</p>
+              <p>
+                <a href={PUBLIC_SALON_PHONE.telHref} className="transition-colors hover:text-[#f1d595]">
+                  {PUBLIC_SALON_PHONE.display}
+                </a>
+              </p>
+              <p>15 Radwan Ibn AlTabib Off Murad st., Giza</p>
+              <p>Daily: 11:00 AM - 9:00 PM</p>
             </div>
           </div>
 

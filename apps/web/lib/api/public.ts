@@ -26,12 +26,23 @@ export type PublicService = {
   categoryId: string;
   name: string;
   description: string | null;
+  shortDescription: string | null;
   imageUrl: string | null;
+  displayOrder: number;
+  isFeatured: boolean;
+  badgeLabel: string | null;
   priceDisplayType: "FIXED" | "STARTS_FROM" | "RANGE" | "CONTACT" | "HIDDEN";
   basePrice: number | null;
   basePriceMax: number | null;
   durationMinutes: number | null;
   currency: "EGP";
+  benefits: PublicServiceBenefit[];
+};
+
+export type PublicServiceBenefit = {
+  id: string;
+  label: string;
+  displayOrder: number;
 };
 
 export type PublicServiceDetail = PublicService & {
@@ -90,9 +101,27 @@ export type PublicBundle = {
 export type PublicOffer = {
   id: string;
   name: string;
+  description: string | null;
   offerCode: string | null;
   discountType: string;
   discountValue: number | null;
+  startDate: string;
+  endDate: string;
+  minimumSpend: number | null;
+  appliesTo: "ALL" | "SERVICES" | "PACKAGES";
+  currency: "EGP";
+  eligibilityRules?: Record<string, unknown> | null;
+};
+
+export type PublicServiceEnhancement = {
+  id: string;
+  title: string;
+  shortDescription: string | null;
+  price: number | null;
+  durationMinutes: number | null;
+  imageUrl: string | null;
+  displayOrder: number;
+  isActive: boolean;
   currency: "EGP";
 };
 
@@ -140,13 +169,20 @@ export function getPublicCategories() {
   return getJson<ListResponse<PublicCategory>>("/public/categories");
 }
 
-export function getPublicServices(args?: { categoryId?: string; pageSize?: number }) {
+export function getPublicServices(args?: {
+  categoryId?: string;
+  pageSize?: number;
+  branchId?: string;
+}) {
   const params = new URLSearchParams({
     page: "1",
     pageSize: String(args?.pageSize ?? 24),
   });
   if (args?.categoryId) {
     params.set("categoryId", args.categoryId);
+  }
+  if (args?.branchId) {
+    params.set("branchId", args.branchId);
   }
   return getJson<ListResponse<PublicService>>(`/public/services?${params.toString()}`);
 }
@@ -161,8 +197,15 @@ export function getPublicServiceVariants(serviceId: string) {
   );
 }
 
-export function getPublicPackages() {
-  return getJson<ListResponse<PublicPackage>>("/public/packages?page=1&pageSize=24");
+export function getPublicPackages(args?: { branchId?: string; pageSize?: number }) {
+  const params = new URLSearchParams({
+    page: "1",
+    pageSize: String(args?.pageSize ?? 24),
+  });
+  if (args?.branchId) {
+    params.set("branchId", args.branchId);
+  }
+  return getJson<ListResponse<PublicPackage>>(`/public/packages?${params.toString()}`);
 }
 
 export type PublicPackageDetail = PublicPackage & {
@@ -194,6 +237,10 @@ export function getPublicBundles() {
 
 export function getPublicOffers() {
   return getJson<ListResponse<PublicOffer>>("/public/offers?page=1&pageSize=6");
+}
+
+export function getPublicServiceEnhancements() {
+  return getJson<ListResponse<PublicServiceEnhancement>>("/public/service-enhancements");
 }
 
 export function getPublicGallery() {

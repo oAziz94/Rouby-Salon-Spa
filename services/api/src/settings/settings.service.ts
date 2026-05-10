@@ -4,6 +4,14 @@ import { PaymentDepositPolicy, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { AuditService } from '../audit/audit.service';
+import {
+  assertValidSlotGeneration,
+  mergeSlotGeneration,
+  parseStoredSlotGeneration,
+  pickOverridesFromSlotDto,
+  type SlotGenerationDefaultsV1,
+} from '../slots/slot-generation.utils';
+import type { PatchSlotGenerationDto } from '../slots/dto/patch-slot-generation.dto';
 import { SYSTEM_SETTINGS_ID } from './settings.constants';
 import type { PatchPaymentPolicyDto } from './dto/patch-payment-policy.dto';
 import type { PatchVatSettingsDto } from './dto/patch-vat-settings.dto';
@@ -147,6 +155,44 @@ export class SettingsService {
       },
     });
     return this.getVatResponse();
+  }
+
+  async getSlotGenerationDefaultsResponse(): Promise<SlotGenerationDefaultsV1> {
+    const row = await this.getRow();
+    const merged = parseStoredSlotGeneration(row.slotGenerationDefaults);
+    assertValidSlotGeneration(merged);
+    return merged;
+  }
+
+  async patchSlotGenerationDefaults(
+    user: DashboardJwtUser,
+    dto: PatchSlotGenerationDto,
+  ): Promise<SlotGenerationDefaultsV1> {
+    const beforeRow = await this.prisma.systemSettings.findUnique({
+      where: { id: SYSTEM_SETTINGS_ID },
+      select: { slotGenerationDefaults: true },
+    });
+    const current = parseStoredSlotGeneration(
+      beforeRow?.slotGenerationDefaults,
+    );
+    const merged = mergeSlotGeneration(current, pickOverridesFromSlotDto(dto));
+    assertValidSlotGeneration(merged);
+    const updated = await this.prisma.systemSettings.update({
+      where: { id: SYSTEM_SETTINGS_ID },
+      data: {
+        slotGenerationDefaults: merged,
+        updatedBy: { connect: { id: user.userId } },
+      },
+    });
+    await this.audit.log({
+      userId: user.userId,
+      action: 'slot_generation.defaults.updated',
+      module: 'settings',
+      entityId: updated.id,
+      oldValue: beforeRow?.slotGenerationDefaults ?? null,
+      newValue: merged,
+    });
+    return merged;
   }
 
   async patchPaymentPolicy(user: DashboardJwtUser, dto: PatchPaymentPolicyDto) {

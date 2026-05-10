@@ -7,7 +7,9 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  IsString,
   IsUUID,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -61,6 +63,12 @@ export class PublicBookingEstimateBodyDto {
   @Type(() => BookingItemInputDto)
   @ArrayMinSize(1)
   items!: BookingItemInputDto[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  promoCode?: string;
 }
 
 export class PublicBookingCreateBodyDto extends PublicBookingEstimateBodyDto {

@@ -13,6 +13,7 @@ import {
   type DashboardPayment,
   type SimplePaymentAggregateStatus,
 } from "@rouby/api-client";
+import { formatDateTimeAmPm } from "@rouby/wall-clock";
 import { useEffect, useMemo, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
@@ -319,7 +320,7 @@ export default function DashboardPaymentsPage() {
                       <td className="py-3 pr-3 text-[#7A6A58]">{row.status}</td>
                       <td className="py-3 pr-3 text-[#7A6A58]">{row.reference ?? "-"}</td>
                       <td className="py-3 pr-3 text-[#7A6A58]">
-                        {row.paidAt ? new Date(row.paidAt).toLocaleString("en-GB") : "-"}
+                        {row.paidAt ? formatDateTimeAmPm(row.paidAt) : "-"}
                       </td>
                       <td className="py-3 pr-3">
                         {canUpdatePayment ? (

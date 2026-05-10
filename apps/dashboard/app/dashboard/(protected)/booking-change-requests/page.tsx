@@ -9,6 +9,7 @@ import {
   type DashboardBookingChangeRequestDetail,
   type DashboardBookingChangeRequestListItem,
 } from "@rouby/api-client";
+import { formatDateTimeAmPm, formatWallClockRange12h } from "@rouby/wall-clock";
 import { useEffect, useMemo, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
@@ -336,7 +337,7 @@ export default function BookingChangeRequestsPage() {
                       </td>
                       <td className="py-3 pr-3 text-[#7A6A58]">{row.bookingId}</td>
                       <td className="py-3 pr-3 text-[#7A6A58]">{row.clientId}</td>
-                      <td className="py-3 pr-3 text-[#7A6A58]">{row.createdAt}</td>
+                      <td className="py-3 pr-3 text-[#7A6A58]">{formatDateTimeAmPm(row.createdAt)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -364,7 +365,7 @@ export default function BookingChangeRequestsPage() {
                     </span>
                   </p>
                   <p className="mt-2 text-xs text-[#7A6A58]">Booking: {row.bookingId}</p>
-                  <p className="mt-1 text-xs text-[#7A6A58]">Created: {row.createdAt}</p>
+                  <p className="mt-1 text-xs text-[#7A6A58]">Created: {formatDateTimeAmPm(row.createdAt)}</p>
                 </article>
               ))}
             </div>
@@ -433,7 +434,7 @@ export default function BookingChangeRequestsPage() {
                       Client: {detail.booking.client?.fullName ?? detail.clientId}
                     </p>
                     <p className="mt-1 text-sm text-[#7A6A58]">
-                      Created: {detail.createdAt}
+                      Created: {formatDateTimeAmPm(detail.createdAt)}
                     </p>
                   </section>
 
@@ -442,13 +443,13 @@ export default function BookingChangeRequestsPage() {
                     <p className="mt-2 text-sm text-[#7A6A58]">
                       Original:{" "}
                       {detail.booking.slot
-                        ? `${detail.booking.slot.date} ${detail.booking.slot.startTime}-${detail.booking.slot.endTime}`
+                        ? `${detail.booking.slot.date} ${formatWallClockRange12h(detail.booking.slot.startTime, detail.booking.slot.endTime, " – ")}`
                         : detail.booking.slotId}
                     </p>
                     <p className="mt-1 text-sm text-[#7A6A58]">
                       Requested:{" "}
                       {detail.requestedSlot
-                        ? `${detail.requestedSlot.date} ${detail.requestedSlot.startTime}-${detail.requestedSlot.endTime}`
+                        ? `${detail.requestedSlot.date} ${formatWallClockRange12h(detail.requestedSlot.startTime, detail.requestedSlot.endTime, " – ")}`
                         : detail.requestType === "RESCHEDULE"
                           ? detail.requestedSlotId ?? "-"
                           : "N/A"}

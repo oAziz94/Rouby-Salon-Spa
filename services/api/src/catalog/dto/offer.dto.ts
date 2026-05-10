@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -11,13 +12,18 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { OfferDiscountType } from '@prisma/client';
+import { OfferAppliesTo, OfferDiscountType } from '@prisma/client';
 
 export class CreateOfferDto {
   @IsString()
   @MinLength(1)
   @MaxLength(200)
   name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string | null;
 
   @IsOptional()
   @IsString()
@@ -50,6 +56,25 @@ export class CreateOfferDto {
   perClientUsageLimit?: number | null;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  minimumSpend?: number | null;
+
+  @IsOptional()
+  @IsEnum(OfferAppliesTo)
+  appliesTo?: OfferAppliesTo;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serviceIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  packageIds?: string[];
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 
@@ -64,6 +89,11 @@ export class PatchOfferDto {
   @MinLength(1)
   @MaxLength(200)
   name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string | null;
 
   @IsOptional()
   @IsString()
@@ -98,6 +128,25 @@ export class PatchOfferDto {
   @IsInt()
   @Min(0)
   perClientUsageLimit?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  minimumSpend?: number | null;
+
+  @IsOptional()
+  @IsEnum(OfferAppliesTo)
+  appliesTo?: OfferAppliesTo;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serviceIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  packageIds?: string[];
 
   @IsOptional()
   @IsBoolean()

@@ -1,7 +1,10 @@
 import {
+  BadRequestException,
+  ConflictException,
   HttpException,
   HttpStatus,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,8 +13,16 @@ import { ClientOtpPurpose } from '@prisma/client';
 import { createHash, randomInt, timingSafeEqual } from 'crypto';
 import { CLIENT_JWT_AUDIENCE } from './auth.constants';
 import type { ClientAccessTokenPayload } from './client-jwt-payload.interface';
+import { ClientOtpRequestIntent } from './dto/client-otp-request-intent.enum';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizePhoneToE164 } from '../common/phone/phone.util';
+
+type ClientAuthProfile = {
+  id: string;
+  fullName: string;
+  phone: string;
+  email: string | null;
+};
 
 @Injectable()
 export class ClientAuthService {
@@ -61,22 +72,62 @@ export class ClientAuthService {
     });
   }
 
-  async requestOtp(phoneInput: string): Promise<{
+  private resolveRequestPurpose(
+    intent?: ClientOtpRequestIntent,
+  ): ClientOtpPurpose {
+    if (!intent || intent === ClientOtpRequestIntent.LOGIN) {
+      return ClientOtpPurpose.LOGIN;
+    }
+    if (intent === ClientOtpRequestIntent.SIGN_IN) {
+      return ClientOtpPurpose.SIGN_IN;
+    }
+    return ClientOtpPurpose.REGISTER;
+  }
+
+  async requestOtp(
+    phoneInput: string,
+    intent?: ClientOtpRequestIntent,
+  ): Promise<{
     success: true;
     expiresIn: number;
     phone: string;
     devCode?: string;
   }> {
     const phone = normalizePhoneToE164(phoneInput);
+    const purpose = this.resolveRequestPurpose(intent);
     const now = new Date();
     const cooldownWindowStart = new Date(
       now.getTime() - this.getOtpRequestCooldownSeconds() * 1000,
     );
 
+    if (purpose === ClientOtpPurpose.SIGN_IN) {
+      const client = await this.prisma.client.findUnique({ where: { phone } });
+      if (!client) {
+        throw new NotFoundException({
+          statusCode: 404,
+          message: 'No account found with this number.',
+          error: 'Not Found',
+          code: 'CLIENT_NOT_FOUND',
+        });
+      }
+    }
+
+    if (purpose === ClientOtpPurpose.REGISTER) {
+      const client = await this.prisma.client.findUnique({ where: { phone } });
+      if (client) {
+        throw new ConflictException({
+          statusCode: 409,
+          message: 'An account already exists for this number.',
+          error: 'Conflict',
+          code: 'CLIENT_ALREADY_EXISTS',
+        });
+      }
+    }
+
     const recentRequest = await this.prisma.clientOtpCode.findFirst({
       where: {
         phone,
-        purpose: ClientOtpPurpose.LOGIN,
+        purpose,
         createdAt: { gte: cooldownWindowStart },
       },
       orderBy: { createdAt: 'desc' },
@@ -103,7 +154,7 @@ export class ClientAuthService {
         phone,
         codeHash,
         expiresAt,
-        purpose: ClientOtpPurpose.LOGIN,
+        purpose,
       },
     });
 
@@ -119,22 +170,17 @@ export class ClientAuthService {
   async verifyOtp(
     phoneInput: string,
     codeInput: string,
+    fullNameInput?: string,
   ): Promise<{
     accessToken: string;
     expiresIn: number;
-    client: {
-      id: string;
-      fullName: string;
-      phone: string;
-      email: string | null;
-    };
+    client: ClientAuthProfile;
   }> {
     const phone = normalizePhoneToE164(phoneInput);
     const now = new Date();
     const otp = await this.prisma.clientOtpCode.findFirst({
       where: {
         phone,
-        purpose: ClientOtpPurpose.LOGIN,
         consumedAt: null,
       },
       orderBy: { createdAt: 'desc' },
@@ -166,21 +212,11 @@ export class ClientAuthService {
       data: { consumedAt: now },
     });
 
-    const existing = await this.prisma.client.findUnique({ where: { phone } });
-    const client = existing
-      ? await this.prisma.client.update({
-          where: { id: existing.id },
-          data: { phone },
-          select: { id: true, fullName: true, phone: true, email: true },
-        })
-      : await this.prisma.client.create({
-          data: {
-            fullName: `Client ${phone.slice(-4)}`,
-            phone,
-            email: null,
-          },
-          select: { id: true, fullName: true, phone: true, email: true },
-        });
+    const client = await this.resolveClientAfterOtpVerify(
+      phone,
+      otp.purpose,
+      fullNameInput,
+    );
 
     const expiresIn = parseExpiresInToSeconds(
       this.config.get<string>('CLIENT_JWT_EXPIRES_IN', '8h'),
@@ -192,6 +228,85 @@ export class ClientAuthService {
     });
 
     return { accessToken, expiresIn, client };
+  }
+
+  private async resolveClientAfterOtpVerify(
+    phone: string,
+    purpose: ClientOtpPurpose,
+    fullNameInput?: string,
+  ): Promise<ClientAuthProfile> {
+    if (purpose === ClientOtpPurpose.LOGIN) {
+      const existing = await this.prisma.client.findUnique({
+        where: { phone },
+      });
+      const row = existing
+        ? await this.prisma.client.update({
+            where: { id: existing.id },
+            data: { phone },
+            select: { id: true, fullName: true, phone: true, email: true },
+          })
+        : await this.prisma.client.create({
+            data: {
+              fullName: `Client ${phone.slice(-4)}`,
+              phone,
+              email: null,
+            },
+            select: { id: true, fullName: true, phone: true, email: true },
+          });
+      return row;
+    }
+
+    if (purpose === ClientOtpPurpose.SIGN_IN) {
+      const existing = await this.prisma.client.findUnique({
+        where: { phone },
+      });
+      if (!existing) {
+        throw new NotFoundException({
+          statusCode: 404,
+          message: 'No account found with this number.',
+          error: 'Not Found',
+          code: 'CLIENT_NOT_FOUND',
+        });
+      }
+      return await this.prisma.client.update({
+        where: { id: existing.id },
+        data: { phone },
+        select: { id: true, fullName: true, phone: true, email: true },
+      });
+    }
+
+    if (purpose === ClientOtpPurpose.REGISTER) {
+      const name = fullNameInput?.trim();
+      if (!name || name.length < 2) {
+        throw new BadRequestException({
+          statusCode: 400,
+          message: 'Full name is required to complete registration.',
+          error: 'Bad Request',
+          code: 'CLIENT_FULL_NAME_REQUIRED',
+        });
+      }
+      const existing = await this.prisma.client.findUnique({
+        where: { phone },
+      });
+      if (existing) {
+        throw new ConflictException({
+          statusCode: 409,
+          message: 'An account already exists for this number.',
+          error: 'Conflict',
+          code: 'CLIENT_ALREADY_EXISTS',
+        });
+      }
+      return await this.prisma.client.create({
+        data: {
+          fullName: name,
+          phone,
+          email: null,
+        },
+        select: { id: true, fullName: true, phone: true, email: true },
+      });
+    }
+
+    throw this.otpInvalidException();
   }
 
   async getMe(clientId: string): Promise<{

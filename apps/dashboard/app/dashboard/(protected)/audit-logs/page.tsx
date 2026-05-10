@@ -5,6 +5,7 @@ import {
   getDashboardAuditLogs,
   type DashboardAuditLogItem,
 } from "@rouby/api-client";
+import { formatDateTimeAmPm } from "@rouby/wall-clock";
 import { useEffect, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
@@ -168,7 +169,7 @@ export default function DashboardAuditLogsPage() {
                   {rows.map((row) => (
                     <tr key={row.id} className="border-b border-border/60 hover:bg-[#FFF9EE]">
                       <td className="py-3 pr-3 text-[#7A6A58]">
-                        {new Date(row.createdAt).toLocaleString("en-GB")}
+                        {formatDateTimeAmPm(row.createdAt)}
                       </td>
                       <td className="py-3 pr-3 text-[#1F2420]">{row.module}</td>
                       <td className="py-3 pr-3 text-[#1F2420]">{row.action}</td>
@@ -186,7 +187,7 @@ export default function DashboardAuditLogsPage() {
               {rows.map((row) => (
                 <article key={row.id} className="rounded-lg border border-border bg-white p-4">
                   <p className="text-xs text-[#7A6A58]">
-                    {new Date(row.createdAt).toLocaleString("en-GB")}
+                    {formatDateTimeAmPm(row.createdAt)}
                   </p>
                   <p className="mt-1 text-sm font-semibold text-[#1F2420]">{row.action}</p>
                   <p className="mt-1 text-xs text-[#7A6A58]">Module: {row.module}</p>

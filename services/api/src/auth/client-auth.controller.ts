@@ -22,20 +22,22 @@ export class ClientAuthController {
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({
-    summary: 'Request OTP code for client phone login',
+    summary:
+      'Request OTP: SIGN_IN (existing client), REGISTER (new client), or omit/LOGIN for legacy booking flow',
   })
   requestOtp(@Body() body: ClientOtpRequestDto) {
-    return this.clientAuth.requestOtp(body.phone);
+    return this.clientAuth.requestOtp(body.phone, body.intent);
   }
 
   @Post('otp/verify')
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
-    summary: 'Verify OTP code and return client JWT (aud=client)',
+    summary:
+      'Verify OTP and return client JWT; REGISTER flow requires fullName in body',
   })
   verifyOtp(@Body() body: ClientOtpVerifyDto) {
-    return this.clientAuth.verifyOtp(body.phone, body.code);
+    return this.clientAuth.verifyOtp(body.phone, body.code, body.fullName);
   }
 
   @Post('logout')

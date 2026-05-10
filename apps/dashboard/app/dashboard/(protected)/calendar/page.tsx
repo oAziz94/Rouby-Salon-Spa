@@ -6,6 +6,7 @@ import {
   type DashboardBookingsListItem,
   type DashboardBranch,
 } from "@rouby/api-client";
+import { formatDateTimeAmPm } from "@rouby/wall-clock";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
@@ -23,7 +24,6 @@ const STATUS_STYLES: Record<string, string> = {
   NO_SHOW: "bg-[#FCEEE8] text-[#8B4428]",
   ARRIVED: "bg-[#F5F0DF] text-[#6D5A1A]",
   IN_PROGRESS: "bg-[#E7F0E8] text-[#2E5A3A]",
-  REQUIRES_FOLLOW_UP: "bg-[#EFEAF8] text-[#4C3E77]",
 };
 
 function todayDateInput(): string {
@@ -284,7 +284,7 @@ export default function DashboardCalendarPage() {
                           {row.status}
                         </span>
                       </td>
-                      <td className="py-3 pr-3 text-[#7A6A58]">{row.createdAt}</td>
+                      <td className="py-3 pr-3 text-[#7A6A58]">{formatDateTimeAmPm(row.createdAt)}</td>
                       <td className="py-3 pr-3 text-[#7A6A58]">{row.slotId ?? "-"}</td>
                       <td className="py-3 pr-3 text-[#7A6A58]">{row.clientId ?? "-"}</td>
                     </tr>
@@ -309,7 +309,7 @@ export default function DashboardCalendarPage() {
                       {row.status}
                     </span>
                   </p>
-                  <p className="mt-2 text-xs text-[#7A6A58]">Created: {row.createdAt}</p>
+                  <p className="mt-2 text-xs text-[#7A6A58]">Created: {formatDateTimeAmPm(row.createdAt)}</p>
                   <p className="mt-1 text-xs text-[#7A6A58]">Slot: {row.slotId ?? "-"}</p>
                 </article>
               ))}

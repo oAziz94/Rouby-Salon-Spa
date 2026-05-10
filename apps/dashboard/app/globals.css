@@ -3,14 +3,17 @@
 :root {
   --background: #faf7f0;
   --foreground: #1f2420;
-  --sidebar: #2a1722;
-  --sidebar-foreground: #f3ebdd;
-  --sidebar-muted: #bdaea0;
-  --border: #e6dccb;
-  --card: #fffdf9;
-  --primary: #17351f;
-  --primary-foreground: #f3ebdd;
+  --sidebar: #062a2d;
+  --sidebar-foreground: #f6f2ea;
+  --sidebar-muted: #c4b59a;
+  --sidebar-accent: #b9974a;
+  --border: #ebe5d9;
+  --card: #fffdf8;
+  --primary: #0e342b;
+  --primary-foreground: #f6f2ea;
   --danger: #8b4428;
+  --gold: #b9974a;
+  --muted-foreground: #7a6a58;
 }
 
 @theme inline {
@@ -19,11 +22,14 @@
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-accent: var(--sidebar-accent);
   --color-border: var(--border);
   --color-card: var(--card);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-danger: var(--danger);
+  --color-gold: var(--gold);
+  --color-muted-foreground: var(--muted-foreground);
   --font-sans: var(--font-inter);
 }
 

@@ -106,8 +106,15 @@ export class CatalogPublicService {
         where,
         skip,
         take: query.pageSize,
-        orderBy: { name: 'asc' },
-        include: { branches: { include: { branch: true } } },
+        orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
+        include: {
+          branches: { include: { branch: true } },
+          benefits: {
+            where: { isActive: true },
+            orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+            select: { id: true, label: true, displayOrder: true },
+          },
+        },
       }),
     ]);
     const data = rows.map((s) => ({
@@ -115,7 +122,11 @@ export class CatalogPublicService {
       categoryId: s.categoryId,
       name: s.name,
       description: s.description,
+      shortDescription: s.shortDescription,
       imageUrl: s.imageUrl,
+      displayOrder: s.displayOrder,
+      isFeatured: s.isFeatured,
+      badgeLabel: s.badgeLabel,
       priceDisplayType: s.priceDisplayType,
       basePrice: decimalToNumber(s.basePrice),
       basePriceMax: decimalToNumber(s.basePriceMax),
@@ -124,6 +135,11 @@ export class CatalogPublicService {
       bookingAvailability: s.bookingAvailability,
       currency: CURRENCY,
       branchIds: s.branches.map((b) => b.branchId),
+      benefits: s.benefits.map((benefit) => ({
+        id: benefit.id,
+        label: benefit.label,
+        displayOrder: benefit.displayOrder,
+      })),
     }));
     return {
       data,
@@ -156,6 +172,11 @@ export class CatalogPublicService {
       include: {
         branches: { include: { branch: true } },
         category: true,
+        benefits: {
+          where: { isActive: true },
+          orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+          select: { id: true, label: true, displayOrder: true },
+        },
       },
     });
     if (!row) {
@@ -175,7 +196,11 @@ export class CatalogPublicService {
       categoryName: row.category.name,
       name: row.name,
       description: row.description,
+      shortDescription: row.shortDescription,
       imageUrl: row.imageUrl,
+      displayOrder: row.displayOrder,
+      isFeatured: row.isFeatured,
+      badgeLabel: row.badgeLabel,
       priceDisplayType: row.priceDisplayType,
       basePrice: decimalToNumber(row.basePrice),
       basePriceMax: decimalToNumber(row.basePriceMax),
@@ -186,6 +211,11 @@ export class CatalogPublicService {
       aftercareNotes: row.aftercareNotes,
       currency: CURRENCY,
       branches,
+      benefits: row.benefits.map((benefit) => ({
+        id: benefit.id,
+        label: benefit.label,
+        displayOrder: benefit.displayOrder,
+      })),
     };
   }
 
@@ -441,11 +471,14 @@ export class CatalogPublicService {
     const data = rows.map((o) => ({
       id: o.id,
       name: o.name,
+      description: o.description,
       offerCode: o.offerCode,
       discountType: o.discountType,
       discountValue: decimalToNumber(o.discountValue),
       startDate: o.startDate,
       endDate: o.endDate,
+      minimumSpend: decimalToNumber(o.minimumSpend),
+      appliesTo: o.appliesTo,
       currency: CURRENCY,
       eligibilityRules: o.eligibilityRules,
     }));
@@ -456,6 +489,26 @@ export class CatalogPublicService {
         pageSize: query.pageSize,
         totalItems,
       }),
+    };
+  }
+
+  async listServiceEnhancements() {
+    const rows = await this.prisma.serviceEnhancement.findMany({
+      where: { isActive: true },
+      orderBy: [{ displayOrder: 'asc' }, { title: 'asc' }],
+    });
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        shortDescription: row.shortDescription,
+        price: decimalToNumber(row.price),
+        durationMinutes: row.durationMinutes,
+        imageUrl: row.imageUrl,
+        displayOrder: row.displayOrder,
+        isActive: row.isActive,
+        currency: CURRENCY,
+      })),
     };
   }
 }

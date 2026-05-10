@@ -21,6 +21,7 @@ import { DashboardSlotListQueryDto } from './dto/dashboard-slot-list-query.dto';
 import { PatchSlotCapacityDto } from './dto/patch-slot-capacity.dto';
 import { PatchSlotOnlineBookableDto } from './dto/patch-slot-online-bookable.dto';
 import { PatchSlotStatusDto } from './dto/patch-slot-status.dto';
+import { GenerateWeekSlotsDto } from './dto/generate-week-slots.dto';
 import { PatchSlotDto } from './dto/patch-slot.dto';
 import { SlotsService } from './slots.service';
 
@@ -40,6 +41,17 @@ export class DashboardSlotsController {
     @Query() query: DashboardSlotListQueryDto,
   ) {
     return this.slots.listDashboardSlots(user, branchId, query);
+  }
+
+  @Post('generate-week')
+  @RequirePermissions('slots.create')
+  @ApiOperation({ summary: 'Generate one week of booking slots from defaults' })
+  generateWeek(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Body() dto: GenerateWeekSlotsDto,
+  ) {
+    return this.slots.generateWeekSlots(user, branchId, dto);
   }
 
   @Get(':slotId')

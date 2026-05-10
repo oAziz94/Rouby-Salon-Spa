@@ -1,5 +1,6 @@
 import { AuthRequired } from "@/components/auth-required";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { DashboardShellFeedProvider } from "@/lib/dashboard-shell-feed-context";
 
 export default function ProtectedDashboardLayout({
   children,
@@ -8,7 +9,9 @@ export default function ProtectedDashboardLayout({
 }) {
   return (
     <AuthRequired>
-      <DashboardShell>{children}</DashboardShell>
+      <DashboardShellFeedProvider>
+        <DashboardShell>{children}</DashboardShell>
+      </DashboardShellFeedProvider>
     </AuthRequired>
   );
 }

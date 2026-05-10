@@ -2,6 +2,32 @@
 
 export const CAIRO_TIME_ZONE = 'Africa/Cairo';
 
+const CAIRO_WEEKDAY_SHORT_TO_INDEX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+/**
+ * Day-of-week (0=Sunday … 6=Saturday) for a **calendar** `YYYY-MM-DD` interpreted in
+ * `Africa/Cairo`, aligned with slot booking dates and dashboard weekday toggles.
+ */
+export function cairoWeekdayIndexFromDateString(dateStr: string): number {
+  const label = new Intl.DateTimeFormat('en-US', {
+    timeZone: CAIRO_TIME_ZONE,
+    weekday: 'short',
+  }).format(new Date(`${dateStr}T12:00:00.000Z`));
+  const idx = CAIRO_WEEKDAY_SHORT_TO_INDEX[label];
+  if (idx === undefined) {
+    throw new Error(`Unexpected Cairo weekday label: ${label}`);
+  }
+  return idx;
+}
+
 export function toDateOnlyUtc(value: Date): string {
   return value.toISOString().slice(0, 10);
 }

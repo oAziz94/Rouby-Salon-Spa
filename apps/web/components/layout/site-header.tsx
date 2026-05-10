@@ -4,13 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { BrandLogo } from "@/components/brand/brand-logo";
+import { clearClientSession, getClientToken, subscribeClientSession } from "@/lib/auth/client-session";
 
 const navItems = [
   { href: "/services", label: "Services" },
   { href: "/packages", label: "Packages" },
-  { href: "/bundles", label: "Bundles" },
-  { href: "/gallery", label: "Gallery" },
-  { href: "/testimonials", label: "Testimonials" },
+  { href: "/about", label: "About" },
   { href: "/contact", label: "Contact" },
 ] as const;
 
@@ -24,12 +23,27 @@ function isActivePath(pathname: string, href: string): boolean {
 export function SiteHeader() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isClientAuthenticated, setIsClientAuthenticated] = useState(false);
 
   const bookingHref = useMemo(() => "/booking", []);
 
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    function syncAuthFromSession(): void {
+      setIsClientAuthenticated(Boolean(getClientToken()));
+    }
+    syncAuthFromSession();
+    return subscribeClientSession(syncAuthFromSession);
+  }, []);
+
+  function handleSignOut(): void {
+    clearClientSession();
+    setIsClientAuthenticated(false);
+    setMobileOpen(false);
+  }
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-[#d8cdb9] bg-[#fdfaf4]/95 backdrop-blur-md">
@@ -59,12 +73,30 @@ export function SiteHeader() {
         </div>
 
         <div className="hidden items-center gap-3 lg:flex">
-          <Link
-            href="/account"
-            className="rounded-full border border-[#d7cab2] px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-[#f3ebdd]"
-          >
-            Sign In
-          </Link>
+          {isClientAuthenticated ? (
+            <>
+              <Link
+                href="/account/bookings"
+                className="rounded-full border border-[#d7cab2] px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-[#f3ebdd]"
+              >
+                Account
+              </Link>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="rounded-full border border-[#d7cab2] px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-[#f3ebdd]"
+              >
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <Link
+              href="/account/sign-in"
+              className="rounded-full border border-[#d7cab2] px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-[#f3ebdd]"
+            >
+              Sign In
+            </Link>
+          )}
           <Link
             href={bookingHref}
             className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground shadow-[0_8px_20px_rgba(23,53,31,0.25)] transition-opacity hover:opacity-90"
@@ -109,13 +141,32 @@ export function SiteHeader() {
               );
             })}
             <div className="mt-2 flex gap-2">
-              <Link
-                href="/account"
-                className="flex-1 rounded-full border border-[#d7cab2] px-4 py-2 text-center text-sm font-medium text-primary"
-                onClick={() => setMobileOpen(false)}
-              >
-                Sign In
-              </Link>
+              {isClientAuthenticated ? (
+                <>
+                  <Link
+                    href="/account/bookings"
+                    className="flex-1 rounded-full border border-[#d7cab2] px-4 py-2 text-center text-sm font-medium text-primary"
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    Account
+                  </Link>
+                  <button
+                    type="button"
+                    className="flex-1 rounded-full border border-[#d7cab2] px-4 py-2 text-center text-sm font-medium text-primary"
+                    onClick={handleSignOut}
+                  >
+                    Sign Out
+                  </button>
+                </>
+              ) : (
+                <Link
+                  href="/account/sign-in"
+                  className="flex-1 rounded-full border border-[#d7cab2] px-4 py-2 text-center text-sm font-medium text-primary"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Sign In
+                </Link>
+              )}
               <Link
                 href={bookingHref}
                 className="flex-1 rounded-full bg-primary px-4 py-2 text-center text-sm font-semibold text-primary-foreground"

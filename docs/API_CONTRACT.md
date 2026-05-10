@@ -366,6 +366,7 @@ Base: `/dashboard/branches/{branchId}/slots` (or `/dashboard/slots?branchId=` â€
 | `GET` | `/dashboard/branches/{branchId}/slots` | Dashboard | `slots.read` | Query: `dateFrom`, `dateTo`, `status`. |
 | `GET` | `/dashboard/branches/{branchId}/slots/{slotId}` | Dashboard | `slots.read` | |
 | `POST` | `/dashboard/branches/{branchId}/slots` | Dashboard | `slots.create` | Body: `date`, `startTime`, `endTime`, `capacity`, `isOnlineBookable`, `status`, `notes`. |
+| `POST` | `/dashboard/branches/{branchId}/slots/generate-week` | Dashboard | `slots.create` | Body: `weekStartDate` (`YYYY-MM-DD`) plus optional overrides (`workingDays`, `startTime`, `endTime`, `slotDurationMinutes`, `defaultCapacity`, `defaultOnlineBookable`, `breakPeriods`). Creates **7 calendar days** of `AVAILABLE` slots from saved defaults; skips duplicates (same branch/date/start/end, active rows only); audit `slots.week_generated`. Returns `{ createdCount, skippedCount, dateFrom, dateTo }`. |
 | `PATCH` | `/dashboard/branches/{branchId}/slots/{slotId}` | Dashboard | `slots.update` | Times, notes, `isOnlineBookable`; capacity may require separate permission below. |
 | `PATCH` | `/dashboard/branches/{branchId}/slots/{slotId}/capacity` | Dashboard | `slots.capacity.configure` | Body: `{ "capacity": 5 }`; audit `slot.capacity_changed`. |
 | `PATCH` | `/dashboard/branches/{branchId}/slots/{slotId}/online-bookable` | Dashboard | `slots.update` | Body: `{ "isOnlineBookable": false }`. |
@@ -480,6 +481,8 @@ Base: `/dashboard/clients`.
 | `PATCH` | `/dashboard/settings/vat` | Dashboard | `vat.settings.manage` | Admin; audit. |
 | `GET` | `/dashboard/settings/payment-policy` | Dashboard | `payments.policy.read` | |
 | `PATCH` | `/dashboard/settings/payment-policy` | Dashboard | `payments.policy.manage` | Admin |
+| `GET` | `/dashboard/settings/slot-generation` | Dashboard | `slots.read` | Returns global JSON defaults (`schemaVersion`, `workingDays`, `startTime`, `endTime`, `slotDurationMinutes`, `defaultCapacity`, `defaultOnlineBookable`, optional `breakPeriods`). |
+| `PATCH` | `/dashboard/settings/slot-generation` | Dashboard | `slots.create` **and** `slots.capacity.configure` | Partial body merged into stored defaults; validated; audit `slot_generation.defaults.updated`. |
 
 **Record payment request example:**
 
