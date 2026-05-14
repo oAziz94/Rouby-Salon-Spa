@@ -1,3 +1,4 @@
+import { ensureVersionedApiBase } from "@/lib/api/versioned-api-base";
 import { clearClientSession, getClientToken } from "@/lib/auth/client-session";
 
 type ApiErrorShape = {
@@ -23,7 +24,7 @@ function resolveApiBaseUrl(): string {
   const raw = process.env.NEXT_PUBLIC_API_URL;
   const fallback =
     process.env.NODE_ENV === "production" ? "" : "http://localhost:4000/api/v1";
-  const base = (raw ?? fallback).replace(/\/$/, "");
+  const base = ensureVersionedApiBase((raw ?? fallback).replace(/\/$/, ""));
   if (!base) {
     throw new Error("NEXT_PUBLIC_API_URL must be set in production.");
   }

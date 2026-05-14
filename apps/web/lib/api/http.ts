@@ -1,3 +1,5 @@
+import { ensureVersionedApiBase } from "./versioned-api-base";
+
 export type ApiErrorShape = {
   statusCode?: number;
   message?: string | string[];
@@ -15,19 +17,6 @@ export class ApiRequestError extends Error {
     this.status = status;
     this.code = code;
   }
-}
-
-function ensureVersionedApiBase(trimmed: string): string {
-  try {
-    const u = new URL(trimmed);
-    const path = u.pathname.replace(/\/+$/, "") || "";
-    if (!path) {
-      return `${trimmed}/api/v1`.replace(/\/+$/, "");
-    }
-  } catch {
-    /* leave as-is */
-  }
-  return trimmed;
 }
 
 function resolveApiBaseUrl(): string {
