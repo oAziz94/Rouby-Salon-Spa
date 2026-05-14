@@ -5,20 +5,46 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InvoiceStatus, PaymentMethod, Prisma } from '@prisma/client';
+import {
+  BookingSource,
+  InvoiceStatus,
+  PaymentMethod,
+  PaymentStatus,
+  Prisma,
+  QueueEntrySource,
+} from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { buildListMeta } from '../catalog/catalog.utils';
 import { INVOICE_NUMBER_SEQUENCE_ID } from './billing.constants';
+import { SYSTEM_SETTINGS_ID } from '../settings/settings.constants';
 import {
   assertDashboardBranchAccess,
-  canAccessAllBranches,
-  resolveDashboardBranchFilter,
+  buildDashboardBookingBranchWhere,
 } from './dashboard-branch-scope';
 import { decimalMaxZero, sumPaidPayments } from './payment-ledger.util';
-import type { InvoiceListQueryDto } from './dto/invoice-list-query.dto';
+import type {
+  InvoiceListQueryDto,
+  InvoicePaymentStatusFilter,
+} from './dto/invoice-list-query.dto';
 import type { PatchInvoiceDto } from './dto/patch-invoice.dto';
+
+type InvoicePaymentSummaryStatus = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
+
+function deriveInvoicePaymentStatus(
+  total: Prisma.Decimal,
+  paid: Prisma.Decimal,
+  remaining: Prisma.Decimal,
+): InvoicePaymentSummaryStatus {
+  if (remaining.lessThanOrEqualTo(0)) {
+    return 'PAID';
+  }
+  if (paid.greaterThan(0) && paid.lessThan(total)) {
+    return 'PARTIALLY_PAID';
+  }
+  return 'UNPAID';
+}
 
 function httpBusiness(
   status: HttpStatus,
@@ -34,6 +60,26 @@ function httpBusiness(
     },
     status,
   );
+}
+
+function formatBookingReference(bookingId: string): string {
+  const tail = bookingId.replace(/-/g, '').slice(-8).toUpperCase();
+  return `RB-${tail}`;
+}
+
+function extractBookingIdSearchCompact(raw: string): string | null {
+  let s = raw.trim();
+  if (/^rb-/i.test(s)) {
+    s = s.slice(3).trim();
+  }
+  s = s.replace(/\s+/g, '').replace(/-/g, '').toLowerCase();
+  if (!/^[0-9a-f]+$/.test(s)) {
+    return null;
+  }
+  if (s.length < 4 || s.length > 32) {
+    return null;
+  }
+  return s;
 }
 
 @Injectable()
@@ -83,7 +129,7 @@ export class InvoicesService {
   }
 
   async createFinalizedForBooking(user: DashboardJwtUser, bookingId: string) {
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const booking = await tx.booking.findUnique({
         where: { id: bookingId },
         include: { items: { orderBy: { createdAt: 'asc' } } },
@@ -99,6 +145,13 @@ export class InvoicesService {
       if (existingFinal) {
         throw new ConflictException(
           'A finalized invoice already exists for this booking',
+        );
+      }
+      if (booking.items.length === 0) {
+        throw httpBusiness(
+          HttpStatus.BAD_REQUEST,
+          'Booking must have at least one item before invoice finalization',
+          'BOOKING_ITEMS_REQUIRED',
         );
       }
 
@@ -125,11 +178,13 @@ export class InvoicesService {
           lines: {
             create: booking.items.map((it, idx) => ({
               sortOrder: idx,
+              bookingItemId: it.id,
               itemType: it.itemType,
               serviceId: it.serviceId,
               serviceVariantId: it.serviceVariantId,
               packageId: it.packageId,
               bundleId: it.bundleId,
+              serviceEnhancementId: it.serviceEnhancementId,
               nameSnapshot: it.nameSnapshot,
               priceSnapshot: it.priceSnapshot,
               durationMinutesSnapshot: it.durationMinutesSnapshot,
@@ -138,7 +193,6 @@ export class InvoicesService {
             })),
           },
         },
-        include: { lines: { orderBy: { sortOrder: 'asc' } } },
       });
       await this.audit.log(
         {
@@ -156,7 +210,124 @@ export class InvoicesService {
         tx,
       );
 
-      return this.mapInvoice(invoice);
+      return invoice;
+    });
+
+    return this.getDashboardOne(user, created.id);
+  }
+
+  /**
+   * When booking line items are added after an invoice was finalized, append missing
+   * invoice lines (matched by `bookingItemId`) and refresh monetary totals from the booking
+   * while preserving `paidAmount`.
+   */
+  async syncFinalizedInvoiceWithBooking(
+    user: DashboardJwtUser,
+    bookingId: string,
+  ): Promise<void> {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { items: { orderBy: { createdAt: 'asc' } } },
+    });
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    assertDashboardBranchAccess(user, booking.branchId);
+
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { bookingId, status: InvoiceStatus.FINALIZED },
+      orderBy: { createdAt: 'desc' },
+      include: { lines: true },
+    });
+    if (!invoice) {
+      return;
+    }
+
+    const linked = new Set(
+      invoice.lines
+        .map((l) => l.bookingItemId)
+        .filter((id): id is string => id !== null),
+    );
+
+    let maxSort = invoice.lines.reduce((m, l) => Math.max(m, l.sortOrder), -1);
+    const sortedLines = [...invoice.lines].sort((a, b) => a.sortOrder - b.sortOrder);
+    const sortedItems = [...booking.items].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      if (
+        sortedLines.length > 0 &&
+        sortedLines.every((l) => l.bookingItemId === null) &&
+        sortedLines.length === sortedItems.length
+      ) {
+        for (let i = 0; i < sortedLines.length; i++) {
+          const line = sortedLines[i]!;
+          const item = sortedItems[i]!;
+          await tx.invoiceLine.update({
+            where: { id: line.id },
+            data: { bookingItemId: item.id },
+          });
+        }
+      }
+
+      const refreshedLines = await tx.invoiceLine.findMany({
+        where: { invoiceId: invoice.id },
+      });
+      const linked2 = new Set(
+        refreshedLines
+          .map((l) => l.bookingItemId)
+          .filter((id): id is string => id !== null),
+      );
+      maxSort = refreshedLines.reduce((m, l) => Math.max(m, l.sortOrder), -1);
+      const missing = sortedItems.filter((it) => !linked2.has(it.id));
+
+      for (const it of missing) {
+        maxSort += 1;
+        await tx.invoiceLine.create({
+          data: {
+            invoiceId: invoice.id,
+            sortOrder: maxSort,
+            bookingItemId: it.id,
+            itemType: it.itemType,
+            serviceId: it.serviceId,
+            serviceVariantId: it.serviceVariantId,
+            packageId: it.packageId,
+            bundleId: it.bundleId,
+            serviceEnhancementId: it.serviceEnhancementId,
+            nameSnapshot: it.nameSnapshot,
+            priceSnapshot: it.priceSnapshot,
+            durationMinutesSnapshot: it.durationMinutesSnapshot,
+            quantity: it.quantity,
+            lineMetadata: it.lineMetadata ?? Prisma.JsonNull,
+          },
+        });
+      }
+
+      const paidAmount = invoice.paidAmount;
+      const remaining = decimalMaxZero(booking.totalAmount.minus(paidAmount));
+
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          subtotal: booking.subtotal,
+          discountAmount: booking.discountAmount,
+          vatRate: booking.vatRate,
+          vatAmount: booking.vatAmount,
+          totalAmount: booking.totalAmount,
+          remainingAmount: remaining,
+        },
+      });
+    });
+
+    await this.audit.log({
+      userId: user.userId,
+      action: 'invoice.synced_from_booking_items',
+      module: 'billing',
+      entityId: invoice.id,
+      newValue: {
+        bookingId,
+      },
     });
   }
 
@@ -172,7 +343,10 @@ export class InvoicesService {
       assertDashboardBranchAccess(user, b.branchId);
     }
 
-    const branchFilter = resolveDashboardBranchFilter(user, query.branchId);
+    const bookingBranchWhere = buildDashboardBookingBranchWhere(
+      user,
+      query.branchId,
+    );
     const where: Prisma.InvoiceWhereInput = {};
 
     if (query.bookingId) {
@@ -180,6 +354,9 @@ export class InvoicesService {
     }
     if (query.clientId) {
       where.clientId = query.clientId;
+    }
+    if (query.status) {
+      where.status = query.status;
     }
     if (query.dateFrom || query.dateTo) {
       where.createdAt = {};
@@ -193,30 +370,134 @@ export class InvoicesService {
       }
     }
 
-    if (branchFilter) {
-      where.booking = { branchId: branchFilter };
-    } else if (!canAccessAllBranches(user) && user.branchId) {
-      where.booking = { branchId: user.branchId };
+    if (Object.keys(bookingBranchWhere).length) {
+      where.booking = { is: bookingBranchWhere };
+    }
+
+    if (query.paymentStatus) {
+      const psFilter = this.buildPaymentStatusWhere(query.paymentStatus);
+      if (psFilter) {
+        Object.assign(where, psFilter);
+      }
+    }
+
+    const search = query.search?.trim();
+    if (search) {
+      const ors: Prisma.InvoiceWhereInput[] = [];
+      const compactBookingId = extractBookingIdSearchCompact(search);
+      ors.push({
+        invoiceNumber: { contains: search, mode: 'insensitive' },
+      });
+      ors.push({
+        client: {
+          fullName: { contains: search, mode: 'insensitive' },
+        },
+      });
+      const phoneDigits = search.replace(/\D/g, '');
+      if (phoneDigits.length >= 3) {
+        ors.push({
+          client: {
+            phone: { contains: phoneDigits },
+          },
+        });
+      }
+      if (compactBookingId) {
+        const dashed = this.tryDashedUuid(compactBookingId);
+        if (dashed) {
+          ors.push({ bookingId: dashed });
+        }
+      }
+      where.AND = [
+        ...((where.AND as Prisma.InvoiceWhereInput[]) ?? []),
+        { OR: ors },
+      ];
     }
 
     const skip = (query.page - 1) * query.pageSize;
-    const [totalItems, rows] = await Promise.all([
+    const [totalItems, rows, summaryRows] = await Promise.all([
       this.prisma.invoice.count({ where }),
       this.prisma.invoice.findMany({
         where,
         skip,
         take: query.pageSize,
         orderBy: { createdAt: 'desc' },
+        include: {
+          client: {
+            select: {
+              id: true,
+              fullName: true,
+              phone: true,
+            },
+          },
+          booking: {
+            select: {
+              id: true,
+              source: true,
+              branchId: true,
+              branch: { select: { id: true, name: true } },
+              slot: {
+                select: {
+                  date: true,
+                  startTime: true,
+                  endTime: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.invoice.aggregate({
+        where,
+        _sum: {
+          totalAmount: true,
+          paidAmount: true,
+          remainingAmount: true,
+        },
+        _count: { _all: true },
+      }),
+    ]);
+
+    const [paidCount, partialCount, unpaidCount] = await Promise.all([
+      this.prisma.invoice.count({
+        where: this.combineWhere(where, this.buildPaymentStatusWhere('PAID')),
+      }),
+      this.prisma.invoice.count({
+        where: this.combineWhere(
+          where,
+          this.buildPaymentStatusWhere('PARTIALLY_PAID'),
+        ),
+      }),
+      this.prisma.invoice.count({
+        where: this.combineWhere(where, this.buildPaymentStatusWhere('UNPAID')),
       }),
     ]);
 
     return {
-      data: rows.map((r) => this.mapInvoiceListRow(r)),
-      meta: buildListMeta({
-        page: query.page,
-        pageSize: query.pageSize,
-        totalItems,
-      }),
+      data: rows.map((r) => this.mapEnrichedListRow(r)),
+      meta: {
+        ...buildListMeta({
+          page: query.page,
+          pageSize: query.pageSize,
+          totalItems,
+        }),
+        invoiceSummary: {
+          totalInvoices: summaryRows._count._all ?? 0,
+          paidInvoices: paidCount,
+          partiallyPaidInvoices: partialCount,
+          unpaidInvoices: unpaidCount,
+          totalRevenue: Number(
+            (summaryRows._sum.totalAmount ?? new Prisma.Decimal(0)).toString(),
+          ),
+          totalPaid: Number(
+            (summaryRows._sum.paidAmount ?? new Prisma.Decimal(0)).toString(),
+          ),
+          totalOutstanding: Number(
+            (
+              summaryRows._sum.remainingAmount ?? new Prisma.Decimal(0)
+            ).toString(),
+          ),
+        },
+      },
     };
   }
 
@@ -225,16 +506,291 @@ export class InvoicesService {
       where: { id: invoiceId },
       include: {
         lines: { orderBy: { sortOrder: 'asc' } },
-        booking: { select: { branchId: true } },
+        client: {
+          select: {
+            id: true,
+            fullName: true,
+            phone: true,
+            email: true,
+          },
+        },
+        booking: {
+          select: {
+            id: true,
+            source: true,
+            branchId: true,
+            createdAt: true,
+            branch: {
+              select: { id: true, name: true },
+            },
+            slot: {
+              select: {
+                id: true,
+                date: true,
+                startTime: true,
+                endTime: true,
+              },
+            },
+            items: {
+              orderBy: { createdAt: 'asc' },
+              select: {
+                id: true,
+                nameSnapshot: true,
+                quantity: true,
+              },
+            },
+          },
+        },
+        createdByUser: {
+          select: { id: true, name: true },
+        },
       },
     });
     if (!invoice) {
       throw new NotFoundException('Invoice not found');
     }
     assertDashboardBranchAccess(user, invoice.booking.branchId);
-    const { booking, ...rest } = invoice;
-    void booking;
-    return this.mapInvoice(rest);
+
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        bookingId: invoice.bookingId,
+        status: PaymentStatus.PAID,
+      },
+      orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
+      include: {
+        createdByUser: { select: { id: true, name: true } },
+      },
+    });
+
+    const servicesSummary = invoice.booking.items.length
+      ? invoice.booking.items
+          .map((it) =>
+            it.quantity > 1
+              ? `${it.nameSnapshot} ×${it.quantity}`
+              : it.nameSnapshot,
+          )
+          .join(', ')
+      : '';
+
+    return {
+      ...this.mapInvoiceListRow(invoice),
+      lines: invoice.lines.map((ln) => ({
+        id: ln.id,
+        sortOrder: ln.sortOrder,
+        itemType: ln.itemType,
+        serviceId: ln.serviceId,
+        serviceVariantId: ln.serviceVariantId,
+        packageId: ln.packageId,
+        bundleId: ln.bundleId,
+        serviceEnhancementId: ln.serviceEnhancementId,
+        nameSnapshot: ln.nameSnapshot,
+        priceSnapshot: Number(ln.priceSnapshot.toString()),
+        durationMinutesSnapshot: ln.durationMinutesSnapshot,
+        quantity: ln.quantity,
+        lineMetadata: ln.lineMetadata,
+      })),
+      client: {
+        id: invoice.client.id,
+        fullName: invoice.client.fullName,
+        phone: invoice.client.phone || null,
+        email: invoice.client.email,
+      },
+      booking: {
+        id: invoice.booking.id,
+        reference: formatBookingReference(invoice.booking.id),
+        source: invoice.booking.source,
+        branchId: invoice.booking.branchId,
+        branchName: invoice.booking.branch?.name ?? null,
+        createdAt: invoice.booking.createdAt,
+        slot: invoice.booking.slot
+          ? {
+              id: invoice.booking.slot.id,
+              date: invoice.booking.slot.date.toISOString().slice(0, 10),
+              startTime: invoice.booking.slot.startTime
+                .toISOString()
+                .slice(11, 19),
+              endTime: invoice.booking.slot.endTime.toISOString().slice(11, 19),
+            }
+          : null,
+        servicesSummary,
+        itemCount: invoice.booking.items.length,
+      },
+      branch: {
+        id: invoice.booking.branch?.id ?? invoice.booking.branchId,
+        name: invoice.booking.branch?.name ?? null,
+      },
+      payments: payments.map((p) => ({
+        id: p.id,
+        method: p.method,
+        amount: Number(p.amount.toString()),
+        status: p.status,
+        referenceNumber: p.reference,
+        paidAt: (p.paidAt ?? p.createdAt).toISOString(),
+        createdAt: p.createdAt.toISOString(),
+        cashierName: p.createdByUser?.name ?? null,
+      })),
+      finalizedAt: invoice.createdAt,
+      cashierName: invoice.createdByUser?.name ?? null,
+    };
+  }
+
+  async getDashboardReceipt(user: DashboardJwtUser, invoiceId: string) {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        lines: { orderBy: { sortOrder: 'asc' } },
+        booking: {
+          include: {
+            branch: true,
+            client: {
+              select: {
+                id: true,
+                fullName: true,
+                phone: true,
+              },
+            },
+            queueEntries: {
+              where: { source: QueueEntrySource.WALK_IN },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { id: true, source: true },
+            },
+          },
+        },
+        createdByUser: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+    if (!invoice) {
+      throw new NotFoundException('Invoice not found');
+    }
+    assertDashboardBranchAccess(user, invoice.booking.branchId);
+    if (invoice.status !== InvoiceStatus.FINALIZED) {
+      throw httpBusiness(
+        HttpStatus.BAD_REQUEST,
+        'Receipt is available only for finalized invoices',
+        'INVOICE_NOT_FINALIZED',
+      );
+    }
+
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        bookingId: invoice.bookingId,
+        status: PaymentStatus.PAID,
+      },
+      orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        id: true,
+        method: true,
+        amount: true,
+        reference: true,
+        paidAt: true,
+        createdAt: true,
+      },
+    });
+
+    const paymentStatus = deriveInvoicePaymentStatus(
+      invoice.totalAmount,
+      invoice.paidAmount,
+      invoice.remainingAmount,
+    );
+    const queueEntry = invoice.booking.queueEntries[0] ?? null;
+    const settings = await this.prisma.systemSettings.findUnique({
+      where: { id: SYSTEM_SETTINGS_ID },
+      select: {
+        salonName: true,
+        taxLabel: true,
+        showVatOnInvoice: true,
+        receiptTitle: true,
+        receiptFooterMessage: true,
+        receiptWidth: true,
+        showSalonPhoneOnReceipt: true,
+        showBranchAddressOnReceipt: true,
+        showVatBreakdown: true,
+        showPaymentBreakdown: true,
+        showCashierName: true,
+      },
+    });
+
+    return {
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        finalizedAt: invoice.createdAt,
+        paymentStatus,
+        status: invoice.status,
+        cashierName:
+          settings?.showCashierName === false
+            ? null
+            : (invoice.createdByUser?.name ?? null),
+      },
+      branch: {
+        id: invoice.booking.branch.id,
+        salonName: settings?.salonName || 'Alrouby Salon & Spa',
+        name: invoice.booking.branch.name,
+        address:
+          settings?.showBranchAddressOnReceipt === false
+            ? null
+            : invoice.booking.branch.address || null,
+        phone:
+          settings?.showSalonPhoneOnReceipt === false
+            ? null
+            : invoice.booking.branch.phone || null,
+      },
+      booking: {
+        id: invoice.booking.id,
+        reference: formatBookingReference(invoice.booking.id),
+        source: invoice.booking.source,
+      },
+      queueEntry: queueEntry
+        ? {
+            id: queueEntry.id,
+            source: queueEntry.source,
+          }
+        : null,
+      client: {
+        id: invoice.booking.client.id,
+        name: invoice.booking.client.fullName,
+        phone: invoice.booking.client.phone || null,
+      },
+      lines: invoice.lines.map((ln) => {
+        const unitPrice = Number(ln.priceSnapshot.toString());
+        const quantity = ln.quantity;
+        return {
+          id: ln.id,
+          sortOrder: ln.sortOrder,
+          name: ln.nameSnapshot,
+          quantity,
+          unitPrice,
+          lineTotal: Number(ln.priceSnapshot.mul(quantity).toString()),
+        };
+      }),
+      payments: payments.map((p) => ({
+        id: p.id,
+        method: p.method,
+        amount: Number(p.amount.toString()),
+        referenceNumber: p.reference,
+        paidAt: (p.paidAt ?? p.createdAt).toISOString(),
+      })),
+      totals: {
+        subtotal: Number(invoice.subtotal.toString()),
+        discountAmount: Number(invoice.discountAmount.toString()),
+        vatAmount: Number(invoice.vatAmount.toString()),
+        totalAmount: Number(invoice.totalAmount.toString()),
+        paidAmount: Number(invoice.paidAmount.toString()),
+        remainingAmount: Number(invoice.remainingAmount.toString()),
+      },
+      taxLabel: settings?.taxLabel || 'VAT',
+      showVatOnInvoice: settings?.showVatOnInvoice ?? true,
+      showVatBreakdown: settings?.showVatBreakdown ?? true,
+      showPaymentBreakdown: settings?.showPaymentBreakdown ?? true,
+      receiptTitle: settings?.receiptTitle || 'Receipt',
+      receiptWidth: settings?.receiptWidth || '80mm',
+      footerMessage:
+        settings?.receiptFooterMessage ||
+        'Thank you for visiting Alrouby Salon & Spa. This receipt was generated from a finalized invoice record.',
+    };
   }
 
   async patchDashboardInvoice(
@@ -285,13 +841,50 @@ export class InvoicesService {
       return this.getDashboardOne(user, invoiceId);
     }
 
-    const updated = await this.prisma.invoice.update({
+    await this.prisma.invoice.update({
       where: { id: invoiceId },
       data,
-      include: { lines: { orderBy: { sortOrder: 'asc' } } },
     });
 
-    return this.mapInvoice(updated);
+    return this.getDashboardOne(user, invoiceId);
+  }
+
+  private buildPaymentStatusWhere(
+    status: InvoicePaymentStatusFilter,
+  ): Prisma.InvoiceWhereInput | null {
+    if (status === 'PAID') {
+      return {
+        remainingAmount: { lte: 0 },
+      } satisfies Prisma.InvoiceWhereInput;
+    }
+    if (status === 'UNPAID') {
+      return {
+        AND: [{ remainingAmount: { gt: 0 } }, { paidAmount: { lte: 0 } }],
+      } satisfies Prisma.InvoiceWhereInput;
+    }
+    if (status === 'PARTIALLY_PAID') {
+      return {
+        AND: [{ remainingAmount: { gt: 0 } }, { paidAmount: { gt: 0 } }],
+      } satisfies Prisma.InvoiceWhereInput;
+    }
+    return null;
+  }
+
+  private combineWhere(
+    base: Prisma.InvoiceWhereInput,
+    extra: Prisma.InvoiceWhereInput | null,
+  ): Prisma.InvoiceWhereInput {
+    if (!extra) {
+      return base;
+    }
+    return { AND: [base, extra] };
+  }
+
+  private tryDashedUuid(compact: string): string | null {
+    if (compact.length !== 32) {
+      return null;
+    }
+    return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20, 32)}`;
   }
 
   private mapInvoiceListRow(inv: {
@@ -311,10 +904,16 @@ export class InvoicesService {
     createdAt: Date;
     updatedAt: Date;
   }) {
+    const paymentStatus = deriveInvoicePaymentStatus(
+      inv.totalAmount,
+      inv.paidAmount,
+      inv.remainingAmount,
+    );
     return {
       id: inv.id,
       invoiceNumber: inv.invoiceNumber,
       bookingId: inv.bookingId,
+      bookingReference: formatBookingReference(inv.bookingId),
       clientId: inv.clientId,
       subtotal: Number(inv.subtotal.toString()),
       discountAmount: Number(inv.discountAmount.toString()),
@@ -323,11 +922,66 @@ export class InvoicesService {
       totalAmount: Number(inv.totalAmount.toString()),
       paidAmount: Number(inv.paidAmount.toString()),
       remainingAmount: Number(inv.remainingAmount.toString()),
+      paymentStatus,
       status: inv.status,
       paymentMethod: inv.paymentMethod,
       currency: 'EGP',
       createdAt: inv.createdAt,
       updatedAt: inv.updatedAt,
+      finalizedAt: inv.createdAt,
+    };
+  }
+
+  private mapEnrichedListRow(inv: {
+    id: string;
+    invoiceNumber: string;
+    bookingId: string;
+    clientId: string;
+    subtotal: Prisma.Decimal;
+    discountAmount: Prisma.Decimal;
+    vatRate: Prisma.Decimal;
+    vatAmount: Prisma.Decimal;
+    totalAmount: Prisma.Decimal;
+    paidAmount: Prisma.Decimal;
+    remainingAmount: Prisma.Decimal;
+    status: InvoiceStatus;
+    paymentMethod: PaymentMethod | null;
+    createdAt: Date;
+    updatedAt: Date;
+    client: {
+      id: string;
+      fullName: string;
+      phone: string | null;
+    };
+    booking: {
+      id: string;
+      source: BookingSource;
+      branchId: string;
+      branch: { id: string; name: string } | null;
+      slot: { date: Date; startTime: Date; endTime: Date } | null;
+    };
+  }) {
+    return {
+      ...this.mapInvoiceListRow(inv),
+      client: {
+        id: inv.client.id,
+        fullName: inv.client.fullName,
+        phone: inv.client.phone,
+      },
+      booking: {
+        id: inv.booking.id,
+        reference: formatBookingReference(inv.booking.id),
+        source: inv.booking.source,
+        branchId: inv.booking.branchId,
+        branchName: inv.booking.branch?.name ?? null,
+        slot: inv.booking.slot
+          ? {
+              date: inv.booking.slot.date.toISOString().slice(0, 10),
+              startTime: inv.booking.slot.startTime.toISOString().slice(11, 19),
+              endTime: inv.booking.slot.endTime.toISOString().slice(11, 19),
+            }
+          : null,
+      },
     };
   }
 
@@ -355,6 +1009,7 @@ export class InvoicesService {
       serviceVariantId: string | null;
       packageId: string | null;
       bundleId: string | null;
+      serviceEnhancementId: string | null;
       nameSnapshot: string;
       priceSnapshot: Prisma.Decimal;
       durationMinutesSnapshot: number;
@@ -373,6 +1028,7 @@ export class InvoicesService {
           serviceVariantId: ln.serviceVariantId,
           packageId: ln.packageId,
           bundleId: ln.bundleId,
+          serviceEnhancementId: ln.serviceEnhancementId,
           nameSnapshot: ln.nameSnapshot,
           priceSnapshot: Number(ln.priceSnapshot.toString()),
           durationMinutesSnapshot: ln.durationMinutesSnapshot,

@@ -3,9 +3,11 @@
 import {
   ApiClientError,
   getDashboardBookings,
+  getDashboardBranches,
   getDashboardClientById,
   patchDashboardClient,
   type DashboardBookingsListItem,
+  type DashboardBranch,
   type DashboardClient,
 } from "@rouby/api-client";
 import { formatDateTimeAmPm } from "@rouby/wall-clock";
@@ -67,6 +69,30 @@ export default function DashboardClientProfilePage() {
     hasPermission("clients.notes.sensitive") ||
     hasPermission("clients.sensitive_notes.view");
   const canUpdate = hasPermission("clients.update");
+  const canReadBranches = hasPermission("branches.read");
+  const [branches, setBranches] = useState<DashboardBranch[]>([]);
+
+  useEffect(() => {
+    if (!token || !canReadBranches) {
+      setBranches([]);
+      return;
+    }
+    let cancelled = false;
+    void getDashboardBranches(token)
+      .then((b) => {
+        if (!cancelled) {
+          setBranches(Array.isArray(b) ? b : []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBranches([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canReadBranches, token]);
 
   useEffect(() => {
     if (!token || !clientId || !canRead) {
@@ -100,6 +126,21 @@ export default function DashboardClientProfilePage() {
         setState("error");
       });
   }, [canRead, clientId, token]);
+
+  const preferredBranchLabel = useMemo(() => {
+    const fromApi = client?.preferredBranchName;
+    if (typeof fromApi === "string" && fromApi.trim()) {
+      return fromApi;
+    }
+    const id = client?.preferredBranchId as string | null | undefined;
+    if (!id) {
+      return "—";
+    }
+    if (!canReadBranches) {
+      return "Unknown branch";
+    }
+    return branches.find((b) => b.id === id)?.name ?? "Unknown branch";
+  }, [branches, canReadBranches, client?.preferredBranchId, client?.preferredBranchName]);
 
   const bookingTotals = useMemo(() => {
     const totalAmount = bookings.reduce((sum, booking) => sum + booking.totalAmount, 0);
@@ -190,8 +231,7 @@ export default function DashboardClientProfilePage() {
                     <span className="font-medium">Name:</span> {client.fullName}
                   </p>
                   <p className="text-sm text-[#1F2420]">
-                    <span className="font-medium">Preferred branch:</span>{" "}
-                    {(client.preferredBranchId as string | null | undefined) ?? "-"}
+                    <span className="font-medium">Preferred branch:</span> {preferredBranchLabel}
                   </p>
                   <p className="text-sm text-[#1F2420]">
                     <span className="font-medium">Phone:</span>{" "}
@@ -201,16 +241,22 @@ export default function DashboardClientProfilePage() {
                     <span className="font-medium">Email:</span>{" "}
                     {canContact ? ((client.email as string | null | undefined) ?? "-") : "Masked"}
                   </p>
-                  <p className="text-sm text-[#1F2420] md:col-span-2">
-                    <span className="font-medium">Notes:</span>{" "}
-                    {canSensitive ? ((client.notes as string | null | undefined) ?? "-") : "Masked"}
-                  </p>
-                  <p className="text-sm text-[#1F2420] md:col-span-2">
-                    <span className="font-medium">Allergies/Warnings:</span>{" "}
-                    {canSensitive
-                      ? ((client.allergiesOrWarnings as string | null | undefined) ?? "-")
-                      : "Masked"}
-                  </p>
+                  {canSensitive ? (
+                    <>
+                      <p className="text-sm text-[#1F2420] md:col-span-2">
+                        <span className="font-medium">Notes:</span>{" "}
+                        {(client.notes as string | null | undefined) ?? "-"}
+                      </p>
+                      <p className="text-sm text-[#1F2420] md:col-span-2">
+                        <span className="font-medium">Allergies/Warnings:</span>{" "}
+                        {(client.allergiesOrWarnings as string | null | undefined) ?? "-"}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm leading-relaxed text-[#7A6A58] md:col-span-2">
+                      Sensitive notes and allergy information are hidden based on your permissions.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <form className="mt-4 space-y-3" onSubmit={onSave}>
@@ -308,13 +354,21 @@ export default function DashboardClientProfilePage() {
                       key={booking.id}
                       className="rounded-lg border border-border bg-white p-3"
                     >
-                      <p className="text-sm font-medium text-[#1F2420]">{booking.id}</p>
-                      <p className="mt-1 text-xs text-[#7A6A58]">
-                        {booking.status} • {booking.source} • {formatDateTimeAmPm(booking.createdAt)}
-                      </p>
-                      <p className="mt-1 text-xs text-[#1F2420]">
-                        {formatEGP(booking.totalAmount)}
-                      </p>
+                  <p className="text-sm font-medium text-[#1F2420]">
+                    {booking.servicesSummary ?? "Booking"}
+                  </p>
+                  <p className="mt-1 text-xs text-[#7A6A58]">
+                    {booking.status} • {booking.source} • {formatDateTimeAmPm(booking.createdAt)}
+                  </p>
+                  <p className="mt-1 text-xs text-[#1F2420]">
+                    {formatEGP(booking.totalAmount)}
+                  </p>
+                  <Link
+                    href={`/dashboard/bookings?bookingId=${booking.id}`}
+                    className="mt-2 inline-block text-xs font-medium text-[#0E342B] underline-offset-2 hover:underline"
+                  >
+                    View in bookings
+                  </Link>
                     </article>
                   ))}
                 </div>

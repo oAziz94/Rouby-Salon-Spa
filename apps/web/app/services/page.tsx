@@ -25,13 +25,6 @@ type EnhancementItem = {
   imageUrl: string | null;
 };
 
-const serviceImageFallbacks = [
-  "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=1200&q=80",
-  "https://images.unsplash.com/photo-1552693673-1bf958298935?auto=format&fit=crop&w=1200&q=80",
-  "https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=1200&q=80",
-  "https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?auto=format&fit=crop&w=1200&q=80",
-];
-
 function getErrorMessage(reason: unknown): string {
   if (reason instanceof Error) {
     return reason.message;
@@ -79,8 +72,12 @@ function getEnhancements(
   items: EnhancementItem[];
 } {
   if (enhancementsResult.status === "fulfilled" && enhancementsResult.value.data.length > 0) {
+    const activeOnly = enhancementsResult.value.data.filter((item) => item.isActive);
+    if (activeOnly.length === 0) {
+      return { items: [] };
+    }
     return {
-      items: enhancementsResult.value.data.slice(0, 4).map((item) => ({
+      items: activeOnly.slice(0, 4).map((item) => ({
         id: item.id,
         title: item.title,
         description:
@@ -191,20 +188,39 @@ export default async function ServicesPage({ searchParams }: ServicesPageProps) 
             />
           ) : (
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-              {servicesResult.value.data.map((service, index) => {
+              {servicesResult.value.data.map((service) => {
                 const benefits = Array.isArray(service.benefits) ? service.benefits : [];
+                const badgeText = service.badgeLabel?.trim() ?? "";
                 return (
                   <article
                     key={service.id}
-                    className="group overflow-hidden rounded-[1.45rem] border border-[#e6d8bf] bg-[#fff9ee] shadow-[0_14px_30px_rgba(38,56,42,0.1)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_22px_40px_rgba(30,46,35,0.18)]"
+                    className={`group overflow-hidden rounded-[1.45rem] border border-[#e6d8bf] bg-[#fff9ee] shadow-[0_14px_30px_rgba(38,56,42,0.1)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_22px_40px_rgba(30,46,35,0.18)] ${
+                      service.isFeatured ? "ring-2 ring-[#d7b87a]/50" : ""
+                    }`}
                   >
-                    <div className="relative aspect-[16/10] overflow-hidden">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={service.imageUrl ?? serviceImageFallbacks[index % serviceImageFallbacks.length]}
-                        alt={service.name}
-                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                      />
+                    <div className="relative aspect-[16/10] overflow-hidden bg-gradient-to-br from-[#f3e8d4] to-[#e8dcc4]">
+                      {service.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={service.imageUrl}
+                          alt={service.imageAlt || service.name}
+                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-6 text-center">
+                          <span className="font-heading text-4xl font-semibold text-primary/35">
+                            {service.name.trim().slice(0, 1).toUpperCase()}
+                          </span>
+                          <span className="text-xs font-medium uppercase tracking-[0.14em] text-[#8a6f3e]/90">
+                            Al Rouby treatment
+                          </span>
+                        </div>
+                      )}
+                      {badgeText ? (
+                        <span className="absolute left-3 top-3 max-w-[min(14rem,calc(100%-6rem))] truncate rounded-full border border-[#e2d0ab] bg-[#fff8eb]/95 px-3 py-1 text-xs font-semibold text-primary shadow-sm">
+                          {badgeText}
+                        </span>
+                      ) : null}
                       <span className="absolute right-3 top-3 rounded-full border border-[#e2d0ab] bg-[#fff8eb]/95 px-3 py-1 text-xs font-semibold text-primary shadow-sm">
                         {toPriceLabel(service)}
                       </span>

@@ -90,7 +90,7 @@ export function isAtLeast24HoursBeforeSlotStartCairo(row: {
  * by interpreting the components as a naive UTC timestamp. This matches `SlotsService` and
  * stored Prisma `@db.Date` / `@db.Time` UTC projections used across Sprint 4–5.
  */
-function compositeKeyToApproxUtcMs(key: string): number | null {
+export function compositeKeyToApproxUtcMs(key: string): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/.exec(key);
   if (!m) {
     return null;
@@ -104,4 +104,141 @@ function compositeKeyToApproxUtcMs(key: string): number | null {
     Number(mi),
     Number(s),
   );
+}
+
+function zonedTimeParts(date: Date, timeZone: string) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(date);
+  const pick = (t: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((p) => p.type === t)?.value ?? 0);
+  return {
+    ymd: `${pick('year')}-${String(pick('month')).padStart(2, '0')}-${String(pick('day')).padStart(2, '0')}`,
+    hour: pick('hour'),
+    minute: pick('minute'),
+    second: pick('second'),
+  };
+}
+
+function startOfZonedDayUtc(ymd: string, timeZone: string): Date {
+  const [y, mo, da] = ymd.split('-').map(Number);
+  if (!y || !mo || !da) {
+    throw new Error(`Invalid ymd: ${ymd}`);
+  }
+  for (let utcH = -14; utcH <= 14; utcH += 1) {
+    const t = new Date(Date.UTC(y, mo - 1, da, utcH, 0, 0, 0));
+    const z = zonedTimeParts(t, timeZone);
+    if (z.ymd === ymd && z.hour === 0 && z.minute === 0 && z.second === 0) {
+      return t;
+    }
+  }
+  throw new Error(`Could not resolve start of ${ymd} in ${timeZone}`);
+}
+
+function startOfNextZonedDayUtc(ymd: string, timeZone: string): Date {
+  const start = startOfZonedDayUtc(ymd, timeZone);
+  let lo = start.getTime();
+  let hi = start.getTime() + 40 * 3600 * 1000;
+  while (hi - lo > 1000) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date(mid)) === ymd
+    ) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return new Date(hi);
+}
+
+/** Civil `YYYY-MM-DD` in Africa/Cairo for `date` (default: now). */
+export function ymdInCairo(date: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: CAIRO_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+/** Same calendar day as `getCairoNowCompositeKey().slice(0, 10)` — salon "today". */
+export function cairoTodayYmd(): string {
+  return getCairoNowCompositeKey().slice(0, 10);
+}
+
+/** UTC `[start, endExclusive)` covering the full Cairo civil day for `ymd`. */
+export function cairoZonedDayUtcRange(ymd: string): {
+  start: Date;
+  endExclusive: Date;
+} {
+  return {
+    start: startOfZonedDayUtc(ymd, CAIRO_TIME_ZONE),
+    endExclusive: startOfNextZonedDayUtc(ymd, CAIRO_TIME_ZONE),
+  };
+}
+
+export function addDaysToYmdInCairo(ymd: string, deltaDays: number): string {
+  const base = startOfZonedDayUtc(ymd, CAIRO_TIME_ZONE);
+  const t = new Date(base.getTime() + deltaDays * 86400000);
+  return ymdInCairo(t);
+}
+
+/** Monday–Sunday week (Monday first) containing `ymd`, Cairo calendar. */
+export function cairoMondayWeekRangeContainingYmd(ymd: string): {
+  weekStartYmd: string;
+  weekEndYmd: string;
+} {
+  const start = startOfZonedDayUtc(ymd, CAIRO_TIME_ZONE);
+  const label = new Intl.DateTimeFormat('en-US', {
+    timeZone: CAIRO_TIME_ZONE,
+    weekday: 'short',
+  }).format(start);
+  const mondayFirst: Record<string, number> = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
+  };
+  const idx = mondayFirst[label.slice(0, 3)] ?? 0;
+  const weekStartYmd = addDaysToYmdInCairo(ymd, -idx);
+  const weekEndYmd = addDaysToYmdInCairo(weekStartYmd, 6);
+  return { weekStartYmd, weekEndYmd };
+}
+
+export function cairoMonthRangeContainingYmd(ymd: string): {
+  monthStartYmd: string;
+  monthEndYmd: string;
+} {
+  const z = zonedTimeParts(startOfZonedDayUtc(ymd, CAIRO_TIME_ZONE), CAIRO_TIME_ZONE);
+  const y = Number(z.ymd.slice(0, 4));
+  const m = Number(z.ymd.slice(5, 7));
+  const monthStartYmd = `${y}-${String(m).padStart(2, '0')}-01`;
+  let ny = y;
+  let nm = m + 1;
+  if (nm > 12) {
+    nm = 1;
+    ny += 1;
+  }
+  const nextFirst = `${ny}-${String(nm).padStart(2, '0')}-01`;
+  const endEx = startOfZonedDayUtc(nextFirst, CAIRO_TIME_ZONE);
+  const lastInstant = new Date(endEx.getTime() - 1);
+  const monthEndYmd = ymdInCairo(lastInstant);
+  return { monthStartYmd, monthEndYmd };
 }

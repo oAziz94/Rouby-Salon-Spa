@@ -27,19 +27,37 @@ export class DashboardJwtStrategy extends PassportStrategy(
   async validate(
     payload: DashboardAccessTokenPayload,
   ): Promise<DashboardJwtUser> {
-    const user = await this.prisma.user.findUnique({
+    const dbUser = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, isActive: true },
+      select: {
+        id: true,
+        email: true,
+        roleId: true,
+        branchId: true,
+        isActive: true,
+        branchAccesses: { select: { branchId: true } },
+        role: {
+          select: {
+            rolePermissions: {
+              select: { permission: { select: { key: true } } },
+            },
+          },
+        },
+      },
     });
-    if (!user?.isActive) {
+    if (!dbUser?.isActive) {
       throw new UnauthorizedException('User inactive or not found');
     }
+    const permissions = dbUser.role.rolePermissions
+      .map((rp) => rp.permission.key)
+      .sort((a, b) => a.localeCompare(b));
     return {
-      userId: payload.sub,
-      email: payload.email,
-      roleId: payload.roleId,
-      branchId: payload.branchId ?? null,
-      permissions: payload.permissions ?? [],
+      userId: dbUser.id,
+      email: dbUser.email,
+      roleId: dbUser.roleId,
+      branchId: dbUser.branchId ?? null,
+      allowedBranchIds: dbUser.branchAccesses.map((a) => a.branchId),
+      permissions,
     };
   }
 }

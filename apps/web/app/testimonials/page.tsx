@@ -33,18 +33,22 @@ export default async function TestimonialsPage() {
         ) : testimonialsResult[0].value.data.length === 0 ? (
           <EmptyState
             title="No testimonials available"
-            description="Testimonials will appear here when approved for website display."
+            description="Curated testimonials appear here when a homepage testimonial is selected in the dashboard."
           />
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {testimonialsResult[0].value.data.map((review) => (
-              <article key={review.id} className="rounded-xl border border-border bg-card p-5">
+          <div className="mx-auto max-w-xl space-y-6">
+            {testimonialsResult[0].value.data.map((review, index) => (
+              <article
+                key={`testimonial-${index}`}
+                className="rounded-xl border border-border bg-card p-5"
+              >
                 <p className="text-sm text-accent">{renderStars(review.rating)}</p>
                 <p className="mt-3 text-sm leading-relaxed text-foreground">
-                  {review.comment ?? "Client testimonial"}
+                  {review.quote || "Client testimonial"}
                 </p>
                 <p className="mt-4 text-xs uppercase tracking-[0.12em] text-muted">
                   {review.clientName}
+                  {review.clientTitle ? ` · ${review.clientTitle}` : ""}
                 </p>
               </article>
             ))}

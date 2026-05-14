@@ -78,6 +78,7 @@ export type AboutPageContent = {
   philosophyHeading: string;
   philosophyIntro: string;
   philosophyItems: Array<{ title: string; description: string }>;
+  expertsEyebrow: string;
   expertsHeading: string;
   expertsSubheading: string;
 };
@@ -110,9 +111,10 @@ export function getAboutPageContent(siteContent: PublicSiteContent | null): Abou
       readString(a.philosophyIntro) ??
       "Principles that guide every treatment suite, ritual, and guest conversation.",
     philosophyItems: readPhilosophyItems(a.philosophyItems) ?? [...DEFAULT_PHILOSOPHY_ITEMS],
-    expertsHeading: readString(a.expertsHeading) ?? "Meet Our Experts",
+    expertsEyebrow: readString(a.expertsEyebrow) ?? "The People Behind AlRouby",
+    expertsHeading: readString(a.expertsHeading) ?? "Meet the Experts Behind the Experience",
     expertsSubheading:
       readString(a.expertsSubheading) ??
-      "Our team of certified therapists and beauty experts are dedicated to providing exceptional care.",
+      "AlRouby is shaped by experienced professionals who bring together beauty expertise, elegant design, and thoughtful client care.",
   };
 }

@@ -47,9 +47,9 @@ export function SiteHeader() {
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 border-b border-[#d8cdb9] bg-[#fdfaf4]/95 backdrop-blur-md">
-      <nav className="mx-auto flex h-20 w-full max-w-[1440px] items-center justify-between px-4 sm:px-6 lg:px-10">
+      <nav className="mx-auto flex min-h-20 w-full max-w-[1440px] items-center justify-between gap-4 px-4 py-3 sm:min-h-24 md:min-h-28 sm:px-6 sm:py-3.5 lg:px-10">
         <Link href="/" className="flex items-center gap-3">
-          <BrandLogo priority heightClass="h-10 sm:h-11" />
+          <BrandLogo priority heightClass="h-14 sm:h-16 md:h-[4.75rem]" />
           <span className="sr-only">Alrouby Salon &amp; Spa</span>
         </Link>
 

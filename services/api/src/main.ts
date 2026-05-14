@@ -1,12 +1,19 @@
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { mkdirSync } from 'fs';
+import { join } from 'path';
 import { AppModule } from './app.module';
+import { resolveUploadsRoot } from './media/uploads-root';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const configService = app.get(ConfigService);
+  const uploadsRoot = resolveUploadsRoot(configService);
+  mkdirSync(join(uploadsRoot, 'media'), { recursive: true });
+  app.useStaticAssets(uploadsRoot, { prefix: '/uploads/' });
 
   app.setGlobalPrefix('api/v1', {
     exclude: [{ path: 'health', method: RequestMethod.ALL }],

@@ -28,6 +28,8 @@ export type PublicService = {
   description: string | null;
   shortDescription: string | null;
   imageUrl: string | null;
+  /** Present when API returns alt text for the hero image. */
+  imageAlt?: string | null;
   displayOrder: number;
   isFeatured: boolean;
   badgeLabel: string | null;
@@ -135,11 +137,12 @@ export type PublicGalleryItem = {
 };
 
 export type PublicTestimonial = {
-  id: string;
   clientName: string;
+  clientTitle: string | null;
   rating: number;
-  comment: string | null;
-  createdAt: string;
+  quote: string;
+  serviceName: string | null;
+  displayOrder: number;
 };
 
 export type PublicBranch = {
@@ -152,6 +155,24 @@ export type PublicBranch = {
   workingHours: unknown;
 };
 
+export type PublicWebsiteContentSection = {
+  key: string;
+  page: string;
+  sectionType: string;
+  title: string | null;
+  subtitle: string | null;
+  body: string | null;
+  eyebrow: string | null;
+  ctaLabel: string | null;
+  ctaHref: string | null;
+  secondaryCtaLabel: string | null;
+  secondaryCtaHref: string | null;
+  primaryImageUrl: string | null;
+  secondaryImageUrl: string | null;
+  content: Record<string, unknown> | null;
+  displayOrder: number;
+};
+
 export type PublicSiteContent = {
   homeHero: Record<string, unknown>;
   aboutSection: Record<string, unknown>;
@@ -159,6 +180,7 @@ export type PublicSiteContent = {
   footerSection: Record<string, unknown>;
   socialLinks: Record<string, unknown>;
   seoDefaults: Record<string, unknown>;
+  websiteSections?: PublicWebsiteContentSection[];
 };
 
 export function getPublicSiteContent() {
@@ -173,6 +195,8 @@ export function getPublicServices(args?: {
   categoryId?: string;
   pageSize?: number;
   branchId?: string;
+  /** When true, only catalog services flagged as featured are returned. */
+  isFeatured?: boolean;
 }) {
   const params = new URLSearchParams({
     page: "1",
@@ -183,6 +207,9 @@ export function getPublicServices(args?: {
   }
   if (args?.branchId) {
     params.set("branchId", args.branchId);
+  }
+  if (args?.isFeatured === true) {
+    params.set("isFeatured", "true");
   }
   return getJson<ListResponse<PublicService>>(`/public/services?${params.toString()}`);
 }
@@ -240,7 +267,9 @@ export function getPublicOffers() {
 }
 
 export function getPublicServiceEnhancements() {
-  return getJson<ListResponse<PublicServiceEnhancement>>("/public/service-enhancements");
+  return getJson<ListResponse<PublicServiceEnhancement>>("/public/service-enhancements", {
+    noStore: true,
+  });
 }
 
 export function getPublicGallery() {

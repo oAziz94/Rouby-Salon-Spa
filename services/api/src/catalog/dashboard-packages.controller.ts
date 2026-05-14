@@ -14,7 +14,7 @@ import { RequirePermissions } from '../auth/decorators/require-permissions.decor
 import { DashboardJwtAuthGuard } from '../auth/guards/dashboard-jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { CatalogDashboardService } from './catalog-dashboard.service';
-import { DashboardCatalogListQueryDto } from './dto/dashboard-catalog-list-query.dto';
+import { DashboardPackagesListQueryDto } from './dto/dashboard-packages-list-query.dto';
 import { CreatePackageDto, PatchPackageDto } from './dto/package.dto';
 import { IsActiveBodyDto } from './dto/is-active-body.dto';
 
@@ -28,11 +28,14 @@ export class DashboardPackagesController {
   @Get()
   @RequirePermissions('packages.read')
   @ApiOperation({ summary: 'List packages' })
-  list(@Query() query: DashboardCatalogListQueryDto) {
+  list(@Query() query: DashboardPackagesListQueryDto) {
     return this.catalog.listPackages({
       page: query.page,
       pageSize: query.pageSize,
       isActive: query.isActive,
+      search: query.search,
+      branchId: query.branchId,
+      publicListing: query.publicListing,
     });
   }
 

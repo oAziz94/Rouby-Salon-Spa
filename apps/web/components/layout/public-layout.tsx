@@ -11,7 +11,7 @@ export function PublicLayout({ children }: PublicLayoutProps) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <SiteHeader />
-      <main className="pt-20">{children}</main>
+      <main className="pt-20 sm:pt-24 md:pt-28">{children}</main>
       <SiteFooter />
       <FloatingWhatsAppButton />
     </div>

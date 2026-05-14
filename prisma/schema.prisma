@@ -16,16 +16,28 @@ model Branch {
   whatsapp     String   @default("")
   mapUrl       String   @default("") @map("map_url")
   workingHours Json?    @map("working_hours")
+  /// Branch-level defaults for slot generation (same shape as system-level defaults).
+  slotGenerationDefaults Json? @map("slot_generation_defaults")
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   users            User[]
+  userBranchAccesses UserBranchAccess[]
   serviceBranches  ServiceBranch[]
   packageBranches  PackageBranch[]
   bookingSlots     BookingSlot[]
   bookings         Booking[]
   clientsPreferred Client[]        @relation("ClientPreferredBranch")
+  queueEntries          QueueEntry[]
+  cashDrawerSessions    CashDrawerSession[]
+  cashDrawerMovements   CashDrawerMovement[]
+  dailyClosings         DailyClosing[]
+  defaultForSystemSettings SystemSettings[] @relation("SystemSettingsDefaultBranch")
+  reviews               Review[]
+  staffProfiles         StaffProfile[]
+  staffSchedules        StaffSchedule[]
+  staffScheduleExceptions StaffScheduleException[]
 
   @@map("branches")
 }
@@ -33,19 +45,40 @@ model Branch {
 /// Singleton global VAT + payment/deposit policy (Sprint 2). One row; fixed id in seed.
 model SystemSettings {
   id                      String               @id @db.Uuid
+  salonName               String               @default("Alrouby Salon & Spa") @map("salon_name")
+  legalName               String?              @map("legal_name")
+  phone                   String?              @map("phone")
+  whatsappNumber          String?              @map("whatsapp_number")
+  email                   String?              @map("email")
+  address                 String?              @map("address")
+  instagramHandle         String?              @map("instagram_handle")
+  facebookPage            String?              @map("facebook_page")
+  defaultBranchId         String?              @map("default_branch_id") @db.Uuid
   vatEnabled              Boolean              @map("vat_enabled")
+  vatRatePercent          Decimal              @default(14) @map("vat_rate_percent") @db.Decimal(5, 2)
+  taxLabel                String               @default("VAT") @map("tax_label")
   defaultVatRate          Decimal              @map("default_vat_rate") @db.Decimal(6, 5)
   pricesIncludeVat        Boolean              @map("prices_include_vat")
   showVatOnInvoice        Boolean              @map("show_vat_on_invoice")
   taxRegistrationNumber  String?              @map("tax_registration_number")
+  receiptTitle            String               @default("Receipt") @map("receipt_title")
+  receiptFooterMessage    String?              @map("receipt_footer_message")
+  receiptWidth            String               @default("80mm") @map("receipt_width")
+  showSalonPhoneOnReceipt Boolean              @default(true) @map("show_salon_phone_on_receipt")
+  showBranchAddressOnReceipt Boolean           @default(true) @map("show_branch_address_on_receipt")
+  showVatBreakdown        Boolean              @default(true) @map("show_vat_breakdown")
+  showPaymentBreakdown    Boolean              @default(true) @map("show_payment_breakdown")
+  showCashierName         Boolean              @default(true) @map("show_cashier_name")
   paymentDepositPolicy    PaymentDepositPolicy @map("payment_deposit_policy")
   /// Global defaults for dashboard "generate week slots" (JSON: schemaVersion, workingDays, times, etc.).
   slotGenerationDefaults  Json?                @map("slot_generation_defaults")
   updatedByUserId         String?              @map("updated_by_user_id") @db.Uuid
   updatedAt               DateTime             @updatedAt @map("updated_at")
 
+  defaultBranch Branch? @relation("SystemSettingsDefaultBranch", fields: [defaultBranchId], references: [id], onDelete: SetNull)
   updatedBy User? @relation("SystemSettingsUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
+  @@index([defaultBranchId])
   @@map("system_settings")
 }
 
@@ -110,6 +143,8 @@ model User {
   role   Role    @relation(fields: [roleId], references: [id], onDelete: Restrict)
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
+  branchAccesses UserBranchAccess[]
+
   systemSettingsUpdates SystemSettings[]       @relation("SystemSettingsUpdatedBy")
   createdBookingSlots   BookingSlot[]          @relation("BookingSlotCreatedBy")
   createdBookings       Booking[]              @relation("BookingCreatedBy")
@@ -117,11 +152,39 @@ model User {
   recordedPayments      Payment[]              @relation("PaymentRecordedBy")
   createdInvoices       Invoice[]              @relation("InvoiceCreatedBy")
   updatedSiteContents   SiteContent[]          @relation("SiteContentUpdatedBy")
+  websiteContentUpdates WebsiteContentSection[] @relation("WebsiteContentUpdatedBy")
   auditLogs             AuditLog[]
+  queueEntriesCreated   QueueEntry[] @relation("QueueEntryCreatedBy")
+  queueEntriesUpdated   QueueEntry[] @relation("QueueEntryUpdatedBy")
+  cashDrawerSessionsOpened  CashDrawerSession[] @relation("CashDrawerOpenedBy")
+  cashDrawerSessionsClosed  CashDrawerSession[] @relation("CashDrawerClosedBy")
+  cashDrawerMovementsCreated CashDrawerMovement[] @relation("CashDrawerMovementCreatedBy")
+  dailyClosingsClosed   DailyClosing[] @relation("DailyClosingClosedBy")
+  whatsAppTemplatesCreated WhatsAppTemplate[] @relation("WhatsAppTemplateCreatedBy")
+  whatsAppTemplatesUpdated WhatsAppTemplate[] @relation("WhatsAppTemplateUpdatedBy")
+  reviewsCreated           Review[]           @relation("ReviewCreatedBy")
+  reviewsUpdated           Review[]           @relation("ReviewUpdatedBy")
+  galleryItemsUploaded     GalleryItem[]      @relation("GalleryItemUploadedBy")
+  staffProfiles            StaffProfile[]
 
   @@index([roleId])
   @@index([branchId])
   @@map("users")
+}
+
+/// Dashboard user access to one or more branches (default branch remains `User.branchId`).
+model UserBranchAccess {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  branchId  String   @map("branch_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@index([branchId])
+  @@map("user_branch_access")
 }
 
 model AuditLog {
@@ -166,7 +229,11 @@ model Service {
   name                String
   description         String?
   shortDescription    String?          @map("short_description")
+  /// Primary website image from the central Gallery (Media Library).
+  imageMediaId        String?          @map("image_media_id") @db.Uuid
   imageUrl            String?          @map("image_url")
+  imageKey            String?          @map("image_key")
+  imageAlt            String?          @map("image_alt")
   displayOrder        Int              @default(0) @map("display_order")
   isFeatured          Boolean          @default(false) @map("is_featured")
   badgeLabel          String?          @map("badge_label")
@@ -183,6 +250,7 @@ model Service {
   updatedAt           DateTime         @updatedAt @map("updated_at")
 
   category        ServiceCategory  @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  imageMedia      GalleryItem?     @relation("ServiceGalleryImage", fields: [imageMediaId], references: [id], onDelete: Restrict)
   branches        ServiceBranch[]
   variants        ServiceVariant[]
   benefits        ServiceBenefit[]
@@ -190,6 +258,7 @@ model Service {
   bundleServices  BundleService[]
   bookingItems    BookingItem[]
   relatedReviews  Review[]         @relation("ReviewRelatedService")
+  staffProfileServices StaffProfileService[]
 
   @@index([categoryId, isActive])
   @@map("services")
@@ -376,6 +445,9 @@ model ServiceEnhancement {
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
+  bookingItems BookingItem[]
+  invoiceLines InvoiceLine[]
+
   @@index([isActive, displayOrder])
   @@map("service_enhancements")
 }
@@ -430,6 +502,8 @@ model BookingSlot {
   bookedCount      Int               @default(0) @map("booked_count")
   status           BookingSlotStatus
   isOnlineBookable Boolean           @default(true) @map("is_online_bookable")
+  /// Internal same-day capacity bucket for walk-in queue bookings (never listed for public online booking).
+  isWalkInBucket   Boolean           @default(false) @map("is_walk_in_bucket")
   notes            String?
   createdByUserId  String?           @map("created_by_user_id") @db.Uuid
   deletedAt        DateTime?         @map("deleted_at")
@@ -478,6 +552,7 @@ model Client {
   payments        Payment[]
   invoices        Invoice[]
   reviews         Review[]
+  queueEntries    QueueEntry[]
 
   @@unique([phone])
   @@map("clients")
@@ -548,6 +623,7 @@ enum BookingItemType {
   PACKAGE
   BUNDLE
   ADD_ON
+  SERVICE_ENHANCEMENT
 }
 
 enum BookingChangeRequestType {
@@ -560,6 +636,114 @@ enum BookingChangeRequestStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+enum QueueEntrySource {
+  BOOKING
+  WALK_IN
+}
+
+enum QueueEntryStatus {
+  WAITING
+  IN_SERVICE
+  COMPLETED
+  CANCELLED
+}
+
+/// Per line item on a booking (service/package/etc.) — staff is assigned here when the line starts.
+enum BookingItemLineStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum StaffScheduleExceptionType {
+  DAY_OFF
+  CUSTOM_HOURS
+  EXTRA_SHIFT
+}
+
+model StaffProfile {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  displayName    String   @map("display_name")
+  bio            String?
+  avatarImageId  String?  @map("avatar_image_id") @db.Uuid
+  isBookable     Boolean  @default(true) @map("is_bookable")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  avatarImage  GalleryItem? @relation("StaffProfileAvatar", fields: [avatarImageId], references: [id], onDelete: SetNull)
+  services     StaffProfileService[]
+  schedules    StaffSchedule[]
+  exceptions   StaffScheduleException[]
+  bookingItems BookingItem[]
+
+  @@unique([userId, branchId])
+  @@index([branchId, isActive])
+  @@map("staff_profiles")
+}
+
+/// Staff member ↔ service capability (which catalog services this staff can perform).
+model StaffProfileService {
+  id             String   @id @default(uuid()) @db.Uuid
+  staffProfileId String   @map("staff_profile_id") @db.Uuid
+  serviceId      String   @map("service_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([staffProfileId, serviceId])
+  @@index([serviceId])
+  @@map("staff_profile_services")
+}
+
+model StaffSchedule {
+  id              String   @id @default(uuid()) @db.Uuid
+  staffProfileId  String   @map("staff_profile_id") @db.Uuid
+  branchId        String   @map("branch_id") @db.Uuid
+  /// 0 = Sunday … 6 = Saturday (Cairo calendar day).
+  dayOfWeek       Int      @map("day_of_week")
+  startTime       DateTime @map("start_time") @db.Time(0)
+  endTime         DateTime @map("end_time") @db.Time(0)
+  breakStartTime  DateTime? @map("break_start_time") @db.Time(0)
+  breakEndTime    DateTime? @map("break_end_time") @db.Time(0)
+  isWorking       Boolean  @default(true) @map("is_working")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([staffProfileId, branchId, dayOfWeek])
+  @@index([branchId])
+  @@map("staff_schedules")
+}
+
+model StaffScheduleException {
+  id             String                    @id @default(uuid()) @db.Uuid
+  staffProfileId String                  @map("staff_profile_id") @db.Uuid
+  branchId       String                   @map("branch_id") @db.Uuid
+  date           DateTime                  @db.Date
+  type           StaffScheduleExceptionType
+  startTime      DateTime?                 @map("start_time") @db.Time(0)
+  endTime        DateTime?                 @map("end_time") @db.Time(0)
+  reason         String?
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @updatedAt @map("updated_at")
+
+  staffProfile StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+  branch       Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([staffProfileId, date])
+  @@index([branchId, date])
+  @@map("staff_schedule_exceptions")
 }
 
 model Booking {
@@ -592,6 +776,7 @@ model Booking {
   payments       Payment[]
   invoices       Invoice[]
   reviews        Review[]
+  queueEntries   QueueEntry[]
 
   @@index([clientId, createdAt(sort: Desc)])
   @@index([branchId, status, slotId])
@@ -607,12 +792,17 @@ model BookingItem {
   serviceVariantId        String?         @map("service_variant_id") @db.Uuid
   packageId               String?         @map("package_id") @db.Uuid
   bundleId                String?         @map("bundle_id") @db.Uuid
+  serviceEnhancementId    String?         @map("service_enhancement_id") @db.Uuid
   nameSnapshot            String          @map("name_snapshot")
   priceSnapshot           Decimal         @map("price_snapshot") @db.Decimal(12, 2)
   durationMinutesSnapshot Int             @map("duration_minutes_snapshot")
   quantity                Int             @default(1)
   /// Optional JSON: e.g. `{ "selectedServiceIds": ["uuid"] }` for flexible bundles (Sprint 5).
   lineMetadata            Json?           @map("line_metadata")
+  lineStatus              BookingItemLineStatus @default(PENDING) @map("line_status")
+  staffProfileId          String?         @map("staff_profile_id") @db.Uuid
+  startedAt               DateTime?       @map("started_at")
+  completedAt             DateTime?       @map("completed_at")
   createdAt               DateTime        @default(now()) @map("created_at")
   updatedAt               DateTime        @updatedAt @map("updated_at")
 
@@ -621,8 +811,12 @@ model BookingItem {
   serviceVariant ServiceVariant? @relation(fields: [serviceVariantId], references: [id], onDelete: SetNull)
   package        Package?        @relation(fields: [packageId], references: [id], onDelete: SetNull)
   bundle         Bundle?         @relation(fields: [bundleId], references: [id], onDelete: SetNull)
+  serviceEnhancement ServiceEnhancement? @relation(fields: [serviceEnhancementId], references: [id], onDelete: SetNull)
+  staffProfile   StaffProfile?   @relation(fields: [staffProfileId], references: [id], onDelete: SetNull)
+  invoiceLines   InvoiceLine[]
 
   @@index([bookingId])
+  @@index([staffProfileId, lineStatus])
   @@map("booking_items")
 }
 
@@ -647,6 +841,40 @@ model BookingChangeRequest {
   @@index([bookingId, status])
   @@index([clientId, createdAt(sort: Desc)])
   @@map("booking_change_requests")
+}
+
+/// Operational same-day visit queue (MVP). Separate from scheduled Booking rows.
+model QueueEntry {
+  id                     String           @id @default(uuid()) @db.Uuid
+  branchId               String           @map("branch_id") @db.Uuid
+  bookingId              String?          @map("booking_id") @db.Uuid
+  clientId               String?          @map("client_id") @db.Uuid
+  source                 QueueEntrySource
+  status                 QueueEntryStatus
+  clientNameSnapshot     String           @map("client_name_snapshot")
+  clientPhoneSnapshot    String?          @map("client_phone_snapshot")
+  serviceSummarySnapshot String?          @map("service_summary_snapshot")
+  itemsSnapshot          Json?            @map("items_snapshot")
+  notes                  String?
+  checkedInAt            DateTime         @map("checked_in_at")
+  startedAt              DateTime?        @map("started_at")
+  completedAt            DateTime?        @map("completed_at")
+  cancelledAt            DateTime?        @map("cancelled_at")
+  createdByUserId        String           @map("created_by_user_id") @db.Uuid
+  updatedByUserId        String?          @map("updated_by_user_id") @db.Uuid
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+
+  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  booking       Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  client        Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdByUser User     @relation("QueueEntryCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  updatedByUser User?    @relation("QueueEntryUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, checkedInAt(sort: Desc)])
+  @@index([bookingId])
+  @@index([branchId, status])
+  @@map("queue_entries")
 }
 
 // --- Sprint 7: Payments & invoices (manual only; no online gateway) ---
@@ -739,16 +967,130 @@ model InvoiceLine {
   serviceVariantId        String?         @map("service_variant_id") @db.Uuid
   packageId               String?         @map("package_id") @db.Uuid
   bundleId                String?         @map("bundle_id") @db.Uuid
+  serviceEnhancementId    String?         @map("service_enhancement_id") @db.Uuid
   nameSnapshot            String          @map("name_snapshot")
   priceSnapshot           Decimal         @map("price_snapshot") @db.Decimal(12, 2)
   durationMinutesSnapshot Int             @map("duration_minutes_snapshot")
   quantity                Int             @default(1)
   lineMetadata            Json?           @map("line_metadata")
+  bookingItemId           String?         @map("booking_item_id") @db.Uuid
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  serviceEnhancement ServiceEnhancement? @relation(fields: [serviceEnhancementId], references: [id], onDelete: SetNull)
+  bookingItem BookingItem? @relation(fields: [bookingItemId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
+  @@index([bookingItemId])
   @@map("invoice_lines")
+}
+
+enum CashDrawerSessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum CashDrawerMovementType {
+  CASH_IN
+  CASH_OUT
+  ADJUSTMENT
+}
+
+enum DailyClosingStatus {
+  DRAFT
+  CLOSED
+}
+
+/// One cash drawer record per branch calendar day (status OPEN then CLOSED).
+model CashDrawerSession {
+  id               String                  @id @default(uuid()) @db.Uuid
+  branchId         String                  @map("branch_id") @db.Uuid
+  businessDate     DateTime                @map("business_date") @db.Date
+  status           CashDrawerSessionStatus
+  openingBalance   Decimal                 @map("opening_balance") @db.Decimal(12, 2)
+  expectedCash     Decimal                 @map("expected_cash") @db.Decimal(12, 2)
+  countedCash      Decimal?                @map("counted_cash") @db.Decimal(12, 2)
+  cashDifference   Decimal?                @map("cash_difference") @db.Decimal(12, 2)
+  openedByUserId   String                  @map("opened_by_user_id") @db.Uuid
+  openedAt         DateTime                @default(now()) @map("opened_at")
+  closedByUserId   String?                 @map("closed_by_user_id") @db.Uuid
+  closedAt         DateTime?               @map("closed_at")
+  notes            String?
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+
+  branch    Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  openedBy  User                 @relation("CashDrawerOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
+  closedBy  User?                @relation("CashDrawerClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull)
+  movements    CashDrawerMovement[]
+  dailyClosings DailyClosing[]
+
+  @@unique([branchId, businessDate])
+  @@index([branchId, status])
+  @@map("cash_drawer_sessions")
+}
+
+model CashDrawerMovement {
+  id              String                 @id @default(uuid()) @db.Uuid
+  drawerSessionId String                 @map("drawer_session_id") @db.Uuid
+  branchId        String                 @map("branch_id") @db.Uuid
+  type            CashDrawerMovementType
+  amount          Decimal                @db.Decimal(12, 2)
+  reason          String
+  notes           String?
+  createdByUserId String                 @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at")
+
+  session   CashDrawerSession @relation(fields: [drawerSessionId], references: [id], onDelete: Cascade)
+  branch    Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdBy User              @relation("CashDrawerMovementCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([drawerSessionId, createdAt(sort: Desc)])
+  @@index([branchId])
+  @@map("cash_drawer_movements")
+}
+
+model DailyClosing {
+  id                        String             @id @default(uuid()) @db.Uuid
+  branchId                  String             @map("branch_id") @db.Uuid
+  businessDate              DateTime           @map("business_date") @db.Date
+  status                    DailyClosingStatus
+  cashDrawerSessionId       String?            @map("cash_drawer_session_id") @db.Uuid
+  closedByUserId            String?            @map("closed_by_user_id") @db.Uuid
+  closedAt                  DateTime?          @map("closed_at")
+  totalInvoices             Decimal            @default(0) @map("total_invoices") @db.Decimal(12, 2)
+  grossSales                Decimal            @default(0) @map("gross_sales") @db.Decimal(12, 2)
+  totalCollected            Decimal            @default(0) @map("total_collected") @db.Decimal(12, 2)
+  cashCollected             Decimal            @default(0) @map("cash_collected") @db.Decimal(12, 2)
+  cardCollected             Decimal            @default(0) @map("card_collected") @db.Decimal(12, 2)
+  instapayCollected         Decimal            @default(0) @map("instapay_collected") @db.Decimal(12, 2)
+  walletCollected           Decimal            @default(0) @map("wallet_collected") @db.Decimal(12, 2)
+  bankTransferCollected     Decimal            @default(0) @map("bank_transfer_collected") @db.Decimal(12, 2)
+  otherCollected            Decimal            @default(0) @map("other_collected") @db.Decimal(12, 2)
+  outstandingBalance        Decimal            @default(0) @map("outstanding_balance") @db.Decimal(12, 2)
+  expectedCash              Decimal            @default(0) @map("expected_cash") @db.Decimal(12, 2)
+  countedCash               Decimal            @default(0) @map("counted_cash") @db.Decimal(12, 2)
+  cashDifference            Decimal            @default(0) @map("cash_difference") @db.Decimal(12, 2)
+  invoiceCount              Int                @default(0) @map("invoice_count")
+  paymentCount              Int                @default(0) @map("payment_count")
+  bookingCount              Int                @default(0) @map("booking_count")
+  completedBookingCount     Int                @default(0) @map("completed_booking_count")
+  inProgressBookingCount    Int                @default(0) @map("in_progress_booking_count")
+  cancelledBookingCount     Int                @default(0) @map("cancelled_booking_count")
+  queueVisitCount           Int                @default(0) @map("queue_visit_count")
+  queueCompletedCount       Int                @default(0) @map("queue_completed_count")
+  queueActiveCount          Int                @default(0) @map("queue_active_count")
+  notes                     String?
+  snapshot                  Json
+  createdAt                 DateTime           @default(now()) @map("created_at")
+  updatedAt                 DateTime           @updatedAt @map("updated_at")
+
+  branch            Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  cashDrawerSession CashDrawerSession? @relation(fields: [cashDrawerSessionId], references: [id], onDelete: SetNull)
+  closedBy          User?              @relation("DailyClosingClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([branchId, businessDate])
+  @@index([branchId, status])
+  @@map("daily_closings")
 }
 
 /// Editable WhatsApp message templates for dashboard deep links (SRS §11.4, Sprint 6).
@@ -759,28 +1101,91 @@ model WhatsAppTemplate {
   content     String   @db.Text
   /// JSON array of supported variable names (e.g. clientName, bookingDate) — see API docs.
   variables   Json
+  /// Logical category for UI and future automation (e.g. booking_confirmation, payment_received).
+  category    String   @default("custom")
+  /// Message language (ar | en).
+  language    String   @default("ar")
+  description String?
+  /// Optional JSON object of sample values for preview overrides.
+  sampleData  Json?    @map("sample_data")
   isActive    Boolean  @default(true) @map("is_active")
+  createdByUserId   String? @map("created_by_user_id") @db.Uuid
+  updatedByUserId   String? @map("updated_by_user_id") @db.Uuid
+  metaTemplateName   String? @map("meta_template_name")
+  metaTemplateStatus String? @map("meta_template_status")
+  requiresMetaApproval Boolean @default(false) @map("requires_meta_approval")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  createdBy User? @relation("WhatsAppTemplateCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("WhatsAppTemplateUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([category])
+  @@index([language, isActive])
   @@map("whatsapp_templates")
 }
 
+/// Central media library row (dashboard “Gallery”). Public URLs live in `imageUrl`.
 model GalleryItem {
   id           String   @id @default(uuid()) @db.Uuid
   imageUrl     String   @map("image_url")
+  /// Relative storage key under uploads root when file was uploaded via dashboard (e.g. `media/<uuid>.webp`).
+  storageKey   String?  @map("storage_key")
+  originalName String?  @map("original_name")
+  mimeType     String?  @map("mime_type")
+  sizeBytes    Int?     @map("size_bytes")
+  width        Int?
+  height       Int?
   title        String?
+  altText      String?  @map("alt_text")
   category     String?
   description  String?
+  tags         String[] @default([])
   isFeatured   Boolean  @default(false) @map("is_featured")
   displayOrder Int      @default(0) @map("display_order")
+  /// Legacy flag: shown on public gallery when no explicit homepage-gallery usages exist.
   isActive     Boolean  @default(true) @map("is_active")
+  /// Library lifecycle — archived items are hidden from pickers but existing site links may still resolve.
+  libraryStatus GalleryItemLibraryStatus @default(ACTIVE) @map("library_status")
+  uploadedByUserId String? @map("uploaded_by_user_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  uploadedBy User? @relation("GalleryItemUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  mediaUsages MediaUsage[]
+  servicesAsPrimaryImage Service[] @relation("ServiceGalleryImage")
+  staffProfileAvatars StaffProfile[] @relation("StaffProfileAvatar")
+  websiteContentPrimaryFor   WebsiteContentSection[] @relation("WebsiteContentPrimaryImage")
+  websiteContentSecondaryFor WebsiteContentSection[] @relation("WebsiteContentSecondaryImage")
+
   @@index([isActive, displayOrder])
   @@index([category, isActive])
+  @@index([libraryStatus, createdAt(sort: Desc)])
   @@map("gallery_items")
+}
+
+enum GalleryItemLibraryStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/// Tracks where a gallery / media asset is used (services, homepage sections, etc.).
+model MediaUsage {
+  id            String   @id @default(uuid()) @db.Uuid
+  galleryItemId String   @map("gallery_item_id") @db.Uuid
+  usageType     String   @map("usage_type")
+  entityType    String?  @map("entity_type")
+  entityId      String?  @map("entity_id") @db.Uuid
+  sectionKey    String?  @map("section_key")
+  isPrimary     Boolean  @default(false) @map("is_primary")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  galleryItem GalleryItem @relation(fields: [galleryItemId], references: [id], onDelete: Cascade)
+
+  @@index([galleryItemId])
+  @@index([usageType, entityId])
+  @@map("media_usages")
 }
 
 model Review {
@@ -788,20 +1193,36 @@ model Review {
   clientId         String?      @map("client_id") @db.Uuid
   bookingId        String?      @map("booking_id") @db.Uuid
   relatedServiceId String?      @map("related_service_id") @db.Uuid
+  /// Display name for curated testimonials; falls back to linked client when null.
+  clientName       String?      @map("client_name")
+  clientTitle      String?      @map("client_title")
+  serviceName      String?      @map("service_name")
+  branchId         String?      @map("branch_id") @db.Uuid
   rating           Int
   comment          String?
   status           ReviewStatus @default(PENDING)
-  displayOnWebsite Boolean      @default(false) @map("display_on_website")
+  isActive         Boolean      @default(true) @map("is_active")
+  /// At most one review may be true at a time (DB partial unique index on constant WHERE show_on_homepage).
+  showOnHomepage   Boolean      @default(false) @map("show_on_homepage")
+  displayOrder     Int          @default(0) @map("display_order")
+  source           String?
+  createdByUserId  String?      @map("created_by_user_id") @db.Uuid
+  updatedByUserId  String?      @map("updated_by_user_id") @db.Uuid
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
 
-  client         Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  booking        Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
-  relatedService Service? @relation("ReviewRelatedService", fields: [relatedServiceId], references: [id], onDelete: SetNull)
+  client          Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  booking         Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  relatedService  Service? @relation("ReviewRelatedService", fields: [relatedServiceId], references: [id], onDelete: SetNull)
+  branch          Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  createdByUser   User?    @relation("ReviewCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedByUser   User?    @relation("ReviewUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
-  @@index([status, displayOnWebsite, createdAt(sort: Desc)])
+  @@index([isActive, showOnHomepage, updatedAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
   @@index([clientId])
   @@index([bookingId])
+  @@index([branchId])
   @@map("reviews")
 }
 
@@ -820,6 +1241,39 @@ model SiteContent {
   updatedByUser User? @relation("SiteContentUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@map("site_content")
+}
+
+/// Dashboard-managed public website copy and imagery (non-catalog). Images reference `GalleryItem`.
+model WebsiteContentSection {
+  id                     String   @id @default(uuid()) @db.Uuid
+  key                    String   @unique
+  page                   String
+  sectionType            String   @map("section_type")
+  title                  String?
+  subtitle               String?
+  body                   String?
+  eyebrow                String?
+  ctaLabel               String?  @map("cta_label")
+  ctaHref                String?  @map("cta_href")
+  secondaryCtaLabel      String?  @map("secondary_cta_label")
+  secondaryCtaHref       String?  @map("secondary_cta_href")
+  primaryGalleryItemId   String?  @map("primary_gallery_item_id") @db.Uuid
+  secondaryGalleryItemId String?  @map("secondary_gallery_item_id") @db.Uuid
+  content                Json?
+  isVisible              Boolean  @default(true) @map("is_visible")
+  displayOrder           Int      @default(0) @map("display_order")
+  /// When true, visibility cannot be turned off in dashboard / public always treats as visible.
+  isRequired             Boolean  @default(false) @map("is_required")
+  updatedByUserId        String?  @map("updated_by_user_id") @db.Uuid
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  primaryGalleryItem   GalleryItem? @relation("WebsiteContentPrimaryImage", fields: [primaryGalleryItemId], references: [id], onDelete: SetNull)
+  secondaryGalleryItem GalleryItem? @relation("WebsiteContentSecondaryImage", fields: [secondaryGalleryItemId], references: [id], onDelete: SetNull)
+  updatedByUser        User?        @relation("WebsiteContentUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([page, displayOrder])
+  @@map("website_content_sections")
 }
 
 enum ReviewStatus {

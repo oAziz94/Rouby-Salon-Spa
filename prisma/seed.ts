@@ -7,9 +7,17 @@ import {
   Prisma,
   PrismaClient,
   ReviewStatus,
+  StaffScheduleExceptionType,
 } from "@prisma/client";
 import { PERMISSION_SEED_ROWS, ROLE_SEEDS } from "./seed-data";
-import { WHATSAPP_TEMPLATE_SEED_ROWS } from "./whatsapp-template-seed";
+import {
+  WEBSITE_CONTENT_SECTION_SEEDS,
+  websiteContentSectionCreateFromSeed,
+} from "../services/api/src/content/website-content-section-seeds";
+import {
+  LEGACY_WHATSAPP_TEMPLATE_KEYS_WITHOUT_SUFFIX,
+  WHATSAPP_TEMPLATE_SEED_ROWS,
+} from "./whatsapp-template-seed";
 
 const prisma = new PrismaClient();
 
@@ -949,7 +957,7 @@ async function seedContent(): Promise<void> {
     where: { id: GALLERY_ITEM_1 },
     create: {
       id: GALLERY_ITEM_1,
-      imageUrl: "https://images.unsplash.com/photo-1560066984-138dadb4c035",
+      imageUrl: "/brand/home-hero.jpeg",
       title: "Hair Styling Session",
       category: "Hair",
       description: "Elegant evening hairstyle",
@@ -970,7 +978,7 @@ async function seedContent(): Promise<void> {
     where: { id: GALLERY_ITEM_2 },
     create: {
       id: GALLERY_ITEM_2,
-      imageUrl: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9",
+      imageUrl: "/brand/home-experience.jpeg",
       title: "Bridal Makeup",
       category: "Makeup",
       description: "Soft glam bridal look",
@@ -991,7 +999,7 @@ async function seedContent(): Promise<void> {
     where: { id: GALLERY_ITEM_3 },
     create: {
       id: GALLERY_ITEM_3,
-      imageUrl: "https://images.unsplash.com/photo-1604654894610-df63bc536371",
+      imageUrl: "/brand/alrouby-logo.png",
       title: "Spa Ritual",
       category: "Spa",
       description: "Relaxing spa and wellness moment",
@@ -1043,6 +1051,12 @@ async function seedContent(): Promise<void> {
         })
       ).id;
 
+  // Partial unique index allows only one row with show_on_homepage = true; clear before upsert.
+  await prisma.review.updateMany({
+    where: { showOnHomepage: true },
+    data: { showOnHomepage: false },
+  });
+
   await prisma.review.upsert({
     where: { id: REVIEW_APPROVED },
     create: {
@@ -1051,14 +1065,16 @@ async function seedContent(): Promise<void> {
       rating: 5,
       comment: "Amazing service and very professional team. Highly recommended.",
       status: ReviewStatus.APPROVED,
-      displayOnWebsite: true,
+      showOnHomepage: true,
+      isActive: true,
     },
     update: {
       clientId: approvedClientId,
       rating: 5,
       comment: "Amazing service and very professional team. Highly recommended.",
       status: ReviewStatus.APPROVED,
-      displayOnWebsite: true,
+      showOnHomepage: true,
+      isActive: true,
     },
   });
   await prisma.review.upsert({
@@ -1069,14 +1085,16 @@ async function seedContent(): Promise<void> {
       rating: 4,
       comment: "Good experience overall, waiting for final feedback publication.",
       status: ReviewStatus.PENDING,
-      displayOnWebsite: false,
+      showOnHomepage: false,
+      isActive: false,
     },
     update: {
       clientId: pendingClientId,
       rating: 4,
       comment: "Good experience overall, waiting for final feedback publication.",
       status: ReviewStatus.PENDING,
-      displayOnWebsite: false,
+      showOnHomepage: false,
+      isActive: false,
     },
   });
 
@@ -1150,6 +1168,14 @@ async function seedContent(): Promise<void> {
       updatedByUserId: null,
     },
   });
+
+  for (const s of WEBSITE_CONTENT_SECTION_SEEDS) {
+    await prisma.websiteContentSection.upsert({
+      where: { key: s.key },
+      create: websiteContentSectionCreateFromSeed(s, null),
+      update: {},
+    });
+  }
 }
 
 async function main(): Promise<void> {
@@ -1197,20 +1223,58 @@ async function main(): Promise<void> {
     where: { id: SYSTEM_SETTINGS_ID },
     create: {
       id: SYSTEM_SETTINGS_ID,
+      salonName: "Alrouby Salon & Spa",
+      legalName: "Alrouby Salon & Spa",
+      phone: "015 11100956",
+      whatsappNumber: "+201511100956",
+      email: "hello@alrouby.local",
+      address: "15 Radwan Ibn AlTabib Off Murad st., Giza",
+      instagramHandle: "@alroubysalon",
+      facebookPage: "facebook.com/alroubysalon",
+      defaultBranchId: defaultBranch.id,
       vatEnabled: false,
+      vatRatePercent: new Prisma.Decimal("14"),
+      taxLabel: "VAT",
       defaultVatRate: new Prisma.Decimal("0.14"),
       pricesIncludeVat: false,
       showVatOnInvoice: true,
       taxRegistrationNumber: null,
+      receiptTitle: "Receipt",
+      receiptFooterMessage: "Thank you for visiting Alrouby Salon & Spa",
+      receiptWidth: "80mm",
+      showSalonPhoneOnReceipt: true,
+      showBranchAddressOnReceipt: true,
+      showVatBreakdown: true,
+      showPaymentBreakdown: true,
+      showCashierName: true,
       paymentDepositPolicy: "PAY_AT_SALON",
       slotGenerationDefaults: defaultSlotGenerationDefaults,
       updatedByUserId: null,
     },
     update: {
+      salonName: "Alrouby Salon & Spa",
+      legalName: "Alrouby Salon & Spa",
+      phone: "015 11100956",
+      whatsappNumber: "+201511100956",
+      email: "hello@alrouby.local",
+      address: "15 Radwan Ibn AlTabib Off Murad st., Giza",
+      instagramHandle: "@alroubysalon",
+      facebookPage: "facebook.com/alroubysalon",
+      defaultBranchId: defaultBranch.id,
       vatEnabled: false,
+      vatRatePercent: new Prisma.Decimal("14"),
+      taxLabel: "VAT",
       defaultVatRate: new Prisma.Decimal("0.14"),
       pricesIncludeVat: false,
       showVatOnInvoice: true,
+      receiptTitle: "Receipt",
+      receiptFooterMessage: "Thank you for visiting Alrouby Salon & Spa",
+      receiptWidth: "80mm",
+      showSalonPhoneOnReceipt: true,
+      showBranchAddressOnReceipt: true,
+      showVatBreakdown: true,
+      showPaymentBreakdown: true,
+      showCashierName: true,
       paymentDepositPolicy: "PAY_AT_SALON",
     },
   });
@@ -1333,7 +1397,155 @@ async function main(): Promise<void> {
   await seedCatalog(defaultBranch.id);
   await mirrorCatalogToBranchesWithoutLinks(defaultBranch.id);
   await seedBookingSlots(defaultBranch.id);
+
+  const staffRole = roleByName.get("Staff");
+  const staffSeedPassword = process.env.SEED_STAFF_PASSWORD;
+  if (
+    staffRole &&
+    staffSeedPassword &&
+    staffSeedPassword.length >= 8 &&
+    defaultBranch
+  ) {
+    const staffHash = await argon2.hash(staffSeedPassword, {
+      type: argon2.argon2id,
+    });
+    const monaUser = await prisma.user.upsert({
+      where: { email: "mona.staff@alrouby.local" },
+      create: {
+        name: "Mona (Staff)",
+        email: "mona.staff@alrouby.local",
+        passwordHash: staffHash,
+        roleId: staffRole.id,
+        branchId: defaultBranch.id,
+        isActive: true,
+      },
+      update: {
+        passwordHash: staffHash,
+        roleId: staffRole.id,
+        branchId: defaultBranch.id,
+        isActive: true,
+      },
+    });
+    const nourUser = await prisma.user.upsert({
+      where: { email: "nour.staff@alrouby.local" },
+      create: {
+        name: "Nour (Staff)",
+        email: "nour.staff@alrouby.local",
+        passwordHash: staffHash,
+        roleId: staffRole.id,
+        branchId: defaultBranch.id,
+        isActive: true,
+      },
+      update: {
+        passwordHash: staffHash,
+        roleId: staffRole.id,
+        branchId: defaultBranch.id,
+        isActive: true,
+      },
+    });
+
+    const monaProfile = await prisma.staffProfile.upsert({
+      where: {
+        userId_branchId: {
+          userId: monaUser.id,
+          branchId: defaultBranch.id,
+        },
+      },
+      create: {
+        userId: monaUser.id,
+        branchId: defaultBranch.id,
+        displayName: "Mona",
+        isBookable: true,
+        isActive: true,
+      },
+      update: { displayName: "Mona", isBookable: true, isActive: true },
+    });
+    const nourProfile = await prisma.staffProfile.upsert({
+      where: {
+        userId_branchId: {
+          userId: nourUser.id,
+          branchId: defaultBranch.id,
+        },
+      },
+      create: {
+        userId: nourUser.id,
+        branchId: defaultBranch.id,
+        displayName: "Nour",
+        isBookable: true,
+        isActive: true,
+      },
+      update: { displayName: "Nour", isBookable: true, isActive: true },
+    });
+
+    await prisma.staffProfileService.deleteMany({
+      where: { staffProfileId: { in: [monaProfile.id, nourProfile.id] } },
+    });
+    await prisma.staffProfileService.createMany({
+      data: [
+        { staffProfileId: monaProfile.id, serviceId: SVC_COLOR },
+        { staffProfileId: monaProfile.id, serviceId: SVC_CUT },
+        { staffProfileId: nourProfile.id, serviceId: SVC_MANI },
+        { staffProfileId: nourProfile.id, serviceId: SVC_PEDI },
+      ],
+    });
+
+    const workStart = new Date("1970-01-01T10:00:00.000Z");
+    const workEnd = new Date("1970-01-01T19:00:00.000Z");
+    const offStart = new Date("1970-01-01T00:00:00.000Z");
+    const offEnd = new Date("1970-01-01T00:01:00.000Z");
+    for (const profileId of [monaProfile.id, nourProfile.id]) {
+      await prisma.staffSchedule.deleteMany({
+        where: { staffProfileId: profileId, branchId: defaultBranch.id },
+      });
+      for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+        const isWorking = dayOfWeek !== 5;
+        await prisma.staffSchedule.create({
+          data: {
+            staffProfileId: profileId,
+            branchId: defaultBranch.id,
+            dayOfWeek,
+            isWorking,
+            startTime: isWorking ? workStart : offStart,
+            endTime: isWorking ? workEnd : offEnd,
+            breakStartTime: isWorking
+              ? new Date("1970-01-01T14:00:00.000Z")
+              : null,
+            breakEndTime: isWorking
+              ? new Date("1970-01-01T15:00:00.000Z")
+              : null,
+          },
+        });
+      }
+    }
+
+    const exceptionDate = new Date();
+    exceptionDate.setUTCDate(exceptionDate.getUTCDate() + 14);
+    exceptionDate.setUTCHours(0, 0, 0, 0);
+    await prisma.staffScheduleException.deleteMany({
+      where: {
+        staffProfileId: monaProfile.id,
+        branchId: defaultBranch.id,
+        date: exceptionDate,
+      },
+    });
+    await prisma.staffScheduleException.create({
+      data: {
+        staffProfileId: monaProfile.id,
+        branchId: defaultBranch.id,
+        date: exceptionDate,
+        type: StaffScheduleExceptionType.DAY_OFF,
+        reason: "Seeded day off (demo)",
+      },
+    });
+  }
+
   await seedContent();
+
+  await prisma.whatsAppTemplate.deleteMany({
+    where: {
+      templateKey: { in: [...LEGACY_WHATSAPP_TEMPLATE_KEYS_WITHOUT_SUFFIX] },
+    },
+  });
 
   for (const row of WHATSAPP_TEMPLATE_SEED_ROWS) {
     await prisma.whatsAppTemplate.upsert({
@@ -1344,12 +1556,18 @@ async function main(): Promise<void> {
         templateKey: row.templateKey,
         content: row.content,
         variables: row.variables,
+        category: row.category,
+        language: row.language,
+        description: row.description,
         isActive: true,
       },
       update: {
         name: row.name,
         content: row.content,
         variables: row.variables,
+        category: row.category,
+        language: row.language,
+        description: row.description,
         isActive: true,
       },
     });

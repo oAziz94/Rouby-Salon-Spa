@@ -28,6 +28,7 @@ export class DashboardWhatsappDeepLinkController {
       templateKey: body.templateKey,
       bookingId: body.bookingId,
       clientId: body.clientId,
+      language: body.language,
     });
   }
 }

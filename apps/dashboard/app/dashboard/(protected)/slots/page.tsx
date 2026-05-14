@@ -5,9 +5,9 @@ import {
   deleteDashboardSlot,
   generateWeekSlots,
   getDashboardBranches,
+  getDashboardBranchSlotSettings,
   getDashboardSlotById,
   getDashboardSlots,
-  getSlotGenerationSettings,
   patchDashboardSlot,
   patchDashboardSlotCapacity,
   patchDashboardSlotOnlineBookable,
@@ -23,6 +23,7 @@ import { formatWallClock12h, formatWallClockRange12h } from "@rouby/wall-clock";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
+import { useSystemDialog } from "@/components/system-dialog-provider";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 
 type SlotsState = "loading" | "loaded" | "empty" | "error";
@@ -100,6 +101,7 @@ function buildInitialSlotForm(date: string): SlotFormState {
 }
 
 export default function DashboardSlotsPage() {
+  const { confirm } = useSystemDialog();
   const { token, user, hasPermission } = useDashboardAuth();
   const [branches, setBranches] = useState<DashboardBranch[]>([]);
   const [branchId, setBranchId] = useState<string>("");
@@ -245,7 +247,7 @@ export default function DashboardSlotsPage() {
     setGenForm(null);
     setGenLoading(true);
     try {
-      const loaded = await getSlotGenerationSettings(token);
+      const loaded = await getDashboardBranchSlotSettings(token, branchId);
       setGenDefaults(loaded);
       setGenForm(cloneSlotGen(loaded));
     } catch (loadError) {
@@ -480,9 +482,13 @@ export default function DashboardSlotsPage() {
     if (!token || !branchId || !canDelete) {
       return;
     }
-    const confirmed = window.confirm(
-      `Soft delete slot ${slot.date} ${formatWallClockRange12h(slot.startTime, slot.endTime, "-")}?`,
-    );
+    const confirmed = await confirm({
+      title: "Delete slot?",
+      message: `Soft delete slot ${slot.date} ${formatWallClockRange12h(slot.startTime, slot.endTime, "-")}?`,
+      tone: "danger",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+    });
     if (!confirmed) {
       return;
     }

@@ -13,7 +13,10 @@ import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { DashboardJwtAuthGuard } from '../auth/guards/dashboard-jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { PatchSlotGenerationDto } from '../slots/dto/patch-slot-generation.dto';
+import { PatchBusinessIdentityDto } from './dto/patch-business-identity.dto';
+import { PatchDefaultBranchDto } from './dto/patch-default-branch.dto';
 import { PatchPaymentPolicyDto } from './dto/patch-payment-policy.dto';
+import { PatchReceiptSettingsDto } from './dto/patch-receipt-settings.dto';
 import { PatchSystemSettingsDto } from './dto/patch-system-settings.dto';
 import { PatchVatSettingsDto } from './dto/patch-vat-settings.dto';
 import { SettingsService } from './settings.service';
@@ -24,6 +27,33 @@ import { SettingsService } from './settings.service';
 @ApiBearerAuth('dashboard-jwt')
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
+
+  @Get()
+  @RequirePermissions('settings.system.read')
+  @ApiOperation({ summary: 'Get focused dashboard settings payload' })
+  getDashboardSettings(@CurrentDashboardUser() user: DashboardJwtUser) {
+    return this.settings.getDashboardSettings(user);
+  }
+
+  @Patch('business-identity')
+  @RequirePermissions('settings.system.manage')
+  @ApiOperation({ summary: 'Update business identity settings' })
+  patchBusinessIdentity(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Body() dto: PatchBusinessIdentityDto,
+  ) {
+    return this.settings.patchBusinessIdentity(user, dto);
+  }
+
+  @Patch('default-branch')
+  @RequirePermissions('settings.system.manage')
+  @ApiOperation({ summary: 'Update default branch for dashboard settings' })
+  patchDefaultBranch(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Body() dto: PatchDefaultBranchDto,
+  ) {
+    return this.settings.patchDefaultBranch(user, dto);
+  }
 
   @Get('vat')
   @RequirePermissions('vat.settings.read')
@@ -40,6 +70,16 @@ export class SettingsController {
     @Body() dto: PatchVatSettingsDto,
   ) {
     return this.settings.patchVat(user, dto);
+  }
+
+  @Patch('receipt')
+  @RequirePermissions('settings.system.manage')
+  @ApiOperation({ summary: 'Update receipt settings' })
+  patchReceipt(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Body() dto: PatchReceiptSettingsDto,
+  ) {
+    return this.settings.patchReceiptSettings(user, dto);
   }
 
   @Get('payment-policy')

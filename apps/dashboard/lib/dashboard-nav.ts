@@ -4,27 +4,37 @@ import {
   BookOpenCheck,
   Boxes,
   Calendar,
+  CalendarClock,
+  CalendarX,
+  ClipboardCheck,
   Clock,
   CreditCard,
+  FileSearch,
   FileText,
+  Gift,
   Image,
   LayoutDashboard,
-  ListTodo,
+  LayoutTemplate,
+  ListChecks,
+  ListOrdered,
   MessageCircle,
   Package,
-  ScrollText,
+  Plus,
   Settings,
+  Shield,
   Sparkles,
   Star,
   Tag,
   Users,
-  Wand2,
+  UsersRound,
+  Wallet,
 } from "lucide-react";
 
 export type DashboardNavItem = {
   label: string;
   href: string;
-  permission?: string;
+  /** Single permission, or any one of these (OR). */
+  permission?: string | string[];
   icon: LucideIcon;
 };
 
@@ -51,10 +61,10 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
         icon: Calendar,
       },
       {
-        label: "Slots",
-        href: "/dashboard/slots",
-        permission: "slots.read",
-        icon: Clock,
+        label: "Queue",
+        href: "/dashboard/queue",
+        permission: "queue.read",
+        icon: ListOrdered,
       },
       {
         label: "Bookings",
@@ -66,7 +76,31 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
         label: "Change Requests",
         href: "/dashboard/booking-change-requests",
         permission: "bookings.read",
-        icon: ListTodo,
+        icon: ListChecks,
+      },
+    ],
+  },
+  {
+    id: "scheduling_setup",
+    label: "Scheduling setup",
+    items: [
+      {
+        label: "Slots",
+        href: "/dashboard/slots",
+        permission: "slots.read",
+        icon: Clock,
+      },
+      {
+        label: "Staff Schedule",
+        href: "/dashboard/staff-schedule",
+        permission: "staff.read",
+        icon: CalendarClock,
+      },
+      {
+        label: "Holidays & Closures",
+        href: "/dashboard/holidays-closures",
+        permission: "slots.read",
+        icon: CalendarX,
       },
     ],
   },
@@ -79,6 +113,18 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
         href: "/dashboard/clients",
         permission: "clients.read",
         icon: Users,
+      },
+      {
+        label: "Client Groups",
+        href: "/dashboard/client-groups",
+        permission: "clients.read",
+        icon: UsersRound,
+      },
+      {
+        label: "Loyalty",
+        href: "/dashboard/loyalty",
+        permission: "clients.read",
+        icon: Gift,
       },
     ],
   },
@@ -93,10 +139,10 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
         icon: Sparkles,
       },
       {
-        label: "Service Enhancements",
+        label: "Add-ons",
         href: "/dashboard/service-enhancements",
         permission: "service_enhancements.read",
-        icon: Wand2,
+        icon: Plus,
       },
       {
         label: "Packages",
@@ -123,16 +169,28 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
     label: "Finance",
     items: [
       {
+        label: "Invoices",
+        href: "/dashboard/invoices",
+        permission: "invoices.read",
+        icon: FileText,
+      },
+      {
         label: "Payments",
         href: "/dashboard/payments",
         permission: "payments.read",
         icon: CreditCard,
       },
       {
-        label: "Invoices",
-        href: "/dashboard/invoices",
-        permission: "invoices.read",
-        icon: FileText,
+        label: "Cash Drawer",
+        href: "/dashboard/cash-drawer",
+        permission: "cashDrawer.read",
+        icon: Wallet,
+      },
+      {
+        label: "Daily Closing",
+        href: "/dashboard/daily-closing",
+        permission: "dailyClosing.read",
+        icon: ClipboardCheck,
       },
     ],
   },
@@ -155,8 +213,30 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
       {
         label: "WhatsApp Templates",
         href: "/dashboard/whatsapp-templates",
-        permission: "whatsapp.send",
+        permission: [
+          "whatsapp.templates.read",
+          "whatsapp.templates.manage",
+          "whatsapp.send",
+        ],
         icon: MessageCircle,
+      },
+      {
+        label: "Website Content",
+        href: "/dashboard/website-content",
+        permission: "websiteContent.read",
+        icon: LayoutTemplate,
+      },
+    ],
+  },
+  {
+    id: "reports",
+    label: "Reports",
+    items: [
+      {
+        label: "Reports",
+        href: "/dashboard/reports",
+        permission: "reports.view",
+        icon: BarChart3,
       },
     ],
   },
@@ -171,16 +251,16 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
         icon: Settings,
       },
       {
-        label: "Reports",
-        href: "/dashboard/reports",
-        permission: "reports.view",
-        icon: BarChart3,
+        label: "Users & Roles",
+        href: "/dashboard/users-roles",
+        permission: "users.read",
+        icon: Shield,
       },
       {
         label: "Audit Logs",
         href: "/dashboard/audit-logs",
         permission: "audit.read",
-        icon: ScrollText,
+        icon: FileSearch,
       },
     ],
   },

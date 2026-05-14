@@ -6,9 +6,11 @@ import {
   IsArray,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -39,6 +41,11 @@ export class BookingItemInputDto {
   @IsUUID('4')
   bundleId?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  serviceEnhancementId?: string;
+
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
   @IsInt()
@@ -51,6 +58,29 @@ export class BookingItemInputDto {
   @IsArray()
   @IsUUID('4', { each: true })
   selectedServiceIds?: string[];
+
+  /**
+   * Dashboard / staff flows only (ignored for public website pricing).
+   * Unit price (EGP) when the catalog has no bookable online price (contact/hidden, range without variant, or missing base).
+   */
+  @ApiPropertyOptional({ minimum: 0.01 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Max(999_999.99)
+  staffOverrideUnitPrice?: number;
+
+  /**
+   * Dashboard / staff flows only: duration in minutes when overriding catalog duration (optional if service has duration).
+   */
+  @ApiPropertyOptional({ minimum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(24 * 60)
+  staffOverrideDurationMinutes?: number;
 }
 
 export class PublicBookingEstimateBodyDto {

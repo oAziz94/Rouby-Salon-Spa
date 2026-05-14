@@ -10,6 +10,7 @@ import type {
   PublicCategory,
   PublicPackage,
   PublicService,
+  PublicServiceEnhancement,
   PublicServiceVariant,
 } from "@/lib/api/public";
 import { formatServicePriceLabel } from "@/lib/booking/format-service-price";
@@ -32,6 +33,7 @@ type BookingFlowShellProps = {
   categories: PublicCategory[];
   services: PublicService[];
   packages: PublicPackage[];
+  enhancements: PublicServiceEnhancement[];
   branches: PublicBranch[];
   /** Branch used for SSR catalog + estimate; must stay in sync with `selectedBranchId` on load. */
   initialBranchId?: string;
@@ -45,6 +47,7 @@ type BookingFlowShellProps = {
     categories: string | null;
     services: string | null;
     packages: string | null;
+    enhancements: string | null;
     branches: string | null;
   };
 };
@@ -120,15 +123,16 @@ type OtpVerifyResponse = {
 };
 
 type BookingItemPayload = {
-  itemType: "SERVICE" | "SERVICE_VARIANT" | "PACKAGE";
+  itemType: "SERVICE" | "SERVICE_VARIANT" | "PACKAGE" | "SERVICE_ENHANCEMENT";
   serviceId?: string;
   serviceVariantId?: string;
   packageId?: string;
+  serviceEnhancementId?: string;
   quantity?: number;
 };
 
 type BookingAuthPath = "signin" | "register";
-type CatalogTab = "services" | "packages";
+type CatalogTab = "services" | "packages" | "enhancements";
 
 function resolveApiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1").replace(/\/$/, "");
@@ -205,6 +209,9 @@ function formatEstimateError(error: unknown): string {
   if (code === "PACKAGE_NOT_AT_BRANCH") {
     return "This package is not offered at this branch. Choose another branch or remove it from your visit.";
   }
+  if (code === "ENHANCEMENT_INACTIVE" || code === "ENHANCEMENT_NOT_PRICEABLE") {
+    return "One or more add-ons are no longer available. Update your selections and try again.";
+  }
   return error.message || "Unable to estimate totals.";
 }
 
@@ -236,10 +243,22 @@ function packageMatchesSearch(pkg: PublicPackage, q: string): boolean {
   );
 }
 
+function enhancementMatchesSearch(item: PublicServiceEnhancement, q: string): boolean {
+  if (!q.trim()) {
+    return true;
+  }
+  const n = q.trim().toLowerCase();
+  return (
+    item.title.toLowerCase().includes(n) ||
+    normalizeText(item.shortDescription).includes(n)
+  );
+}
+
 export function BookingFlowShell({
   categories,
   services: servicesFromServer,
   packages: packagesFromServer,
+  enhancements: enhancementsFromServer,
   branches,
   initialBranchId,
   preselection,
@@ -254,12 +273,15 @@ export function BookingFlowShell({
 
   const [services, setServices] = useState<PublicService[]>(servicesFromServer);
   const [packages, setPackages] = useState<PublicPackage[]>(packagesFromServer);
+  const [enhancements, setEnhancements] =
+    useState<PublicServiceEnhancement[]>(enhancementsFromServer);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [catalogRefreshError, setCatalogRefreshError] = useState<string | null>(null);
   const prevBranchForCatalogRef = useRef<string | undefined>(undefined);
 
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [selectedPackageIds, setSelectedPackageIds] = useState<string[]>([]);
+  const [selectedEnhancementIds, setSelectedEnhancementIds] = useState<string[]>([]);
   const [selectedVariantByServiceId, setSelectedVariantByServiceId] = useState<
     Record<string, string>
   >({});
@@ -320,10 +342,17 @@ export function BookingFlowShell({
     return packages.filter((p) => packageMatchesSearch(p, searchQuery));
   }, [packages, searchQuery]);
 
+  const filteredEnhancements = useMemo(() => {
+    return enhancements
+      .filter((e) => e.isActive)
+      .filter((e) => enhancementMatchesSearch(e, searchQuery));
+  }, [enhancements, searchQuery]);
+
   useEffect(() => {
     setServices(servicesFromServer);
     setPackages(packagesFromServer);
-  }, [servicesFromServer, packagesFromServer]);
+    setEnhancements(enhancementsFromServer);
+  }, [servicesFromServer, packagesFromServer, enhancementsFromServer]);
 
   useEffect(() => {
     setSelectedDate(todayDateOnly());
@@ -361,56 +390,63 @@ export function BookingFlowShell({
     async function refreshCatalogForBranch() {
       setCatalogRefreshing(true);
       setCatalogRefreshError(null);
-      try {
-        const [svcJson, pkgJson] = await Promise.all([
-          fetch(`${base}/public/services?page=1&pageSize=100&branchId=${branchQuery}`, {
-            headers: { Accept: "application/json" },
-          }).then(async (r) => {
-            if (!r.ok) {
-              throw new Error(`Services request failed (${r.status})`);
-            }
-            return (await r.json()) as { data: PublicService[] };
-          }),
-          fetch(`${base}/public/packages?page=1&pageSize=100&branchId=${branchQuery}`, {
-            headers: { Accept: "application/json" },
-          }).then(async (r) => {
-            if (!r.ok) {
-              throw new Error(`Packages request failed (${r.status})`);
-            }
-            return (await r.json()) as { data: PublicPackage[] };
-          }),
-        ]);
-        if (cancelled) {
-          return;
-        }
-        const nextServices = svcJson.data ?? [];
-        const nextPackages = pkgJson.data ?? [];
-        setServices(nextServices);
-        setPackages(nextPackages);
-        setSelectedServiceIds((ids) => ids.filter((id) => nextServices.some((s) => s.id === id)));
-        setSelectedPackageIds((ids) => ids.filter((id) => nextPackages.some((p) => p.id === id)));
-        setVariantOptionsByServiceId({});
-        setSelectedVariantByServiceId((prev) => {
-          const next: Record<string, string> = {};
-          for (const [sid, vid] of Object.entries(prev)) {
-            if (nextServices.some((s) => s.id === sid)) {
-              next[sid] = vid;
-            }
-          }
-          return next;
+      const fetchJsonOrThrow = async <T,>(path: string, label: string): Promise<T> => {
+        const r = await fetch(`${base}${path}`, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
         });
-        setSelectedSlotId("");
-      } catch (e) {
-        if (!cancelled) {
-          setCatalogRefreshError(
-            e instanceof Error ? e.message : "Could not load treatments for this branch.",
-          );
+        if (!r.ok) {
+          throw new Error(`${label} request failed (${r.status})`);
         }
-      } finally {
-        if (!cancelled) {
-          setCatalogRefreshing(false);
-        }
+        return (await r.json()) as T;
+      };
+      const [svcRes, pkgRes, enhRes] = await Promise.allSettled([
+        fetchJsonOrThrow<{ data: PublicService[] }>(
+          `/public/services?page=1&pageSize=100&branchId=${branchQuery}`,
+          "Services",
+        ),
+        fetchJsonOrThrow<{ data: PublicPackage[] }>(
+          `/public/packages?page=1&pageSize=100&branchId=${branchQuery}`,
+          "Packages",
+        ),
+        fetchJsonOrThrow<{ data: PublicServiceEnhancement[] }>(
+          `/public/service-enhancements`,
+          "Add-ons",
+        ),
+      ]);
+      if (cancelled) {
+        return;
       }
+      const nextServices = svcRes.status === "fulfilled" ? svcRes.value.data ?? [] : [];
+      const nextPackages = pkgRes.status === "fulfilled" ? pkgRes.value.data ?? [] : [];
+      const nextEnhancements = enhRes.status === "fulfilled" ? enhRes.value.data ?? [] : [];
+      const failures: string[] = [];
+      if (svcRes.status === "rejected") failures.push(svcRes.reason?.message ?? "services");
+      if (pkgRes.status === "rejected") failures.push(pkgRes.reason?.message ?? "packages");
+      if (enhRes.status === "rejected") failures.push(enhRes.reason?.message ?? "add-ons");
+      setServices(nextServices);
+      setPackages(nextPackages);
+      setEnhancements(nextEnhancements);
+      setSelectedServiceIds((ids) => ids.filter((id) => nextServices.some((s) => s.id === id)));
+      setSelectedPackageIds((ids) => ids.filter((id) => nextPackages.some((p) => p.id === id)));
+      setSelectedEnhancementIds((ids) =>
+        ids.filter((id) => nextEnhancements.some((e) => e.id === id)),
+      );
+      setVariantOptionsByServiceId({});
+      setSelectedVariantByServiceId((prev) => {
+        const next: Record<string, string> = {};
+        for (const [sid, vid] of Object.entries(prev)) {
+          if (nextServices.some((s) => s.id === sid)) {
+            next[sid] = vid;
+          }
+        }
+        return next;
+      });
+      setSelectedSlotId("");
+      if (failures.length > 0) {
+        setCatalogRefreshError(failures.join(" · "));
+      }
+      setCatalogRefreshing(false);
     }
 
     void refreshCatalogForBranch();
@@ -516,6 +552,10 @@ export function BookingFlowShell({
     () => packages.filter((item) => selectedPackageIds.includes(item.id)),
     [packages, selectedPackageIds],
   );
+  const selectedEnhancements = useMemo(
+    () => enhancements.filter((item) => selectedEnhancementIds.includes(item.id)),
+    [enhancements, selectedEnhancementIds],
+  );
   const selectedSlot = slots.find((slot) => slot.id === selectedSlotId) ?? null;
 
   useEffect(() => {
@@ -539,8 +579,18 @@ export function BookingFlowShell({
       const variant = variantOptionsByServiceId[item.id]?.find((opt) => opt.id === variantId);
       return sum + (variant?.price ?? 0);
     }, 0);
-    return servicesTotal + packagesTotal + variantsTotal;
-  }, [selectedServices, selectedPackages, selectedVariantByServiceId, variantOptionsByServiceId]);
+    const enhancementsTotal = selectedEnhancements.reduce(
+      (sum, item) => sum + (item.price ?? 0),
+      0,
+    );
+    return servicesTotal + packagesTotal + variantsTotal + enhancementsTotal;
+  }, [
+    selectedServices,
+    selectedPackages,
+    selectedEnhancements,
+    selectedVariantByServiceId,
+    variantOptionsByServiceId,
+  ]);
 
   const bookingItemsPayload = useMemo<BookingItemPayload[]>(() => {
     const serviceItems = selectedServices.map((service) => {
@@ -564,8 +614,20 @@ export function BookingFlowShell({
       packageId: pkg.id,
       quantity: 1,
     }));
-    return [...serviceItems, ...packageItems];
-  }, [selectedPackages, selectedServices, selectedVariantByServiceId]);
+    const enhancementItems = selectedEnhancements
+      .filter((e) => e.price != null)
+      .map((e) => ({
+        itemType: "SERVICE_ENHANCEMENT" as const,
+        serviceEnhancementId: e.id,
+        quantity: 1,
+      }));
+    return [...serviceItems, ...packageItems, ...enhancementItems];
+  }, [
+    selectedPackages,
+    selectedServices,
+    selectedEnhancements,
+    selectedVariantByServiceId,
+  ]);
 
   useEffect(() => {
     async function loadEstimate() {
@@ -672,6 +734,12 @@ export function BookingFlowShell({
 
   function togglePackage(id: string) {
     setSelectedPackageIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+
+  function toggleEnhancement(id: string) {
+    setSelectedEnhancementIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
@@ -862,6 +930,9 @@ export function BookingFlowShell({
     if (code === "PACKAGE_NOT_AT_BRANCH") {
       return "This package is not offered at this branch. Choose another branch or update your visit.";
     }
+    if (code === "ENHANCEMENT_INACTIVE" || code === "ENHANCEMENT_NOT_PRICEABLE") {
+      return "An add-on in your visit is not available. Return to treatments and update your selections.";
+    }
     if (status === 401 || code === "UNAUTHORIZED") {
       return "Sign in is required before booking submission.";
     }
@@ -912,7 +983,9 @@ export function BookingFlowShell({
   }
 
   const selectionCount =
-    selectedServiceIds.length + selectedPackageIds.length;
+    selectedServiceIds.length +
+    selectedPackageIds.length +
+    selectedEnhancementIds.length;
 
   const summaryAside = (
     <div className="flex h-full flex-col rounded-2xl border border-[rgb(23_53_31_/12%)] bg-[#faf7f0]/95 p-5 shadow-[0_12px_40px_rgb(23_53_31_/6%)] backdrop-blur-sm sm:p-6">
@@ -958,6 +1031,18 @@ export function BookingFlowShell({
               <p className="font-medium text-foreground">{item.name}</p>
               <p className="mt-0.5 text-xs text-accent-foreground">
                 {formatEgp(item.packagePrice)}
+              </p>
+            </li>
+          ))}
+          {selectedEnhancements.map((item) => (
+            <li
+              key={item.id}
+              className="rounded-xl border border-[rgb(23_53_31_/10%)] bg-card/80 px-3 py-2.5"
+            >
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">Add-on</p>
+              <p className="font-medium text-foreground">{item.title}</p>
+              <p className="mt-0.5 text-xs text-accent-foreground">
+                {item.price != null ? formatEgp(item.price) : "—"}
               </p>
             </li>
           ))}
@@ -1110,6 +1195,17 @@ export function BookingFlowShell({
                   >
                     Packages
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setCatalogTab("enhancements")}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+                      catalogTab === "enhancements"
+                        ? "bg-primary text-primary-foreground shadow"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    Add-ons
+                  </button>
                 </div>
               </div>
 
@@ -1216,12 +1312,18 @@ export function BookingFlowShell({
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img
                                       src={service.imageUrl}
-                                      alt=""
+                                      alt={service.imageAlt || service.name}
                                       className="h-full w-full object-cover"
                                     />
                                   ) : (
-                                    <div className="flex h-full items-center justify-center text-xs text-muted">
-                                      Al Rouby
+                                    <div className="flex h-full flex-col items-center justify-center gap-1 bg-gradient-to-b from-primary/10 to-primary/5 px-4 text-center">
+                                      <span className="text-lg font-semibold uppercase tracking-wide text-primary/80">
+                                        {(categories.find((c) => c.id === service.categoryId)?.name ??
+                                          service.name).slice(0, 1)}
+                                      </span>
+                                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                                        Al Rouby
+                                      </span>
                                     </div>
                                   )}
                                   {service.badgeLabel ? (
@@ -1320,7 +1422,7 @@ export function BookingFlowShell({
                     </>
                   )}
                 </div>
-              ) : (
+              ) : catalogTab === "packages" ? (
                 <div className="mt-6 space-y-5">
                   {initialErrors.packages ? (
                     <ErrorState title="Packages unavailable" message={initialErrors.packages} />
@@ -1417,6 +1519,103 @@ export function BookingFlowShell({
                                     </div>
                                     <p className="font-heading text-base text-accent-foreground">
                                       {formatEgp(pkg.packagePrice)}
+                                    </p>
+                                  </div>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-6 space-y-5">
+                  {initialErrors.enhancements ? (
+                    <ErrorState title="Add-ons unavailable" message={initialErrors.enhancements} />
+                  ) : enhancements.length === 0 ? (
+                    <EmptyState
+                      title="No add-ons available"
+                      description="Optional enhancements will appear when published in the catalog."
+                    />
+                  ) : (
+                    <>
+                      <p className="text-sm text-muted">
+                        Optional add-ons complement your services or packages. Pick at least one treatment on the
+                        Services or Packages tab before continuing — add-ons layer onto your visit.
+                      </p>
+                      <label className="block max-w-md">
+                        <span className="sr-only">Search add-ons</span>
+                        <input
+                          type="search"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search add-ons…"
+                          className="w-full rounded-full border border-[rgb(23_53_31_/15%)] bg-background/90 px-4 py-2.5 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
+                        />
+                      </label>
+                      {filteredEnhancements.length === 0 ? (
+                        <p className="py-8 text-center text-sm text-muted">
+                          No add-ons match your search.
+                        </p>
+                      ) : (
+                        <ul className="grid gap-4 sm:grid-cols-2">
+                          {filteredEnhancements.map((item) => {
+                            const selected = selectedEnhancementIds.includes(item.id);
+                            const desc = item.shortDescription;
+                            return (
+                              <li
+                                key={item.id}
+                                className={`flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
+                                  selected
+                                    ? "border-accent/60 bg-gradient-to-b from-card to-[#faf7f0] shadow-md ring-1 ring-accent/25"
+                                    : "border-[rgb(23_53_31_/10%)] bg-card/70 hover:border-accent/30 hover:shadow-sm"
+                                }`}
+                              >
+                                <div className="relative aspect-[16/10] w-full bg-primary/5">
+                                  {item.imageUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={item.imageUrl}
+                                      alt=""
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full items-center justify-center text-xs text-muted">
+                                      Add-on
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex flex-1 flex-col p-4">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <h3 className="font-heading text-lg leading-snug text-primary">{item.title}</h3>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleEnhancement(item.id)}
+                                      disabled={item.price == null}
+                                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                                        selected
+                                          ? "bg-destructive/90 text-destructive-foreground hover:opacity-90"
+                                          : "bg-primary text-primary-foreground hover:opacity-90"
+                                      }`}
+                                    >
+                                      {selected ? "Remove" : item.price == null ? "N/A" : "Add"}
+                                    </button>
+                                  </div>
+                                  {desc ? (
+                                    <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted">{desc}</p>
+                                  ) : null}
+                                  <div className="mt-auto flex flex-wrap items-end justify-between gap-2 border-t border-[rgb(23_53_31_/8%)] pt-3">
+                                    <div className="text-xs text-muted">
+                                      {item.durationMinutes != null ? (
+                                        <span>{item.durationMinutes} min</span>
+                                      ) : (
+                                        <span>Duration varies</span>
+                                      )}
+                                    </div>
+                                    <p className="font-heading text-base text-accent-foreground">
+                                      {item.price != null ? formatEgp(item.price) : "—"}
                                     </p>
                                   </div>
                                 </div>

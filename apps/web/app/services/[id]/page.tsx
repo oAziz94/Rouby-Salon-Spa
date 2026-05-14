@@ -41,7 +41,27 @@ export default async function ServiceDetailPage({
 
   return (
     <div className="mx-auto w-full max-w-[1280px] px-4 py-14 sm:px-6 lg:px-10">
-      <section className="rounded-2xl border border-border bg-card p-7">
+      <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="relative aspect-[21/9] min-h-[200px] w-full bg-gradient-to-br from-primary/15 to-primary/5 sm:aspect-[2.4/1]">
+          {service.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={service.imageUrl}
+              alt={service.imageAlt || service.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 px-8 text-center">
+              <span className="font-heading text-5xl font-semibold text-primary/30">
+                {service.name.trim().slice(0, 1).toUpperCase()}
+              </span>
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+                Al Rouby Salon & Spa
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="p-7">
         <p className="text-xs uppercase tracking-[0.14em] text-accent">
           {service.categoryName}
         </p>
@@ -75,6 +95,7 @@ export default async function ServiceDetailPage({
           >
             Back to Services
           </Link>
+        </div>
         </div>
       </section>
 

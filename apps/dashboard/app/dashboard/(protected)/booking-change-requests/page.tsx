@@ -252,7 +252,11 @@ export default function BookingChangeRequestsPage() {
                 value={dateFrom}
                 onChange={(event) => {
                   setPage(1);
-                  setDateFrom(event.target.value);
+                  const nextFrom = event.target.value;
+                  setDateFrom(nextFrom);
+                  if (nextFrom && dateTo && dateTo < nextFrom) {
+                    setDateTo(nextFrom);
+                  }
                 }}
                 className="w-full rounded-md border border-border bg-white px-3 py-2"
               />
@@ -262,6 +266,7 @@ export default function BookingChangeRequestsPage() {
               <input
                 type="date"
                 value={dateTo}
+                min={dateFrom || undefined}
                 onChange={(event) => {
                   setPage(1);
                   setDateTo(event.target.value);

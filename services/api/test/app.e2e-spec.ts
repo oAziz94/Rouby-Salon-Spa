@@ -205,4 +205,106 @@ describe('App (e2e)', () => {
         .expect(403);
     },
   );
+
+  itOwner('Queue walk-in: empty items rejected (400)', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/dashboard/auth/login')
+      .send({
+        email: 'owner@alrouby.local',
+        password: process.env.SEED_OWNER_PASSWORD,
+      });
+    expect(login.status).toBe(200);
+    const token = login.body.accessToken as string;
+    const clientsRes = await request(app.getHttpServer())
+      .get('/api/v1/dashboard/clients?page=1&pageSize=1')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const clientId = clientsRes.body.data[0].id as string;
+    await request(app.getHttpServer())
+      .post('/api/v1/dashboard/queue/walk-ins')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        branchId: '00000000-0000-4000-8000-000000000001',
+        clientId,
+        items: [],
+      })
+      .expect(400);
+  });
+
+  itOwner(
+    'Queue walk-in: client not resolvable (400 WALK_IN_CLIENT_UNRESOLVED)',
+    async () => {
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/dashboard/auth/login')
+        .send({
+          email: 'owner@alrouby.local',
+          password: process.env.SEED_OWNER_PASSWORD,
+        });
+      expect(login.status).toBe(200);
+      const token = login.body.accessToken as string;
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/dashboard/queue/walk-ins')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          branchId: '00000000-0000-4000-8000-000000000001',
+          clientName: 'Walk In No Phone',
+          items: [
+            {
+              itemType: 'SERVICE_VARIANT',
+              serviceId: '30000000-0000-4000-8000-000000000012',
+              serviceVariantId: '30000000-0000-4000-8000-000000000021',
+              quantity: 1,
+            },
+          ],
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('WALK_IN_CLIENT_UNRESOLVED');
+    },
+  );
+
+  itOwner(
+    'Queue walk-in: creates booking + queue row (bookingId, totals)',
+    async () => {
+      const login = await request(app.getHttpServer())
+        .post('/api/v1/dashboard/auth/login')
+        .send({
+          email: 'owner@alrouby.local',
+          password: process.env.SEED_OWNER_PASSWORD,
+        });
+      expect(login.status).toBe(200);
+      const token = login.body.accessToken as string;
+      const clientsRes = await request(app.getHttpServer())
+        .get('/api/v1/dashboard/clients?page=1&pageSize=1')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      const clientId = clientsRes.body.data[0].id as string;
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/dashboard/queue/walk-ins')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          branchId: '00000000-0000-4000-8000-000000000001',
+          clientId,
+          items: [
+            {
+              itemType: 'SERVICE_VARIANT',
+              serviceId: '30000000-0000-4000-8000-000000000012',
+              serviceVariantId: '30000000-0000-4000-8000-000000000021',
+              quantity: 1,
+            },
+          ],
+        })
+        .expect(200);
+      const body = res.body as { id: string; bookingId: string | null };
+      expect(body.bookingId).toBeTruthy();
+      const booking = await request(app.getHttpServer())
+        .get(`/api/v1/dashboard/bookings/${body.bookingId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      expect(booking.body.source).toBe('WALK_IN');
+      expect(booking.body.status).toBe('ARRIVED');
+      expect(Array.isArray(booking.body.items)).toBe(true);
+      expect(booking.body.items.length).toBeGreaterThanOrEqual(1);
+      expect(typeof booking.body.totalAmount).toBe('number');
+    },
+  );
 });

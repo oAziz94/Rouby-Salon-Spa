@@ -18,6 +18,7 @@ import { BranchesService } from './branches.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { UpdateBranchSettingsDto } from './dto/update-branch-settings.dto';
+import { PatchBranchSlotSettingsDto } from './dto/patch-branch-slot-settings.dto';
 
 @ApiTags('dashboard-branches')
 @Controller('dashboard/branches')
@@ -44,7 +45,7 @@ export class BranchesController {
   }
 
   @Post()
-  @RequirePermissions('branches.manage')
+  @RequirePermissions('branches.create')
   @ApiOperation({ summary: 'Create branch (Owner)' })
   create(
     @CurrentDashboardUser() user: DashboardJwtUser,
@@ -67,7 +68,7 @@ export class BranchesController {
   }
 
   @Patch(':branchId')
-  @RequirePermissions('branches.manage')
+  @RequirePermissions('branches.update')
   @ApiOperation({ summary: 'Update branch (Owner)' })
   patch(
     @CurrentDashboardUser() user: DashboardJwtUser,
@@ -75,5 +76,26 @@ export class BranchesController {
     @Body() dto: UpdateBranchDto,
   ) {
     return this.branches.update(user, branchId, dto);
+  }
+
+  @Get(':branchId/slot-settings')
+  @RequirePermissions('slots.read')
+  @ApiOperation({ summary: 'Get branch slot generation defaults' })
+  getSlotSettings(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+  ) {
+    return this.branches.getSlotSettings(user, branchId);
+  }
+
+  @Patch(':branchId/slot-settings')
+  @RequirePermissions('slots.create', 'slots.capacity.configure')
+  @ApiOperation({ summary: 'Update branch slot generation defaults' })
+  patchSlotSettings(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+    @Body() dto: PatchBranchSlotSettingsDto,
+  ) {
+    return this.branches.updateSlotSettings(user, branchId, dto);
   }
 }

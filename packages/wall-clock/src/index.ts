@@ -1,5 +1,33 @@
 const DISPLAY_LOCALE = "en-US";
 
+/** Salon operational calendar (matches `services/api` `cairo-slot-time.ts`). */
+const CAIRO_TIME_ZONE = "Africa/Cairo";
+
+/**
+ * Current instant as `YYYY-MM-DDTHH:mm:ss` using **Africa/Cairo** wall clock (naive string;
+ * comparable lexicographically with other Cairo composite keys from the API).
+ */
+export function getCairoNowCompositeKey(): string {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: CAIRO_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(new Date());
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}T${byType.get("hour")}:${byType.get("minute")}:${byType.get("second")}`;
+}
+
+/** Cairo calendar `YYYY-MM-DD` for “today” at the salon. */
+export function cairoTodayYmd(): string {
+  return getCairoNowCompositeKey().slice(0, 10);
+}
+
 /**
  * Formats API wall-clock times (`HH:mm` or `HH:mm:ss`, not tied to JS local TZ)
  * as 12-hour with AM/PM. Matches prior web behavior (UTC anchor for hour/minute).

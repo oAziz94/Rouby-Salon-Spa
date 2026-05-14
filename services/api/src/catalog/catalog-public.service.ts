@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, GalleryItemLibraryStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildListMeta, decimalToNumber, utcDateOnly } from './catalog.utils';
 
@@ -74,10 +74,12 @@ export class CatalogPublicService {
     pageSize: number;
     categoryId?: string;
     branchId?: string;
+    isFeatured?: boolean;
   }) {
     const where: Prisma.ServiceWhereInput = {
       isActive: true,
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(query.isFeatured === true ? { isFeatured: true } : {}),
     };
     if (query.branchId) {
       const branch = await this.prisma.branch.findFirst({
@@ -114,6 +116,10 @@ export class CatalogPublicService {
             orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
             select: { id: true, label: true, displayOrder: true },
           },
+          imageMedia: {
+            where: { libraryStatus: GalleryItemLibraryStatus.ACTIVE },
+            select: { imageUrl: true },
+          },
         },
       }),
     ]);
@@ -123,7 +129,8 @@ export class CatalogPublicService {
       name: s.name,
       description: s.description,
       shortDescription: s.shortDescription,
-      imageUrl: s.imageUrl,
+      imageUrl: s.imageMedia?.imageUrl ?? s.imageUrl,
+      imageAlt: s.imageAlt,
       displayOrder: s.displayOrder,
       isFeatured: s.isFeatured,
       badgeLabel: s.badgeLabel,
@@ -169,15 +176,19 @@ export class CatalogPublicService {
     }
     const row = await this.prisma.service.findFirst({
       where,
-      include: {
-        branches: { include: { branch: true } },
-        category: true,
-        benefits: {
-          where: { isActive: true },
-          orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
-          select: { id: true, label: true, displayOrder: true },
+        include: {
+          branches: { include: { branch: true } },
+          category: true,
+          benefits: {
+            where: { isActive: true },
+            orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+            select: { id: true, label: true, displayOrder: true },
+          },
+          imageMedia: {
+            where: { libraryStatus: GalleryItemLibraryStatus.ACTIVE },
+            select: { imageUrl: true },
+          },
         },
-      },
     });
     if (!row) {
       throw new NotFoundException('Service not found');
@@ -197,7 +208,8 @@ export class CatalogPublicService {
       name: row.name,
       description: row.description,
       shortDescription: row.shortDescription,
-      imageUrl: row.imageUrl,
+      imageUrl: row.imageMedia?.imageUrl ?? row.imageUrl,
+      imageAlt: row.imageAlt,
       displayOrder: row.displayOrder,
       isFeatured: row.isFeatured,
       badgeLabel: row.badgeLabel,

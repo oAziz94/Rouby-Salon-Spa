@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
+import { BillingModule } from '../billing/billing.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { StaffModule } from '../staff/staff.module';
 import { SlotsModule } from '../slots/slots.module';
 import { BookingPricingService } from './booking-pricing.service';
 import { BookingsService } from './bookings.service';
@@ -11,7 +13,14 @@ import { DashboardBookingsController } from './dashboard-bookings.controller';
 import { PublicBookingsController } from './public-bookings.controller';
 
 @Module({
-  imports: [PrismaModule, SlotsModule, AuthModule, AuditModule],
+  imports: [
+    PrismaModule,
+    SlotsModule,
+    AuthModule,
+    AuditModule,
+    BillingModule,
+    StaffModule,
+  ],
   controllers: [
     PublicBookingsController,
     ClientBookingsController,
@@ -19,6 +28,6 @@ import { PublicBookingsController } from './public-bookings.controller';
     DashboardBookingChangeRequestsController,
   ],
   providers: [BookingsService, BookingPricingService],
-  exports: [BookingsService],
+  exports: [BookingsService, BookingPricingService],
 })
 export class BookingsModule {}

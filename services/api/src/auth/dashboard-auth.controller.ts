@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -16,7 +17,9 @@ import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { CurrentDashboardUser } from './decorators/current-dashboard-user.decorator';
 import type { DashboardJwtUser } from './dashboard-jwt-user';
 import { DashboardAuthService } from './dashboard-auth.service';
+import { ChangeDashboardPasswordDto } from './dto/change-dashboard-password.dto';
 import { DashboardLoginDto } from './dto/dashboard-login.dto';
+import { UpdateDashboardProfileDto } from './dto/update-dashboard-profile.dto';
 import { DashboardJwtAuthGuard } from './guards/dashboard-jwt-auth.guard';
 
 @ApiTags('dashboard-auth')
@@ -58,6 +61,31 @@ export class DashboardAuthController {
   @ApiOperation({ summary: 'Current dashboard user' })
   me(@CurrentDashboardUser() user: DashboardJwtUser) {
     return this.dashboardAuth.getMe(user.userId);
+  }
+
+  @Patch('me')
+  @UseGuards(DashboardJwtAuthGuard)
+  @ApiBearerAuth('dashboard-jwt')
+  @ApiOperation({ summary: 'Update current user name / phone' })
+  patchMe(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Body() dto: UpdateDashboardProfileDto,
+  ) {
+    return this.dashboardAuth.updateMyProfile(user.userId, dto);
+  }
+
+  @Post('me/password')
+  @HttpCode(200)
+  @UseGuards(DashboardJwtAuthGuard)
+  @ApiBearerAuth('dashboard-jwt')
+  @ApiOperation({
+    summary: 'Change current user password (requires current password)',
+  })
+  changeMyPassword(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Body() dto: ChangeDashboardPasswordDto,
+  ) {
+    return this.dashboardAuth.changeMyPassword(user.userId, dto);
   }
 
   @Get('permissions')

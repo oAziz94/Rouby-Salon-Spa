@@ -1,5 +1,4 @@
 import {
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -7,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
+import { assertDashboardBranchAccess } from '../billing/dashboard-branch-scope';
 import { PaymentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { formatEgpAmount } from './format-egp';
@@ -36,40 +36,69 @@ export class WhatsappDeepLinkService {
     private readonly config: ConfigService,
   ) {}
 
-  private canAccessAllBranches(user: DashboardJwtUser): boolean {
-    return (
-      user.branchId === null || user.permissions.includes('branches.manage')
-    );
-  }
+  /**
+   * Resolves a template row: exact `templateKey`, or logical key + language
+   * (e.g. BOOKING_CONFIRMED + ar → BOOKING_CONFIRMED_AR).
+   */
+  private async resolveTemplate(
+    requestedKey: string,
+    language?: 'ar' | 'en',
+  ) {
+    const preferred = language === 'ar' ? 'ar' : 'en';
 
-  private assertDashboardBranchAccess(
-    user: DashboardJwtUser,
-    branchId: string,
-  ): void {
-    if (this.canAccessAllBranches(user)) {
-      return;
-    }
-    if (user.branchId !== branchId) {
-      throw new ForbiddenException('Insufficient permissions');
-    }
-  }
-
-  async generate(
-    user: DashboardJwtUser,
-    dto: { templateKey: string; bookingId: string; clientId?: string },
-  ): Promise<{ url: string; displayText: string }> {
-    const templateKey = dto.templateKey.trim();
-
-    const template = await this.prisma.whatsAppTemplate.findUnique({
-      where: { templateKey },
+    let row = await this.prisma.whatsAppTemplate.findUnique({
+      where: { templateKey: requestedKey },
     });
-    if (!template) {
+    if (row) {
+      return row;
+    }
+
+    const hasLangSuffix = /_(EN|AR)$/i.test(requestedKey);
+    if (hasLangSuffix) {
       throw httpBusiness(
         HttpStatus.NOT_FOUND,
         'WhatsApp template not found',
         'WHATSAPP_TEMPLATE_NOT_FOUND',
       );
     }
+
+    const primaryKey = `${requestedKey}_${preferred === 'ar' ? 'AR' : 'EN'}`;
+    row = await this.prisma.whatsAppTemplate.findUnique({
+      where: { templateKey: primaryKey },
+    });
+    if (row) {
+      return row;
+    }
+
+    const fallbackKey = `${requestedKey}_${preferred === 'ar' ? 'EN' : 'AR'}`;
+    row = await this.prisma.whatsAppTemplate.findUnique({
+      where: { templateKey: fallbackKey },
+    });
+    if (row) {
+      return row;
+    }
+
+    throw httpBusiness(
+      HttpStatus.NOT_FOUND,
+      'WhatsApp template not found',
+      'WHATSAPP_TEMPLATE_NOT_FOUND',
+    );
+  }
+
+  async generate(
+    user: DashboardJwtUser,
+    dto: {
+      templateKey: string;
+      bookingId: string;
+      clientId?: string;
+      language?: 'ar' | 'en';
+    },
+  ): Promise<{ url: string; displayText: string }> {
+    const template = await this.resolveTemplate(
+      dto.templateKey.trim(),
+      dto.language,
+    );
+
     if (!template.isActive) {
       throw httpBusiness(
         HttpStatus.BAD_REQUEST,
@@ -91,7 +120,7 @@ export class WhatsappDeepLinkService {
       throw new NotFoundException('Booking not found');
     }
 
-    this.assertDashboardBranchAccess(user, booking.branchId);
+    assertDashboardBranchAccess(user, booking.branchId);
 
     if (dto.clientId !== undefined && dto.clientId !== booking.clientId) {
       throw httpBusiness(
@@ -126,6 +155,7 @@ export class WhatsappDeepLinkService {
           : it.nameSnapshot,
       )
       .join(', ');
+    const serviceSummary = services;
 
     const paidAgg = await this.prisma.payment.aggregate({
       where: { bookingId: booking.id, status: PaymentStatus.PAID },
@@ -140,11 +170,15 @@ export class WhatsappDeepLinkService {
       bookingDate,
       bookingTime,
       services,
+      serviceSummary,
       branchName: booking.branch.name,
+      branchPhone: booking.branch.phone ?? '',
+      branchAddress: booking.branch.address ?? '',
       salonPhone: booking.branch.phone ?? '',
       salonAddress: booking.branch.address ?? '',
       totalAmount: formatEgpAmount(booking.totalAmount),
       paidAmount: formatEgpAmount(paidNum),
+      amountPaid: formatEgpAmount(paidNum),
       remainingAmount: formatEgpAmount(remainingNum),
     };
 

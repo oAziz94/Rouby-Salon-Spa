@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentDashboardUser } from '../auth/decorators/current-dashboard-user.decorator';
+import { RequireAnyPermissions } from '../auth/decorators/require-any-permissions.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { DashboardJwtAuthGuard } from '../auth/guards/dashboard-jwt-auth.guard';
@@ -28,8 +29,12 @@ export class DashboardClientsController {
   constructor(private readonly clients: DashboardClientsService) {}
 
   @Get()
-  @RequirePermissions('clients.read')
-  @ApiOperation({ summary: 'List clients (RBAC + branch scoped)' })
+  @RequireAnyPermissions('clients.read', 'queue.manage')
+  @ApiOperation({
+    summary: 'List clients (RBAC + branch scoped)',
+    description:
+      'Also allowed with queue.manage so staff can search clients when checking walk-ins into the queue.',
+  })
   list(
     @CurrentDashboardUser() user: DashboardJwtUser,
     @Query() query: DashboardClientListQueryDto,

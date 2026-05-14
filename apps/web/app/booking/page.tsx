@@ -2,6 +2,7 @@ import {
   getPublicBranches,
   getPublicCategories,
   getPublicPackages,
+  getPublicServiceEnhancements,
   getPublicServices,
 } from "@/lib/api/public";
 import { formatPublicCatalogError } from "@/lib/api/catalog-fetch-errors";
@@ -44,7 +45,7 @@ export default async function BookingPage({ searchParams }: BookingPageProps) {
     categoriesResult.status === "fulfilled" ? categoriesResult.value.data : [];
   const defaultBranchId = pickDefaultCatalogBranchId(branches);
 
-  const [servicesResult, packagesResult] = await Promise.allSettled([
+  const [servicesResult, packagesResult, enhancementsResult] = await Promise.allSettled([
     getPublicServices({
       pageSize: 100,
       ...(defaultBranchId ? { branchId: defaultBranchId } : {}),
@@ -53,16 +54,22 @@ export default async function BookingPage({ searchParams }: BookingPageProps) {
       pageSize: 100,
       ...(defaultBranchId ? { branchId: defaultBranchId } : {}),
     }),
+    getPublicServiceEnhancements(),
   ]);
 
   const services = servicesResult.status === "fulfilled" ? servicesResult.value.data : [];
   const packages = packagesResult.status === "fulfilled" ? packagesResult.value.data : [];
+  const enhancements =
+    enhancementsResult.status === "fulfilled"
+      ? enhancementsResult.value.data.filter((e) => e.isActive)
+      : [];
 
   return (
     <BookingFlowShell
       categories={categories}
       services={services}
       packages={packages}
+      enhancements={enhancements}
       branches={branches}
       initialBranchId={defaultBranchId}
       preselection={{
@@ -80,6 +87,9 @@ export default async function BookingPage({ searchParams }: BookingPageProps) {
         ),
         packages: formatPublicCatalogError(
           packagesResult.status === "rejected" ? packagesResult.reason : null,
+        ),
+        enhancements: formatPublicCatalogError(
+          enhancementsResult.status === "rejected" ? enhancementsResult.reason : null,
         ),
         branches: formatPublicCatalogError(
           branchesResult.status === "rejected" ? branchesResult.reason : null,

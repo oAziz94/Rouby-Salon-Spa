@@ -17,6 +17,11 @@ import { ContentModule } from './content/content.module';
 import { AuditModule } from './audit/audit.module';
 import { ReportsModule } from './reports/reports.module';
 import { ClientsModule } from './clients/clients.module';
+import { QueueModule } from './queue/queue.module';
+import { MediaModule } from './media/media.module';
+import { FinanceModule } from './finance/finance.module';
+import { UsersModule } from './users/users.module';
+import { StaffModule } from './staff/staff.module';
 
 @Module({
   imports: [
@@ -41,6 +46,11 @@ import { ClientsModule } from './clients/clients.module';
     AuditModule,
     ReportsModule,
     ClientsModule,
+    QueueModule,
+    MediaModule,
+    FinanceModule,
+    UsersModule,
+    StaffModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],

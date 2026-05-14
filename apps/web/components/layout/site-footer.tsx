@@ -3,6 +3,7 @@ import { FaFacebookF, FaInstagram, FaTiktok } from "react-icons/fa6";
 import { BrandLogo } from "@/components/brand/brand-logo";
 import type { PublicSiteContent } from "@/lib/api/public";
 import { getPublicSiteContent } from "@/lib/api/public";
+import { mergeGlobalFooter } from "@/lib/website-public-merge";
 import { PUBLIC_SALON_PHONE } from "@/lib/contact-display";
 
 const footerLinks = [
@@ -44,6 +45,7 @@ export async function SiteFooter() {
   }
 
   const social = getSocialLinks(siteContent);
+  const footer = mergeGlobalFooter(siteContent);
 
   const socialEntries = [
     { href: social.instagram, label: "Instagram", Icon: FaInstagram },
@@ -57,11 +59,13 @@ export async function SiteFooter() {
         <div className="grid gap-8 border-b border-[#2b5338] pb-9 md:grid-cols-2 lg:grid-cols-4">
           <div>
             <div className="flex flex-wrap items-center gap-3">
-              <BrandLogo heightClass="h-11 sm:h-12" className="brightness-[1.06] contrast-[1.02]" />
-              <p className="font-heading text-2xl font-semibold text-[#f7f1e6]">Alrouby</p>
+              <BrandLogo heightClass="h-16 sm:h-20 md:h-24" className="brightness-[1.06] contrast-[1.02]" />
+              <p className="font-heading text-xl font-semibold leading-snug text-[#f7f1e6] sm:text-2xl">
+                AlRouby Salon &amp; Spa
+              </p>
             </div>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-[#d5dbc8]">
-              Premium botanical wellness with curated treatments in a calm, luxurious atmosphere.
+              {footer.tagline}
             </p>
           </div>
 
@@ -113,7 +117,7 @@ export async function SiteFooter() {
         </div>
 
         <div className="pt-5 text-xs text-[#b9c4ac]">
-          <p>All prices are displayed in EGP.</p>
+          <p>{footer.pricingNote}</p>
         </div>
       </div>
     </footer>

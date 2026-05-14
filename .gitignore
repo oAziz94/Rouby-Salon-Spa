@@ -33,3 +33,6 @@ Thumbs.db
 # Misc
 *.tsbuildinfo
 .turbo
+
+# Local uploaded media (API disk storage)
+uploads/

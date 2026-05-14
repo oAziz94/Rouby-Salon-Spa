@@ -3,16 +3,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   OfferAppliesTo,
   BundleType,
   OfferDiscountType,
   PriceDisplayType,
   Prisma,
+  GalleryItemLibraryStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { buildListMeta, decimalToNumber } from './catalog.utils';
+import { buildListMeta, decimalToNumber, utcDateOnly } from './catalog.utils';
 import { validateServicePricing } from './service-pricing.validation';
 import type { CreateServiceCategoryDto } from './dto/service-category.dto';
 import type { PatchServiceCategoryDto } from './dto/service-category.dto';
@@ -29,15 +31,107 @@ import type {
 import type { CreatePackageDto, PatchPackageDto } from './dto/package.dto';
 import type { CreateBundleDto, PatchBundleDto } from './dto/bundle.dto';
 import type { CreateOfferDto, PatchOfferDto } from './dto/offer.dto';
+import {
+  assertOnlineBookableRequiresImage,
+  assertWritableServiceImagePair,
+  expectedImageUrlForKey,
+  parsePublicMediaBaseUrls,
+  parseStorageKeyFromAllowedImageUrl,
+  SERVICE_IMAGE_KEY_RE,
+} from './service-image-policy';
 
 const CURRENCY = 'EGP' as const;
+const SERVICE_IMAGE_USAGE = 'SERVICE_IMAGE';
 
 @Injectable()
 export class CatalogDashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService,
   ) {}
+
+  private getMediaBases(): string[] {
+    return parsePublicMediaBaseUrls(
+      this.config.get<string>('PUBLIC_MEDIA_BASE_URL'),
+    );
+  }
+
+  private validateResolvedServiceImage(
+    bookingAvailability: boolean,
+    imageUrl: string | null,
+    imageKey: string | null,
+  ): void {
+    const bases = this.getMediaBases();
+    assertWritableServiceImagePair(imageUrl, imageKey, bases);
+    assertOnlineBookableRequiresImage(bookingAvailability, imageUrl);
+  }
+
+  private async resolveGalleryImageForService(imageMediaId: string): Promise<{
+    imageMediaId: string;
+    imageUrl: string;
+    imageKey: string | null;
+  }> {
+    const item = await this.prisma.galleryItem.findFirst({
+      where: {
+        id: imageMediaId,
+        libraryStatus: GalleryItemLibraryStatus.ACTIVE,
+      },
+    });
+    if (!item) {
+      throw new BadRequestException('Invalid or inactive gallery image');
+    }
+    const bases = this.getMediaBases();
+    const key =
+      (item.storageKey && SERVICE_IMAGE_KEY_RE.test(item.storageKey)
+        ? item.storageKey
+        : null) ?? parseStorageKeyFromAllowedImageUrl(item.imageUrl, bases);
+    if (!key || !SERVICE_IMAGE_KEY_RE.test(key)) {
+      throw new BadRequestException(
+        'Only salon-uploaded gallery images can be linked to services.',
+      );
+    }
+    const imageUrl = expectedImageUrlForKey(key, bases)[0] ?? item.imageUrl;
+    assertWritableServiceImagePair(imageUrl, key, bases);
+    return { imageMediaId: item.id, imageUrl, imageKey: key };
+  }
+
+  private async syncServiceImageMediaUsage(
+    tx: Prisma.TransactionClient,
+    serviceId: string,
+    galleryItemId: string | null,
+  ) {
+    await tx.mediaUsage.deleteMany({
+      where: { usageType: SERVICE_IMAGE_USAGE, entityId: serviceId },
+    });
+    if (galleryItemId) {
+      await tx.mediaUsage.create({
+        data: {
+          galleryItemId,
+          usageType: SERVICE_IMAGE_USAGE,
+          entityType: 'Service',
+          entityId: serviceId,
+          isPrimary: true,
+        },
+      });
+    }
+  }
+
+  private validateServiceImageForCreate(
+    bookingAvailability: boolean,
+    imageUrl: string | null,
+    imageKey: string | null,
+  ): void {
+    this.validateResolvedServiceImage(bookingAvailability, imageUrl, imageKey);
+  }
+
+  private validateServiceImageForPatch(
+    bookingAvailability: boolean,
+    imageUrl: string | null,
+    imageKey: string | null,
+  ): void {
+    this.validateResolvedServiceImage(bookingAvailability, imageUrl, imageKey);
+  }
 
   private async assertBranchesExist(branchIds: string[]): Promise<void> {
     if (branchIds.length === 0) {
@@ -72,7 +166,10 @@ export class CatalogDashboardService {
     name: string;
     description: string | null;
     shortDescription: string | null;
+    imageMediaId: string | null;
     imageUrl: string | null;
+    imageKey: string | null;
+    imageAlt: string | null;
     displayOrder: number;
     isFeatured: boolean;
     badgeLabel: string | null;
@@ -88,6 +185,12 @@ export class CatalogDashboardService {
     createdAt: Date;
     updatedAt: Date;
     branches?: { branchId: string }[];
+    imageMedia?: {
+      id: string;
+      imageUrl: string;
+      title: string | null;
+      altText: string | null;
+    } | null;
     benefits?: Array<{
       id: string;
       label: string;
@@ -104,7 +207,18 @@ export class CatalogDashboardService {
       name: row.name,
       description: row.description,
       shortDescription: row.shortDescription,
+      imageMediaId: row.imageMediaId ?? null,
+      imageMedia: row.imageMedia
+        ? {
+            id: row.imageMedia.id,
+            url: row.imageMedia.imageUrl,
+            title: row.imageMedia.title,
+            altText: row.imageMedia.altText,
+          }
+        : null,
       imageUrl: row.imageUrl,
+      imageKey: row.imageKey,
+      imageAlt: row.imageAlt,
       displayOrder: row.displayOrder,
       isFeatured: row.isFeatured,
       badgeLabel: row.badgeLabel,
@@ -177,61 +291,110 @@ export class CatalogDashboardService {
     };
   }
 
-  private mapPackage(
-    row: {
+  /** Mirrors public catalog rules for package listing (no image requirement). */
+  private packagePublicListingWhereInput(): Prisma.PackageWhereInput {
+    const todayDate = utcDateOnly(new Date());
+    return {
+      isActive: true,
+      durationMinutes: { not: null, gt: 0 },
+      services: { some: {} },
+      branches: { some: { branch: { isActive: true } } },
+      AND: [
+        { OR: [{ startDate: null }, { startDate: { lte: todayDate } }] },
+        { OR: [{ endDate: null }, { endDate: { gte: todayDate } }] },
+      ],
+      packagePrice: { gt: 0 },
+    };
+  }
+
+  private packageSatisfiesPublicListing(p: {
+    isActive: boolean;
+    startDate: Date | null;
+    endDate: Date | null;
+    durationMinutes: number | null;
+    packagePrice: Prisma.Decimal;
+    services: unknown[];
+    branches: Array<{ branch: { isActive: boolean } }>;
+  }): boolean {
+    const todayDate = utcDateOnly(new Date());
+    if (!p.isActive) return false;
+    if (!p.services?.length) return false;
+    if (p.durationMinutes == null || p.durationMinutes < 1) return false;
+    const pkg = decimalToNumber(p.packagePrice);
+    if (pkg === null || pkg <= 0) return false;
+    if (p.startDate && utcDateOnly(p.startDate) > todayDate) return false;
+    if (p.endDate && utcDateOnly(p.endDate) < todayDate) return false;
+    return p.branches.some((b) => b.branch.isActive);
+  }
+
+  private mapPackage(p: {
+    id: string;
+    name: string;
+    description: string | null;
+    shortDescription: string | null;
+    imageUrl: string | null;
+    originalPrice: Prisma.Decimal;
+    packagePrice: Prisma.Decimal;
+    durationMinutes: number | null;
+    startDate: Date | null;
+    endDate: Date | null;
+    isTaxable: boolean;
+    isActive: boolean;
+    isFeatured: boolean;
+    badgeLabel: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    features?: Array<{
       id: string;
-      name: string;
-      description: string | null;
-      shortDescription: string | null;
-      imageUrl: string | null;
-      originalPrice: Prisma.Decimal;
-      packagePrice: Prisma.Decimal;
-      durationMinutes: number | null;
-      startDate: Date | null;
-      endDate: Date | null;
-      isTaxable: boolean;
+      label: string;
+      displayOrder: number;
       isActive: boolean;
-      isFeatured: boolean;
-      badgeLabel: string | null;
-      createdAt: Date;
-      updatedAt: Date;
-      features?: Array<{
-        id: string;
-        label: string;
-        displayOrder: number;
-        isActive: boolean;
-      }>;
-    },
-    serviceIds: string[],
-    branchIds: string[],
-  ) {
-    const features = (row.features ?? []).map((f) => ({
+    }>;
+    services: Array<{ serviceId: string; sortOrder: number }>;
+    branches: Array<{ branchId: string; branch: { isActive: boolean } }>;
+  }) {
+    const orderedServices = [...p.services].sort(
+      (a, b) => a.sortOrder - b.sortOrder,
+    );
+    const serviceIds = orderedServices.map((s) => s.serviceId);
+    const branchIds = p.branches.map((b) => b.branchId);
+    const isPublicListingReady = this.packageSatisfiesPublicListing({
+      isActive: p.isActive,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      durationMinutes: p.durationMinutes,
+      packagePrice: p.packagePrice,
+      services: p.services,
+      branches: p.branches,
+    });
+    const features = (p.features ?? []).map((f) => ({
       id: f.id,
       label: f.label,
       displayOrder: f.displayOrder,
       isActive: f.isActive,
     }));
     return {
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      shortDescription: row.shortDescription,
-      imageUrl: row.imageUrl,
-      originalPrice: decimalToNumber(row.originalPrice),
-      packagePrice: decimalToNumber(row.packagePrice),
-      durationMinutes: row.durationMinutes,
-      startDate: row.startDate,
-      endDate: row.endDate,
-      isTaxable: row.isTaxable,
-      isActive: row.isActive,
-      isFeatured: row.isFeatured,
-      badgeLabel: row.badgeLabel,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+      id: p.id,
+      name: p.name,
+      description: p.description,
+      shortDescription: p.shortDescription,
+      imageUrl: p.imageUrl,
+      originalPrice: decimalToNumber(p.originalPrice),
+      packagePrice: decimalToNumber(p.packagePrice),
+      durationMinutes: p.durationMinutes,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      isTaxable: p.isTaxable,
+      isActive: p.isActive,
+      isFeatured: p.isFeatured,
+      badgeLabel: p.badgeLabel,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
       currency: CURRENCY,
       serviceIds,
       branchIds,
       features,
+      isPublicListingReady,
     };
   }
 
@@ -398,6 +561,9 @@ export class CatalogDashboardService {
           benefits: {
             orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
           },
+          imageMedia: {
+            select: { id: true, imageUrl: true, title: true, altText: true },
+          },
         },
       }),
     ]);
@@ -425,6 +591,28 @@ export class CatalogDashboardService {
     if (!cat) {
       throw new BadRequestException('Invalid categoryId');
     }
+    if (
+      dto.imageMediaId &&
+      (dto.imageUrl !== undefined || dto.imageKey !== undefined)
+    ) {
+      throw new BadRequestException(
+        'Send either imageMediaId or imageUrl/imageKey, not both',
+      );
+    }
+    let imageUrl = dto.imageUrl ?? null;
+    let imageKey = dto.imageKey ?? null;
+    let imageMediaId: string | null = dto.imageMediaId ?? null;
+    if (dto.imageMediaId) {
+      const resolved = await this.resolveGalleryImageForService(dto.imageMediaId);
+      imageUrl = resolved.imageUrl;
+      imageKey = resolved.imageKey;
+      imageMediaId = resolved.imageMediaId;
+    }
+    this.validateServiceImageForCreate(
+      dto.bookingAvailability ?? true,
+      imageUrl,
+      imageKey,
+    );
     const row = await this.prisma.$transaction(async (tx) => {
       const s = await tx.service.create({
         data: {
@@ -432,7 +620,10 @@ export class CatalogDashboardService {
           name: dto.name,
           description: dto.description ?? null,
           shortDescription: dto.shortDescription ?? null,
-          imageUrl: dto.imageUrl ?? null,
+          imageMediaId,
+          imageUrl,
+          imageKey,
+          imageAlt: dto.imageAlt ?? null,
           displayOrder: dto.displayOrder ?? 0,
           isFeatured: dto.isFeatured ?? false,
           badgeLabel: dto.badgeLabel ?? null,
@@ -471,8 +662,12 @@ export class CatalogDashboardService {
           benefits: {
             orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
           },
+          imageMedia: {
+            select: { id: true, imageUrl: true, title: true, altText: true },
+          },
         },
       });
+      await this.syncServiceImageMediaUsage(tx, s.id, imageMediaId);
       return s;
     });
     return this.mapService(row);
@@ -486,6 +681,57 @@ export class CatalogDashboardService {
     if (!existing) {
       throw new NotFoundException('Service not found');
     }
+    if (
+      dto.imageMediaId &&
+      (dto.imageUrl !== undefined || dto.imageKey !== undefined)
+    ) {
+      throw new BadRequestException(
+        'Send either imageMediaId or imageUrl/imageKey, not both',
+      );
+    }
+
+    let nextUrl = existing.imageUrl;
+    let nextKey = existing.imageKey;
+    let nextMediaId = existing.imageMediaId;
+
+    if (dto.imageMediaId !== undefined) {
+      if (dto.imageMediaId === null) {
+        nextMediaId = null;
+        if (dto.imageUrl !== undefined || dto.imageKey !== undefined) {
+          if (dto.imageUrl === undefined || dto.imageKey === undefined) {
+            throw new BadRequestException(
+              'imageUrl and imageKey must be sent together when updating image fields',
+            );
+          }
+          nextUrl = dto.imageUrl;
+          nextKey = dto.imageKey;
+        } else {
+          nextUrl = null;
+          nextKey = null;
+        }
+      } else {
+        const resolved = await this.resolveGalleryImageForService(dto.imageMediaId);
+        nextUrl = resolved.imageUrl;
+        nextKey = resolved.imageKey;
+        nextMediaId = resolved.imageMediaId;
+      }
+    } else if (dto.imageUrl !== undefined || dto.imageKey !== undefined) {
+      if (dto.imageUrl === undefined || dto.imageKey === undefined) {
+        throw new BadRequestException(
+          'imageUrl and imageKey must be sent together when updating image fields',
+        );
+      }
+      nextUrl = dto.imageUrl ?? null;
+      nextKey = dto.imageKey ?? null;
+      nextMediaId = null;
+    }
+
+    const nextBooking =
+      dto.bookingAvailability !== undefined
+        ? dto.bookingAvailability
+        : existing.bookingAvailability;
+    this.validateServiceImageForPatch(nextBooking, nextUrl, nextKey);
+
     const nextType = dto.priceDisplayType ?? existing.priceDisplayType;
     const nextMin =
       dto.basePrice !== undefined
@@ -511,6 +757,10 @@ export class CatalogDashboardService {
     if (dto.branchIds) {
       await this.assertBranchesExist(dto.branchIds);
     }
+    const imageChanged =
+      dto.imageMediaId !== undefined ||
+      dto.imageUrl !== undefined ||
+      dto.imageKey !== undefined;
     const row = await this.prisma.$transaction(async (tx) => {
       if (dto.branchIds) {
         const uniqueBranches = [...new Set(dto.branchIds)];
@@ -537,7 +787,7 @@ export class CatalogDashboardService {
           });
         }
       }
-      return tx.service.update({
+      const updated = await tx.service.update({
         where: { id },
         data: {
           ...(dto.categoryId !== undefined && { categoryId: dto.categoryId }),
@@ -548,7 +798,12 @@ export class CatalogDashboardService {
           ...(dto.shortDescription !== undefined && {
             shortDescription: dto.shortDescription,
           }),
-          ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
+          ...(imageChanged && {
+            imageMediaId: nextMediaId,
+            imageUrl: nextUrl,
+            imageKey: nextKey,
+          }),
+          ...(dto.imageAlt !== undefined && { imageAlt: dto.imageAlt }),
           ...(dto.displayOrder !== undefined && {
             displayOrder: dto.displayOrder,
           }),
@@ -587,8 +842,15 @@ export class CatalogDashboardService {
           benefits: {
             orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
           },
+          imageMedia: {
+            select: { id: true, imageUrl: true, title: true, altText: true },
+          },
         },
       });
+      if (imageChanged) {
+        await this.syncServiceImageMediaUsage(tx, id, nextMediaId);
+      }
+      return updated;
     });
     if (
       dto.basePrice !== undefined ||
@@ -624,6 +886,9 @@ export class CatalogDashboardService {
           branches: true,
           benefits: {
             orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+          imageMedia: {
+            select: { id: true, imageUrl: true, title: true, altText: true },
           },
         },
       });
@@ -717,11 +982,28 @@ export class CatalogDashboardService {
     page: number;
     pageSize: number;
     isActive?: boolean;
+    search?: string;
+    branchId?: string;
+    publicListing?: boolean;
   }) {
-    const where: Prisma.PackageWhereInput = {};
+    const parts: Prisma.PackageWhereInput[] = [];
     if (query.isActive !== undefined) {
-      where.isActive = query.isActive;
+      parts.push({ isActive: query.isActive });
     }
+    const t = query.search?.trim();
+    if (t) {
+      parts.push({ name: { contains: t, mode: 'insensitive' } });
+    }
+    if (query.branchId) {
+      parts.push({ branches: { some: { branchId: query.branchId } } });
+    }
+    if (query.publicListing === true) {
+      parts.push(this.packagePublicListingWhereInput());
+    } else if (query.publicListing === false) {
+      parts.push({ NOT: this.packagePublicListingWhereInput() });
+    }
+    const where: Prisma.PackageWhereInput =
+      parts.length === 0 ? {} : parts.length === 1 ? parts[0] : { AND: parts };
     const skip = (query.page - 1) * query.pageSize;
     const [totalItems, rows] = await Promise.all([
       this.prisma.package.count({ where }),
@@ -731,19 +1013,21 @@ export class CatalogDashboardService {
         take: query.pageSize,
         orderBy: { name: 'asc' },
         include: {
-          services: true,
-          branches: true,
+          services: { orderBy: { sortOrder: 'asc' } },
+          branches: { include: { branch: true } },
           features: { orderBy: { displayOrder: 'asc' } },
         },
       }),
     ]);
     return {
       data: rows.map((p) =>
-        this.mapPackage(
-          p,
-          p.services.map((s) => s.serviceId),
-          p.branches.map((b) => b.branchId),
-        ),
+        this.mapPackage({
+          ...p,
+          branches: p.branches.map((b) => ({
+            branchId: b.branchId,
+            branch: { isActive: b.branch.isActive },
+          })),
+        }),
       ),
       meta: buildListMeta({
         page: query.page,
@@ -808,18 +1092,20 @@ export class CatalogDashboardService {
             : {}),
         },
         include: {
-          services: true,
-          branches: true,
+          services: { orderBy: { sortOrder: 'asc' } },
+          branches: { include: { branch: true } },
           features: { orderBy: { displayOrder: 'asc' } },
         },
       });
       return p;
     });
-    return this.mapPackage(
-      row,
-      row.services.map((s) => s.serviceId),
-      row.branches.map((b) => b.branchId),
-    );
+    return this.mapPackage({
+      ...row,
+      branches: row.branches.map((b) => ({
+        branchId: b.branchId,
+        branch: { isActive: b.branch.isActive },
+      })),
+    });
   }
 
   async patchPackage(id: string, dto: PatchPackageDto) {
@@ -915,17 +1201,19 @@ export class CatalogDashboardService {
           ...(dto.badgeLabel !== undefined && { badgeLabel: dto.badgeLabel }),
         },
         include: {
-          services: true,
-          branches: true,
+          services: { orderBy: { sortOrder: 'asc' } },
+          branches: { include: { branch: true } },
           features: { orderBy: { displayOrder: 'asc' } },
         },
       });
     });
-    return this.mapPackage(
-      row,
-      row.services.map((s) => s.serviceId),
-      row.branches.map((b) => b.branchId),
-    );
+    return this.mapPackage({
+      ...row,
+      branches: row.branches.map((b) => ({
+        branchId: b.branchId,
+        branch: { isActive: b.branch.isActive },
+      })),
+    });
   }
 
   async patchPackageStatus(id: string, isActive: boolean) {
@@ -934,16 +1222,18 @@ export class CatalogDashboardService {
         where: { id },
         data: { isActive },
         include: {
-          services: true,
-          branches: true,
+          services: { orderBy: { sortOrder: 'asc' } },
+          branches: { include: { branch: true } },
           features: { orderBy: { displayOrder: 'asc' } },
         },
       });
-      return this.mapPackage(
-        row,
-        row.services.map((s) => s.serviceId),
-        row.branches.map((b) => b.branchId),
-      );
+      return this.mapPackage({
+        ...row,
+        branches: row.branches.map((b) => ({
+          branchId: b.branchId,
+          branch: { isActive: b.branch.isActive },
+        })),
+      });
     } catch {
       throw new NotFoundException('Package not found');
     }
@@ -1320,32 +1610,96 @@ export class CatalogDashboardService {
 
   // --- Service Enhancements ---
 
+  private buildServiceEnhancementBaseWhere(query: {
+    search?: string;
+    priceMin?: number;
+    priceMax?: number;
+    durationMin?: number;
+    durationMax?: number;
+  }): Prisma.ServiceEnhancementWhereInput {
+    const where: Prisma.ServiceEnhancementWhereInput = {};
+    const q = query.search?.trim();
+    if (q) {
+      where.OR = [
+        { title: { contains: q, mode: 'insensitive' } },
+        { shortDescription: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+    const priceFilter: Prisma.DecimalNullableFilter = {};
+    if (query.priceMin !== undefined) {
+      priceFilter.gte = new Prisma.Decimal(query.priceMin);
+    }
+    if (query.priceMax !== undefined) {
+      priceFilter.lte = new Prisma.Decimal(query.priceMax);
+    }
+    if (Object.keys(priceFilter).length > 0) {
+      where.price = priceFilter;
+    }
+    const durationFilter: Prisma.IntNullableFilter = {};
+    if (query.durationMin !== undefined) {
+      durationFilter.gte = query.durationMin;
+    }
+    if (query.durationMax !== undefined) {
+      durationFilter.lte = query.durationMax;
+    }
+    if (Object.keys(durationFilter).length > 0) {
+      where.durationMinutes = durationFilter;
+    }
+    return where;
+  }
+
   async listServiceEnhancements(query: {
     page: number;
     pageSize: number;
     isActive?: boolean;
+    search?: string;
+    priceMin?: number;
+    priceMax?: number;
+    durationMin?: number;
+    durationMax?: number;
   }) {
-    const where: Prisma.ServiceEnhancementWhereInput = {};
+    const baseWhere = this.buildServiceEnhancementBaseWhere(query);
+    const where: Prisma.ServiceEnhancementWhereInput = { ...baseWhere };
     if (query.isActive !== undefined) {
       where.isActive = query.isActive;
     }
     const skip = (query.page - 1) * query.pageSize;
-    const [totalItems, rows] = await Promise.all([
-      this.prisma.serviceEnhancement.count({ where }),
-      this.prisma.serviceEnhancement.findMany({
-        where,
-        skip,
-        take: query.pageSize,
-        orderBy: [{ displayOrder: 'asc' }, { title: 'asc' }],
-      }),
-    ]);
+    const [totalItems, rows, totalMatchingBase, activeMatchingBase, averages] =
+      await Promise.all([
+        this.prisma.serviceEnhancement.count({ where }),
+        this.prisma.serviceEnhancement.findMany({
+          where,
+          skip,
+          take: query.pageSize,
+          orderBy: [{ displayOrder: 'asc' }, { title: 'asc' }],
+        }),
+        this.prisma.serviceEnhancement.count({ where: baseWhere }),
+        this.prisma.serviceEnhancement.count({
+          where: { ...baseWhere, isActive: true },
+        }),
+        this.prisma.serviceEnhancement.aggregate({
+          where: baseWhere,
+          _avg: { price: true, durationMinutes: true },
+        }),
+      ]);
     return {
       data: rows.map((row) => this.mapServiceEnhancement(row)),
-      meta: buildListMeta({
-        page: query.page,
-        pageSize: query.pageSize,
-        totalItems,
-      }),
+      meta: {
+        ...buildListMeta({
+          page: query.page,
+          pageSize: query.pageSize,
+          totalItems,
+        }),
+        serviceEnhancementStats: {
+          totalMatchingFilters: totalMatchingBase,
+          activeMatchingFilters: activeMatchingBase,
+          avgPrice: decimalToNumber(averages._avg.price),
+          avgDurationMinutes:
+            averages._avg.durationMinutes != null
+              ? Number(averages._avg.durationMinutes)
+              : null,
+        },
+      },
     };
   }
 

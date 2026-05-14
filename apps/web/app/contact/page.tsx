@@ -6,6 +6,7 @@ import {
   type PublicBranch,
 } from "@/lib/api/public";
 import { mergePublicContactDisplay } from "@/lib/contact-display";
+import { mergeContactIntro, mergeContactVisitBlock } from "@/lib/website-public-merge";
 
 export default async function ContactPage() {
   const [siteContentResult, branchesResult, servicesResult] = await Promise.allSettled([
@@ -33,10 +34,22 @@ export default async function ContactPage() {
       : [];
 
   const contact = mergePublicContactDisplay(siteContent, branches);
+  const intro = mergeContactIntro(siteContent);
+  const visit = mergeContactVisitBlock(siteContent);
 
   return (
     <div>
-      <ContactFirstSection contact={contact} services={services} />
+      <ContactFirstSection
+        contact={contact}
+        services={services}
+        showIntro={intro.visible}
+        introTitle={intro.title}
+        introSubtitle={intro.subtitle}
+        visitHeading={visit.visitHeading}
+        whatsappHelpText={visit.whatsappHelpText}
+        whatsappButtonLabel={visit.whatsappButtonLabel}
+        defaultChatText={visit.defaultChatText}
+      />
     </div>
   );
 }

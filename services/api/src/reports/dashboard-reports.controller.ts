@@ -1,5 +1,6 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { CurrentDashboardUser } from '../auth/decorators/current-dashboard-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
@@ -83,5 +84,40 @@ export class DashboardReportsController {
     @Query() query: ReportRangeQueryDto,
   ) {
     return this.reports.payments(user, query);
+  }
+
+  @Get('financial-summary')
+  @RequirePermissions('reports.view_financial')
+  @ApiOperation({ summary: 'Financial manager consolidated report' })
+  financialSummary(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Query() query: ReportRangeQueryDto,
+  ) {
+    return this.reports.financialSummary(user, query);
+  }
+
+  @Get('financial/export')
+  @RequirePermissions('reports.view_financial')
+  @ApiOperation({ summary: 'Export financial report CSV' })
+  async exportFinancialSummary(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Query()
+    query: ReportRangeQueryDto & {
+      type?:
+        | 'summary'
+        | 'payments'
+        | 'outstanding'
+        | 'sales-items'
+        | 'daily-closing';
+    },
+    @Res() res: Response,
+  ) {
+    const exported = await this.reports.exportFinancialSummary(user, query);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${exported.filename}"`,
+    );
+    res.send(exported.csv);
   }
 }

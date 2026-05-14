@@ -16,6 +16,20 @@ export class PatchVatSettingsDto {
   @IsBoolean()
   vatEnabled?: boolean;
 
+  @ApiPropertyOptional({ example: 14 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  vatRatePercent?: number;
+
+  @ApiPropertyOptional({ example: 'VAT' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  taxLabel?: string;
+
   /** Decimal fraction, e.g. 14% = 0.14. Range 0–1. */
   @ApiPropertyOptional({ example: 0.14 })
   @IsOptional()

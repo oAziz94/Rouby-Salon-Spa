@@ -1,8 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 export class AuditLogListQueryDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  search?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   module?: string;
@@ -13,12 +17,26 @@ export class AuditLogListQueryDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  entityType?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsUUID('4')
   userId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsUUID('4')
+  branchId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   entityId?: string;
+
+  @ApiPropertyOptional({ enum: ['INFO', 'WARNING', 'CRITICAL'] })
+  @IsOptional()
+  @IsIn(['INFO', 'WARNING', 'CRITICAL'])
+  severity?: 'INFO' | 'WARNING' | 'CRITICAL';
 
   @ApiPropertyOptional({ description: 'ISO date/time' })
   @IsOptional()
@@ -40,6 +58,6 @@ export class AuditLogListQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
-  pageSize = 20;
+  @Max(200)
+  limit = 20;
 }

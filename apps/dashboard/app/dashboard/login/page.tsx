@@ -4,6 +4,10 @@ import { useDashboardAuth } from "@/lib/dashboard-auth";
 import { Eye, EyeOff } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
+const REMEMBER_DRAFTS_KEY = "dashboard_login_remember_drafts";
+const REMEMBER_EMAIL_KEY = "dashboard_login_email";
+const REMEMBER_PASSWORD_KEY = "dashboard_login_password";
+
 export default function DashboardLoginPage() {
   const { login } = useDashboardAuth();
   const rememberId = useId();
@@ -26,7 +30,30 @@ export default function DashboardLoginPage() {
     }
     const queryReason = new URLSearchParams(window.location.search).get("reason");
     setReason(queryReason);
+
+    const shouldRestoreDrafts =
+      window.localStorage.getItem(REMEMBER_DRAFTS_KEY) === "1";
+    if (shouldRestoreDrafts) {
+      setRememberMe(true);
+      setEmail(window.localStorage.getItem(REMEMBER_EMAIL_KEY) ?? "");
+      setPassword(window.localStorage.getItem(REMEMBER_PASSWORD_KEY) ?? "");
+    }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (!rememberMe) {
+      window.localStorage.removeItem(REMEMBER_DRAFTS_KEY);
+      window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
+      window.localStorage.removeItem(REMEMBER_PASSWORD_KEY);
+      return;
+    }
+    window.localStorage.setItem(REMEMBER_DRAFTS_KEY, "1");
+    window.localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+    window.localStorage.setItem(REMEMBER_PASSWORD_KEY, password);
+  }, [email, password, rememberMe]);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -35,6 +62,11 @@ export default function DashboardLoginPage() {
 
     try {
       await login(email, password, rememberMe);
+      if (typeof window !== "undefined" && !rememberMe) {
+        window.localStorage.removeItem(REMEMBER_DRAFTS_KEY);
+        window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
+        window.localStorage.removeItem(REMEMBER_PASSWORD_KEY);
+      }
     } catch (submitError) {
       setError(
         submitError instanceof Error ? submitError.message : "Failed to sign in",

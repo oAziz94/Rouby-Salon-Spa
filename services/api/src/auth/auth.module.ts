@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { AuditModule } from '../audit/audit.module';
 import { ClientAuthController } from './client-auth.controller';
 import { ClientMeController } from './client-me.controller';
 import { ClientAuthService } from './client-auth.service';
@@ -15,6 +16,7 @@ import { DashboardJwtStrategy } from './strategies/dashboard-jwt.strategy';
 @Module({
   imports: [
     ConfigModule,
+    AuditModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

@@ -80,6 +80,19 @@ SRS §5.3, §5.5, §5.6–5.7, §10, §18 (discounts: *only authorized roles*).
 
 ---
 
+### 3.2a Operational queue (dashboard MVP)
+
+Front-desk **visit queue** (`QueueEntry`): complements scheduled **`Booking`** rows; does not replace billing.
+
+| Permission key | Description | Owner | Admin | Branch Manager | Receptionist | Specialist |
+|----------------|-------------|-------|-------|----------------|--------------|------------|
+| `queue.read` | View queue board / list | Full | Full | Branch | Branch | None |
+| `queue.manage` | Check-ins from bookings, walk-ins, start/complete/cancel queue rows | Full | Full | Branch | Branch | None |
+
+**Booking-linked transitions:** `POST /dashboard/bookings/{bookingId}/check-in`, and queue **start** / **complete** when `bookingId` is set, also require **`bookings.status.progress`** (AND with `queue.manage` where applicable). Walk-ins and queue-only cancel never touch booking lifecycle.
+
+---
+
 ### 3.3 Booking slots
 
 SRS §5.3 (receptionist manages slots, **capacity**, statuses); §5.5 branch operations; §10.5–10.6.

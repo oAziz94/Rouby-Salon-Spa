@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Bell, ChevronDown, LogOut, Sparkles, UserRound, X } from "lucide-react";
+import { getDashboardReportsOverview } from "@rouby/api-client";
 import {
   DASHBOARD_NAV_GROUPS,
   type DashboardNavGroup,
@@ -11,6 +12,85 @@ import {
 } from "@/lib/dashboard-nav";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 import { useDashboardShellFeed } from "@/lib/dashboard-shell-feed-context";
+
+const RING_ACTIONS = new Set(["booking.created", "booking_change_request.created"]);
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const NOTIFICATION_READ_KEYS_STORAGE = "dashboard.notification.read.keys.v1";
+
+type DashboardNotification = {
+  key: string;
+  title: string;
+  body: string;
+  whenLabel: string;
+  sortTs: number;
+  href: string;
+};
+
+function parseIsoDateTime(date: string | undefined, time: string | undefined): number | null {
+  if (!date || !time) {
+    return null;
+  }
+
+  const normalizedDate = date.includes("T") ? date.slice(0, 10) : date;
+  let normalizedTime = time.trim();
+  if (normalizedTime.includes("T")) {
+    const parsedTime = Date.parse(normalizedTime);
+    if (!Number.isNaN(parsedTime)) {
+      normalizedTime = new Date(parsedTime).toISOString().slice(11, 19);
+    }
+  }
+  if (normalizedTime.includes(".")) {
+    normalizedTime = normalizedTime.split(".")[0] ?? normalizedTime;
+  }
+  if (normalizedTime.endsWith("Z")) {
+    normalizedTime = normalizedTime.slice(0, -1);
+  }
+  if (normalizedTime.includes("+")) {
+    normalizedTime = normalizedTime.split("+")[0] ?? normalizedTime;
+  }
+  const value = Date.parse(`${normalizedDate}T${normalizedTime}`);
+  return Number.isNaN(value) ? null : value;
+}
+
+function formatTimeUntil(ts: number): string {
+  const diffMs = ts - Date.now();
+  if (diffMs <= 0) {
+    return "starting now";
+  }
+  const min = Math.floor(diffMs / (1000 * 60));
+  if (min < 60) {
+    return `in ${min}m`;
+  }
+  const hr = Math.floor(min / 60);
+  const rem = min % 60;
+  return rem > 0 ? `in ${hr}h ${rem}m` : `in ${hr}h`;
+}
+
+function formatSlotStartLabel(date: string | undefined, time: string | undefined): string {
+  const ts = parseIsoDateTime(date, time);
+  if (ts === null) {
+    return "within 1 hour";
+  }
+  return new Date(ts).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function uniqueByKey(items: DashboardNotification[]): DashboardNotification[] {
+  const seen = new Set<string>();
+  const result: DashboardNotification[] = [];
+  for (const item of items) {
+    if (seen.has(item.key)) {
+      continue;
+    }
+    seen.add(item.key);
+    result.push(item);
+  }
+  return result;
+}
 
 function isDashboardNavActive(pathname: string, href: string): boolean {
   const path = pathname.replace(/\/$/, "") || "/";
@@ -68,7 +148,16 @@ function filterNavGroups(
   return groups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => hasPermission(item.permission)),
+      items: group.items.filter((item) => {
+        const perm = item.permission;
+        if (!perm) {
+          return true;
+        }
+        if (Array.isArray(perm)) {
+          return perm.some((key) => hasPermission(key));
+        }
+        return hasPermission(perm);
+      }),
     }))
     .filter((group) => group.items.length > 0);
 }
@@ -99,7 +188,7 @@ function SidebarNavGroups({
                     href={item.href}
                     onClick={onNavigate}
                     aria-current={active ? "page" : undefined}
-                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${
+                    className={`flex min-w-0 items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${
                       active
                         ? "bg-[#B9974A]/18 text-[#F6F2EA] shadow-inner shadow-black/10"
                         : "text-[#E8E2D6]/90 hover:bg-white/[0.06] hover:text-white"
@@ -110,7 +199,7 @@ function SidebarNavGroups({
                       strokeWidth={1.75}
                       aria-hidden
                     />
-                    <span className="leading-snug">{item.label}</span>
+                    <span className="min-w-0 flex-1 break-words leading-snug">{item.label}</span>
                   </Link>
                 </li>
               );
@@ -149,11 +238,17 @@ function formatRelativeTime(iso: string | undefined): string {
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { hasPermission, user, logout } = useDashboardAuth();
-  const { recentActivity } = useDashboardShellFeed();
+  const { hasPermission, user, logout, status, token } = useDashboardAuth();
+  const {
+    recentActivity,
+    upcomingAppointments,
+    setOverviewRecentActivity,
+    setOverviewUpcomingAppointments,
+  } = useDashboardShellFeed();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [readKeys, setReadKeys] = useState<Set<string>>(new Set());
 
   const profileWrapRef = useRef<HTMLDivElement>(null);
   const notifWrapRef = useRef<HTMLDivElement>(null);
@@ -184,9 +279,142 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const userInitials = initialsFromName(user?.name);
   const isOverviewRoute = pathname.replace(/\/$/, "") === "/dashboard";
 
-  const canSettings = hasPermission("settings.system.read");
-  const canAuditRead = hasPermission("audit.read");
-  const hasNotifDot = recentActivity.length > 0;
+  const canSalonSettings =
+    hasPermission("settings.system.read") || hasPermission("settings.read");
+  const canViewReports = hasPermission("reports.view");
+  const notifications = useMemo(() => {
+    const fromActivity: DashboardNotification[] = recentActivity
+      .filter((activity) => RING_ACTIONS.has((activity.action ?? "").toLowerCase()))
+      .map((activity, index) => {
+        const action = (activity.action ?? "").toLowerCase();
+        const createdTs = Date.parse(activity.createdAt ?? "");
+        const sortTs = Number.isNaN(createdTs) ? Date.now() - index : createdTs;
+        const actor = activity.user?.name ? `${activity.user.name} ` : "";
+        if (action === "booking_change_request.created") {
+          return {
+            key: `activity:${activity.id ?? `${action}:${activity.createdAt ?? index}`}`,
+            title: "Change request submitted",
+            body: `${actor}submitted a booking change request.`.trim(),
+            whenLabel: formatRelativeTime(activity.createdAt),
+            sortTs,
+            href: "/dashboard/booking-change-requests",
+          };
+        }
+        return {
+          key: `activity:${activity.id ?? `${action}:${activity.createdAt ?? index}`}`,
+          title: "New booking received",
+          body: `${actor}created a new booking.`.trim(),
+          whenLabel: formatRelativeTime(activity.createdAt),
+          sortTs,
+          href: "/dashboard/bookings",
+        };
+      });
+
+    const now = Date.now();
+    const fromUpcoming: DashboardNotification[] = upcomingAppointments
+      .map((booking, index) => {
+        const startTs = parseIsoDateTime(booking.slot?.date, booking.slot?.startTime);
+        if (startTs === null) {
+          return null;
+        }
+        const diff = startTs - now;
+        if (diff < 0 || diff > ONE_HOUR_MS) {
+          return null;
+        }
+        const clientName = booking.client?.fullName ?? "A client";
+        const bookingKey = booking.id || `${booking.slot?.date ?? "d"}:${booking.slot?.startTime ?? "t"}:${index}`;
+        return {
+          key: `upcoming:${bookingKey}:${booking.slot?.date ?? ""}:${booking.slot?.startTime ?? ""}`,
+          title: "Upcoming booking soon",
+          body: `${clientName}'s booking starts ${formatTimeUntil(startTs)} (${formatSlotStartLabel(booking.slot?.date, booking.slot?.startTime)}).`,
+          whenLabel: formatTimeUntil(startTs),
+          sortTs: startTs,
+          href: "/dashboard/bookings",
+        } satisfies DashboardNotification;
+      })
+      .filter((item): item is DashboardNotification => item !== null);
+
+    return uniqueByKey([...fromActivity, ...fromUpcoming])
+      .sort((a, b) => b.sortTs - a.sortTs)
+      .slice(0, 12);
+  }, [recentActivity, upcomingAppointments]);
+
+  const unreadNotifications = useMemo(
+    () => notifications.filter((item) => !readKeys.has(item.key)),
+    [notifications, readKeys],
+  );
+  const hasNotifDot = unreadNotifications.length > 0;
+
+  useEffect(() => {
+    if (status !== "authenticated" || !token || !canViewReports) {
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const data = await getDashboardReportsOverview(token);
+        if (cancelled) {
+          return;
+        }
+        setOverviewRecentActivity(data.recentActivity ?? []);
+        setOverviewUpcomingAppointments(data.upcomingAppointments ?? []);
+      } catch {
+        // Keep previous notification state if polling fails.
+      }
+    };
+
+    void refresh();
+    const id = window.setInterval(() => {
+      void refresh();
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [
+    canViewReports,
+    setOverviewRecentActivity,
+    setOverviewUpcomingAppointments,
+    status,
+    token,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(NOTIFICATION_READ_KEYS_STORAGE);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        return;
+      }
+      const keys = parsed.filter((v): v is string => typeof v === "string");
+      setReadKeys(new Set(keys));
+    } catch {
+      // ignore malformed local storage and continue with empty read set
+    }
+  }, []);
+
+  const markNotificationsAsRead = useCallback((keys: string[]) => {
+    if (keys.length === 0 || typeof window === "undefined") {
+      return;
+    }
+    setReadKeys((prev) => {
+      const merged = new Set(prev);
+      for (const key of keys) {
+        merged.add(key);
+      }
+      const compact = Array.from(merged).slice(-500);
+      window.localStorage.setItem(NOTIFICATION_READ_KEYS_STORAGE, JSON.stringify(compact));
+      return new Set(compact);
+    });
+  }, []);
 
   const openProfile = useCallback(() => {
     setNotifOpen(false);
@@ -195,8 +423,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   const openNotif = useCallback(() => {
     setProfileOpen(false);
-    setNotifOpen((o) => !o);
-  }, []);
+    setNotifOpen((open) => {
+      const next = !open;
+      if (next) {
+        markNotificationsAsRead(notifications.map((item) => item.key));
+      }
+      return next;
+    });
+  }, [markNotificationsAsRead, notifications]);
 
   useEffect(() => {
     setMobileNavOpen(false);
@@ -259,7 +493,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   );
 
   const menuPanelClass =
-    "absolute right-0 z-30 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-[#E8E0D4] bg-white py-2 shadow-[0_12px_40px_rgba(31,36,32,0.12)] ring-1 ring-black/[0.03]";
+    "absolute right-0 z-30 mt-2 w-[min(23rem,calc(100vw-1.5rem))] rounded-2xl border border-[#E8E0D4] bg-white py-2 shadow-[0_12px_40px_rgba(31,36,32,0.12)] ring-1 ring-black/[0.03]";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -270,12 +504,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             aria-hidden
           />
           {sidebarBrand}
-          <nav className="relative flex-1 overflow-y-auto px-3 py-4">
+          <nav className="relative flex-1 overflow-y-auto scroll-smooth px-3 py-4">
             <SidebarNavGroups pathname={pathname} groups={navGroups} />
           </nav>
         </aside>
 
-        <div className="flex min-h-screen flex-1 flex-col bg-[#FAF7F0]">
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-[#FAF7F0]">
           <header className="sticky top-0 z-20 border-b border-[#E8E0D4]/80 bg-[#FFFCF7]/92 backdrop-blur-md">
             <div className="flex items-start justify-between gap-4 px-4 py-4 md:items-center md:px-6 md:py-4">
               <div className="flex min-w-0 flex-1 items-start gap-3 md:items-center">
@@ -336,53 +570,50 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                     <div
                       id={notifMenuId}
                       role="region"
-                      aria-label="Recent activity from overview"
+                      aria-label="Notifications"
                       className={`${menuPanelClass} max-h-[min(24rem,70vh)] overflow-y-auto`}
                     >
                       <div className="border-b border-[#F0EBE3] px-4 py-3">
                         <p className="text-sm font-semibold text-[#1F2420]">Notifications</p>
                         <p className="mt-0.5 text-xs leading-relaxed text-[#7A6A58]">
-                          Same entries as Overview → Recent Activity (audit trail highlights).
+                          New bookings, change requests, and bookings starting within 1 hour.
                         </p>
                       </div>
-                      {recentActivity.length === 0 ? (
+                      {notifications.length === 0 ? (
                         <p className="px-4 py-6 text-center text-sm text-[#7A6A58]">
-                          No recent notifications.
+                          You are all caught up.
                         </p>
                       ) : (
                         <ul className="list-none py-1">
-                          {recentActivity.slice(0, 10).map((activity, index) => {
-                            const mod = activity.module ?? "General";
-                            const rel = formatRelativeTime(activity.createdAt);
-                            const subtitle = [activity.user?.name, mod].filter(Boolean).join(" • ");
+                          {notifications.map((item) => {
+                            const isUnread = !readKeys.has(item.key);
                             return (
                               <li
-                                key={activity.id ?? `${activity.action ?? "a"}-${index}`}
+                                key={item.key}
                                 className="px-4 py-2.5"
                               >
-                                <p className="text-sm font-medium text-[#1F2420]">
-                                  {activity.action ?? "System activity"}
-                                </p>
-                                <p className="mt-0.5 truncate text-xs text-[#7A6A58]">{subtitle}</p>
-                                {rel ? (
-                                  <p className="mt-1 text-xs text-[#9A8B7A]">{rel}</p>
-                                ) : null}
+                                <Link
+                                  href={item.href}
+                                  onClick={() => setNotifOpen(false)}
+                                  className="block rounded-xl border border-transparent bg-[#FFFCF7]/70 px-3 py-2.5 transition hover:border-[#E8E0D4] hover:bg-[#FFFCF7]"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="text-sm font-semibold text-[#1F2420]">{item.title}</p>
+                                    {isUnread ? (
+                                      <span
+                                        className="mt-1 inline-block h-2 w-2 rounded-full bg-[#C45C4A]"
+                                        aria-label="Unread notification"
+                                      />
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-1 text-xs leading-relaxed text-[#5C5348]">{item.body}</p>
+                                  <p className="mt-1.5 text-xs text-[#9A8B7A]">{item.whenLabel || "Just now"}</p>
+                                </Link>
                               </li>
                             );
                           })}
                         </ul>
                       )}
-                      {canAuditRead ? (
-                        <div className="border-t border-[#F0EBE3] px-3 py-2">
-                          <Link
-                            href="/dashboard/audit-logs"
-                            className="block rounded-xl px-3 py-2 text-sm font-medium text-[#B9974A] hover:bg-[#FFFCF7]"
-                            onClick={() => setNotifOpen(false)}
-                          >
-                            View audit logs
-                          </Link>
-                        </div>
-                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -420,7 +651,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                       menuId={profileMenuId}
                       panelRef={profileMenuRef}
                       user={user}
-                      canSettings={canSettings}
+                      canSalonSettings={canSalonSettings}
                       logout={logout}
                       onNavigate={() => setProfileOpen(false)}
                       className={menuPanelClass}
@@ -430,7 +661,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </header>
-          <main className="flex-1 px-4 py-6 md:px-6 md:py-8">{children}</main>
+          <main className="min-w-0 flex-1 px-4 py-6 md:px-6 md:py-8">{children}</main>
         </div>
       </div>
 
@@ -456,7 +687,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 <X className="h-4 w-4" strokeWidth={1.75} />
               </button>
             </div>
-            <nav className="flex-1 overflow-y-auto px-3 py-3">
+            <nav className="flex-1 overflow-y-auto scroll-smooth px-3 py-3">
               <SidebarNavGroups
                 pathname={pathname}
                 groups={navGroups}
@@ -474,7 +705,7 @@ function ProfileDropdownPanel({
   menuId,
   panelRef,
   user,
-  canSettings,
+  canSalonSettings,
   logout,
   onNavigate,
   className,
@@ -482,7 +713,7 @@ function ProfileDropdownPanel({
   menuId: string;
   panelRef: React.RefObject<HTMLDivElement | null>;
   user: { name: string; email: string } | null;
-  canSettings: boolean;
+  canSalonSettings: boolean;
   logout: () => void;
   onNavigate: () => void;
   className: string;
@@ -493,14 +724,22 @@ function ProfileDropdownPanel({
         <p className="truncate text-sm font-semibold text-[#1F2420]">{user?.name ?? "User"}</p>
         <p className="mt-0.5 truncate text-xs text-[#7A6A58]">{user?.email ?? "—"}</p>
       </div>
-      {canSettings ? (
+      <Link
+        href="/dashboard/profile"
+        role="menuitem"
+        className="block px-4 py-2.5 text-sm text-[#1F2420] hover:bg-[#FFFCF7]"
+        onClick={onNavigate}
+      >
+        My profile
+      </Link>
+      {canSalonSettings ? (
         <Link
           href="/dashboard/settings"
           role="menuitem"
           className="block px-4 py-2.5 text-sm text-[#1F2420] hover:bg-[#FFFCF7]"
           onClick={onNavigate}
         >
-          Settings
+          Salon settings
         </Link>
       ) : null}
       <button

@@ -15,7 +15,8 @@ export class PublicContentController {
 
   @Get('testimonials')
   @ApiOperation({
-    summary: 'Public testimonials (approved + displayOnWebsite only)',
+    summary:
+      'Public homepage testimonial (active + selected for homepage; at most one)',
   })
   getTestimonials() {
     return this.content.getPublicTestimonials();

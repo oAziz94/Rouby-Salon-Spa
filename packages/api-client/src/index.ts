@@ -16,9 +16,16 @@ export type DashboardAuthMeResponse = {
   id: string;
   name: string;
   email: string;
+  phone: string | null;
   roleId: string;
+  roleName: string;
   branchId: string | null;
   staffId?: string | null;
+};
+
+export type PatchDashboardAuthProfileInput = {
+  fullName?: string;
+  phone?: string | null;
 };
 
 export type DashboardPermissionsResponse = {
@@ -51,17 +58,156 @@ export type DashboardOverviewActivity = {
   } | null;
 };
 
+export type DashboardOverviewAttentionItem = {
+  severity: "critical" | "warning" | "info";
+  title: string;
+  detail?: string;
+  count?: number;
+  href: string;
+};
+
+export type DashboardOverviewSchedulePreviewItem = {
+  bookingId: string;
+  slotId: string;
+  slotDate: string;
+  startTime: string;
+  endTime: string;
+  clientName: string | null;
+  clientId: string | null;
+  serviceSummary: string;
+  status: string;
+  source: string;
+  paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID" | null;
+};
+
+export type DashboardOverviewTrendDay = {
+  date: string;
+  total: number;
+  completed: number;
+  cancelled: number;
+  noShow: number;
+};
+
+export type DashboardOverviewRecentBookingRow = {
+  bookingId: string;
+  slotDate: string;
+  startTime: string;
+  clientName: string | null;
+  serviceSummary: string;
+  status: string;
+  source: string;
+  paymentStatus: string | null;
+};
+
+export type DashboardOverviewRecentClientRow = {
+  id: string;
+  fullName: string;
+  phone: string;
+  email: string | null;
+  createdAt: string;
+  totalVisits: number;
+  lastVisitDate: string | null;
+  lastBookingAt: string | null;
+};
+
+export type DashboardOverviewRevenue = {
+  paidToday: number;
+  paidThisWeek: number;
+  paidThisMonth: number;
+  unpaidInvoicesTotal: number;
+  unpaidToday: number;
+  refundsToday: number;
+  averageBookingValueMonth: number;
+  paidShareMonth: number | null;
+};
+
+export type DashboardOverviewQueue = {
+  waitingNow: number;
+  inServiceNow: number;
+  walkInsToday: number;
+  servedToday: number;
+  avgWaitMinutes: number | null;
+  longestWaitMinutes: number | null;
+  longestWaitingClientName: string | null;
+  waitingOver20Minutes: number;
+};
+
 export type DashboardReportsOverviewResponse = {
   range?: { from: string | null; to: string | null };
   branchId?: string | null;
+  meta?: {
+    timezone?: string;
+    todayYmd?: string;
+    quickWeekStartYmd?: string;
+    generatedAt?: string;
+  };
   todayBookings?: number;
   pendingBookings?: number;
   confirmedBookings?: number;
   completedBookings?: number;
   cancelledBookings?: number;
   noShowBookings?: number;
+  todayRevenue?: number;
   upcomingAppointments?: DashboardOverviewAppointment[];
   recentActivity?: DashboardOverviewActivity[];
+  attention?: DashboardOverviewAttentionItem[];
+  schedulePreview?: DashboardOverviewSchedulePreviewItem[];
+  trends?: {
+    last7Days: DashboardOverviewTrendDay[];
+    last30Days: DashboardOverviewTrendDay[];
+    monthToDate: DashboardOverviewTrendDay[];
+  };
+  revenue?: DashboardOverviewRevenue | null;
+  queue?: DashboardOverviewQueue | null;
+  recentBookings?: DashboardOverviewRecentBookingRow[];
+  recentClients?: {
+    newClientsThisWeek: number;
+    returningClientsToday: number;
+    rows: DashboardOverviewRecentClientRow[];
+  } | null;
+  websiteHealth?: {
+    activeTestimonials: number | null;
+    galleryImageCount: number | null;
+    servicesMissingImages: number | null;
+    packagesMissingImages: number | null;
+    publishedWebsiteSections: number | null;
+    draftWebsiteSections: number | null;
+  };
+  today?: {
+    ymd: string;
+    bookings: {
+      total: number;
+      pending: number;
+      confirmed: number;
+      completed: number;
+      cancelled: number;
+      noShow: number;
+      rejected: number;
+      completionRate: number;
+    };
+  };
+  staffToday?: {
+    supported: boolean;
+    scheduledStaffToday?: number;
+    availableNow?: number;
+    busyNow?: number;
+    offToday?: number;
+    staffToday?: Array<{
+      staffProfileId: string;
+      displayName: string;
+      status: "available" | "busy" | "off";
+      scheduledStart?: string | null;
+      scheduledEnd?: string | null;
+      bookingsCountToday?: number;
+      servicesCompletedToday?: number;
+      servicesInProgressNow?: number;
+      bookedMinutesToday?: number;
+      scheduledMinutesToday?: number;
+      workloadPercent?: number | null;
+    }>;
+    /** @deprecated legacy shape */
+    items?: Array<Record<string, unknown>>;
+  };
   [key: string]: unknown;
 };
 
@@ -79,36 +225,255 @@ export type DashboardReportsQuery = {
   groupBy?: string;
 };
 
+export type FinancialReportAlert = {
+  severity: "critical" | "warning" | "info";
+  code: string;
+  message: string;
+  count?: number;
+  amount?: number;
+  actionHref?: string;
+  actionLabel?: string;
+};
+
+export type RevenueTrendPoint = {
+  date: string;
+  invoiced: number;
+  collected: number;
+  outstanding: number;
+};
+
+export type PaymentMethodBreakdown = {
+  method: string;
+  amount: number;
+  count: number;
+  percentage: number;
+};
+
+export type OutstandingInvoiceSummary = {
+  invoiceId: string;
+  invoiceNumber: string;
+  clientName: string;
+  phone: string | null;
+  total: number;
+  paid: number;
+  remaining: number;
+  ageDays: number;
+  status: "UNPAID" | "PARTIALLY_PAID" | "PAID";
+};
+
+export type SalesByItemSummary = {
+  itemName: string;
+  itemType: string;
+  quantity: number;
+  grossRevenue: number;
+  discountAmount: number;
+  netRevenue: number;
+  averagePrice: number;
+  revenueShare: number;
+};
+
+export type BranchPerformanceSummary = {
+  branchId: string;
+  branchName: string;
+  grossInvoiced: number;
+  collected: number;
+  outstanding: number;
+  invoiceCount: number;
+  averageInvoiceValue: number;
+  cashDifference: number;
+  completedBookings: number;
+  queueVisits: number;
+};
+
+export type DailyClosingStatusSummary = {
+  date: string;
+  branchId: string;
+  branchName: string;
+  status: "NOT_STARTED" | "DRAFT" | "CLOSED";
+  grossSales: number;
+  totalCollected: number;
+  expectedCash: number;
+  countedCash: number | null;
+  cashDifference: number;
+  closedBy: string | null;
+  closedAt: string | null;
+  dailyClosingId: string | null;
+  cashDrawerId: string | null;
+  drawerOpen: boolean;
+};
+
+export type CashDrawerReportSummary = {
+  openingCashTotal: number;
+  cashPayments: number;
+  cashIn: number;
+  cashOut: number;
+  expectedCash: number;
+  countedCash: number;
+  cashDifference: number;
+  openDrawersCount: number;
+  closedDrawersCount: number;
+  rows: Array<{
+    date: string;
+    branchName: string;
+    status: string;
+    openedBy: string;
+    closedBy: string | null;
+    expectedCash: number;
+    countedCash: number;
+    difference: number;
+    cashDrawerId: string;
+  }>;
+};
+
+export type ClientFinancialInsight = {
+  clientId: string;
+  clientName: string;
+  phone: string | null;
+  invoiceCount: number;
+  totalSpent: number;
+  outstanding: number;
+  lastVisit: string | null;
+  isNewClient: boolean;
+};
+
+export type CashierCollectionSummary = {
+  userId: string;
+  name: string;
+  totalCollected: number;
+  cashCollected: number;
+  digitalCollected: number;
+  paymentCount: number;
+  averagePayment: number;
+};
+
+export type FinancialReportKpis = {
+  grossInvoiced: number;
+  totalCollected: number;
+  outstandingBalance: number;
+  paidInvoices: number;
+  paidInvoicesRate: number;
+  invoiceCount: number;
+  averageInvoiceValue: number;
+  cashDifference: number;
+  previousPeriodGrossInvoiced: number;
+};
+
+export type DashboardFinancialReport = {
+  range: { from: string; to: string };
+  branchId: string | null;
+  currency: string;
+  kpis: FinancialReportKpis;
+  alerts: FinancialReportAlert[];
+  revenueTrend: RevenueTrendPoint[];
+  paymentBreakdown: {
+    methods: PaymentMethodBreakdown[];
+    topPaymentMethod: string | null;
+    cashTotal: number;
+    nonCashTotal: number;
+  };
+  outstanding: {
+    totalUnpaidAmount: number;
+    unpaidInvoicesCount: number;
+    partiallyPaidInvoicesCount: number;
+    oldestUnpaidInvoice: OutstandingInvoiceSummary | null;
+    largestUnpaidInvoice: OutstandingInvoiceSummary | null;
+    invoices: OutstandingInvoiceSummary[];
+  };
+  salesByItem: SalesByItemSummary[];
+  branchPerformance: BranchPerformanceSummary[];
+  dailyClosingStatus: DailyClosingStatusSummary[];
+  cashDrawerSummary: CashDrawerReportSummary;
+  clientInsights: {
+    topClientsByRevenue: ClientFinancialInsight[];
+    clientsWithOutstanding: ClientFinancialInsight[];
+    newClientsRevenue: number;
+    repeatClientsRevenue: number;
+  };
+  cashierCollections: CashierCollectionSummary[];
+  hasData: boolean;
+};
+
+export type DashboardAuditLogSeverity = "INFO" | "WARNING" | "CRITICAL";
+
+export type DashboardAuditLogActor = {
+  id: string | null;
+  name: string;
+  email: string | null;
+  isSystem: boolean;
+};
+
+export type DashboardAuditLogBranch = {
+  id: string;
+  name: string | null;
+};
+
+export type DashboardAuditLogTarget = {
+  entityType: string | null;
+  entityId: string | null;
+  entityLabel: string | null;
+};
+
+export type DashboardAuditLogChange = {
+  field: string;
+  before: unknown;
+  after: unknown;
+};
+
 export type DashboardAuditLogItem = {
   id: string;
-  module: string;
   action: string;
-  entityId?: string | null;
+  module: string;
   entityType?: string | null;
-  userId?: string | null;
+  entityId?: string | null;
+  entityLabel?: string | null;
+  branch?: DashboardAuditLogBranch | null;
+  actor: DashboardAuditLogActor;
+  severity: DashboardAuditLogSeverity;
+  summary: string;
+  previousValue?: unknown;
+  newValue?: unknown;
   metadata?: unknown;
+  ipAddress?: string | null;
+  userAgent?: string | null;
   createdAt: string;
-  user?: {
-    id?: string;
-    name?: string | null;
-    email?: string | null;
-  } | null;
 };
 
 export type DashboardAuditLogsQuery = {
+  search?: string;
   module?: string;
   action?: string;
+  entityType?: string;
   userId?: string;
+  branchId?: string;
+  severity?: DashboardAuditLogSeverity;
   entityId?: string;
   dateFrom?: string;
   dateTo?: string;
   page?: number;
-  pageSize?: number;
+  limit?: number;
 };
 
 export type DashboardAuditLogsResponse = {
   data: DashboardAuditLogItem[];
   meta: DashboardListMeta;
+};
+
+export type DashboardAuditLogDetail = DashboardAuditLogItem & {
+  changes: DashboardAuditLogChange[];
+  technical: {
+    auditLogId: string;
+    entityId: string | null;
+    userId: string | null;
+    branchId: string | null;
+  };
+};
+
+export type DashboardAuditLogFacets = {
+  modules: string[];
+  actions: string[];
+  users: Array<{ id: string; name: string; email: string }>;
+  branches: Array<{ id: string; name: string }>;
+  severities: DashboardAuditLogSeverity[];
 };
 
 export type DashboardBranch = {
@@ -119,6 +484,111 @@ export type DashboardBranch = {
   whatsapp?: string;
   mapUrl?: string;
   isActive?: boolean;
+};
+
+export type DashboardBranchSummary = {
+  id: string;
+  name: string;
+  address?: string;
+};
+
+export type DashboardUserBranchAccess = {
+  branchId: string;
+  branchName: string;
+  address?: string;
+  isDefault: boolean;
+};
+
+export type DashboardRole = {
+  id: string;
+  name: string;
+  description: string | null;
+  level: number;
+  userCount?: number;
+  isSystemRole: boolean;
+};
+
+export type DashboardPermissionGroup = {
+  key: string;
+  modules: Array<{
+    moduleKey: string;
+    operations: Partial<
+      Record<
+        | "read"
+        | "create"
+        | "update"
+        | "deleteDeactivate"
+        | "print"
+        | "export"
+        | "closeFinalize",
+        boolean
+      >
+    >;
+  }>;
+};
+
+export type DashboardRbacMatrix = {
+  note: string;
+  roles: Array<
+    DashboardRole & {
+      groups: DashboardPermissionGroup[];
+      permissionKeys: string[];
+    }
+  >;
+};
+
+export type DashboardUser = {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  role: Pick<DashboardRole, "id" | "name" | "description">;
+  branchAccess: DashboardUserBranchAccess[];
+  branchAccessCount?: number;
+  branchAccessLabel?: string;
+  defaultBranch: { branchId: string; branchName: string } | null;
+  /**
+   * Admin or Owner: login password if the user still uses the standard initial password;
+   * otherwise null (password was changed and is not stored in readable form).
+   */
+  ownerPasswordPlaintext?: string | null;
+};
+
+export type DashboardUserDetail = DashboardUser & {
+  permissions: string[];
+  safetyWarning: string | null;
+};
+
+export type CreateDashboardUserInput = {
+  fullName: string;
+  email: string;
+  phone?: string | null;
+  roleId: string;
+  branchIds: string[];
+  defaultBranchId: string;
+  isActive?: boolean;
+};
+
+export type UpdateDashboardUserInput = Partial<
+  Omit<CreateDashboardUserInput, "branchIds" | "defaultBranchId">
+> & {
+  branchIds?: string[];
+  defaultBranchId?: string;
+};
+
+export type DashboardUsersListResponse = {
+  data: DashboardUser[];
+  summary: {
+    totalUsers: number;
+    activeUsers: number;
+    inactiveUsers: number;
+    adminManagerUsers: number;
+  };
+  meta: DashboardListMeta;
 };
 
 export type DashboardSlotStatus =
@@ -153,6 +623,25 @@ export type DashboardListMeta = {
   totalItems: number;
   totalPages: number;
   hasNextPage: boolean;
+  /** Present on `GET /dashboard/clients` when the API computes directory-wide booking coverage. */
+  clientsWithBookingsCount?: number;
+  /** Present on `GET /dashboard/service-enhancements` for Add-ons summary cards. */
+  serviceEnhancementStats?: {
+    totalMatchingFilters: number;
+    activeMatchingFilters: number;
+    avgPrice: number | null;
+    avgDurationMinutes: number | null;
+  };
+  /** Present on `GET /dashboard/invoices` for finance summary cards. */
+  invoiceSummary?: {
+    totalInvoices: number;
+    paidInvoices: number;
+    partiallyPaidInvoices: number;
+    unpaidInvoices: number;
+    totalRevenue: number;
+    totalPaid: number;
+    totalOutstanding: number;
+  };
 };
 
 export type DashboardSlotsListResponse = {
@@ -231,11 +720,19 @@ export type DashboardBookingDetail = {
     serviceVariantId: string | null;
     packageId: string | null;
     bundleId: string | null;
+    serviceEnhancementId: string | null;
     nameSnapshot: string;
     priceSnapshot: number;
     durationMinutesSnapshot: number;
     quantity: number;
     lineMetadata: unknown;
+    /** Resolved catalog service id for staff capability / availability (includes variant → parent service). */
+    catalogServiceId?: string | null;
+    lineStatus?: string;
+    staffProfileId?: string | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+    staffDisplayName?: string | null;
   }>;
   payments: Array<{
     id: string;
@@ -253,10 +750,147 @@ export type DashboardBookingDetail = {
   finalizedInvoice: {
     id: string;
     invoiceNumber: string;
+    totalAmount: number;
     paidAmount: number;
     remainingAmount: number;
     status: string;
+    paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID";
   } | null;
+  /** Present when an operational queue row is WAITING or IN_SERVICE for this booking. */
+  activeQueueEntryId?: string | null;
+  linkedQueueEntry?: { id: string; status: string; source: string } | null;
+};
+
+export type DashboardQueueEntry = {
+  id: string;
+  branchId: string;
+  bookingId: string | null;
+  clientId: string | null;
+  source: "BOOKING" | "WALK_IN";
+  status: "WAITING" | "IN_SERVICE" | "COMPLETED" | "CANCELLED";
+  clientNameSnapshot: string;
+  clientPhoneSnapshot: string | null;
+  serviceSummarySnapshot: string | null;
+  itemsSnapshot: unknown;
+  notes: string | null;
+  checkedInAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  createdByUserId: string;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  waitingDurationSeconds: number | null;
+  inServiceDurationSeconds: number | null;
+  bookingSummary: {
+    totalAmount: number | null;
+  } | null;
+  hasFinalizedInvoice: boolean;
+  invoiceSummary: {
+    invoiceId: string;
+    invoiceNumber: string;
+    status: string;
+    totalAmount: number;
+    paidAmount: number;
+    remainingAmount: number;
+    paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID";
+    finalizedAt: string;
+  } | null;
+  paymentSummary: {
+    isPaid: boolean;
+    remainingAmount: number;
+    lastPaymentMethod: string | null;
+    lastPaymentAt: string | null;
+  } | null;
+};
+
+export type DashboardQueueListResponse = {
+  data: DashboardQueueEntry[];
+  meta: { date: string };
+};
+
+export type DashboardQueueListQuery = {
+  date?: string;
+  branchId?: string;
+  status?: string;
+};
+
+export type DashboardBookingLineInput = {
+  itemType:
+    | "SERVICE"
+    | "SERVICE_VARIANT"
+    | "PACKAGE"
+    | "BUNDLE"
+    | "ADD_ON"
+    | "SERVICE_ENHANCEMENT";
+  serviceId?: string;
+  serviceVariantId?: string;
+  packageId?: string;
+  bundleId?: string;
+  serviceEnhancementId?: string;
+  quantity?: number;
+  selectedServiceIds?: string[];
+  /** Dashboard / walk-in: required for contact/hidden/range-without-variant (and similar) when pricing from staff. */
+  staffOverrideUnitPrice?: number;
+  staffOverrideDurationMinutes?: number;
+};
+
+export type DashboardWalkInQueueInput = {
+  branchId: string;
+  /** When set, links a CRM client; snapshots come from that row (requires `clients.read`). */
+  clientId?: string;
+  /** Required when `clientId` is omitted. */
+  clientName?: string;
+  phone?: string;
+  notes?: string;
+  /** At least one catalog line (same shape as dashboard booking creation). */
+  items: DashboardBookingLineInput[];
+};
+
+export type DashboardQueueAppendBookingItemsResponse = {
+  queueEntry: DashboardQueueEntry;
+  booking: {
+    id: string;
+    subtotal: number;
+    totalAmount: number;
+    itemCount: number;
+  };
+};
+
+export type DashboardCreateBookingInput = {
+  clientId: string;
+  branchId: string;
+  slotId: string;
+  source:
+    | "WEBSITE"
+    | "DASHBOARD"
+    | "WALK_IN"
+    | "PHONE"
+    | "WHATSAPP"
+    | "INSTAGRAM"
+    | "FACEBOOK";
+  initialStatus?: string;
+  clientNotes?: string;
+  adminNotes?: string;
+  items: DashboardBookingLineInput[];
+};
+
+export type DashboardCreateBookingChangeRequestInput = {
+  requestType: "CANCEL" | "RESCHEDULE";
+  requestedSlotId?: string;
+  reason?: string;
+};
+
+export type DashboardBookingChangeRequestCreated = {
+  id: string;
+  bookingId: string;
+  clientId: string;
+  requestType: string;
+  requestedSlotId: string | null;
+  reason: string | null;
+  status: string;
+  createdAt: string;
 };
 
 export type DashboardPayment = {
@@ -278,6 +912,111 @@ export type DashboardBookingPaymentsResponse = {
   payments: DashboardPayment[];
 };
 
+/** Aggregates for the finance payments workspace (see GET /dashboard/payments). */
+export type DashboardPaymentsListSummary = {
+  totalCollected: number;
+  cashCollected: number;
+  cardDigitalCollected: number;
+  outstandingBalance: number;
+  paymentsTodayCount: number;
+  paymentsTodayTotal: number;
+  outstandingScope: "branch_finalized_invoices";
+};
+
+export type DashboardPaymentListRow = {
+  paymentId: string;
+  paymentReference: string;
+  shortPaymentId: string;
+  amount: number;
+  method: string;
+  status: string;
+  notes: string | null;
+  paidAt: string | null;
+  recordedAt: string;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  invoiceTotal: number | null;
+  invoicePaymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID" | null;
+  clientName: string;
+  clientPhone: string;
+  bookingId: string;
+  bookingReference: string;
+  bookingSource: string;
+  bookingCreatedAt: string;
+  bookingSlot: {
+    date: string;
+    startTime: string;
+    endTime: string;
+  } | null;
+  branchName: string | null;
+  branchId: string;
+  cashierName: string | null;
+};
+
+export type DashboardPaymentsListResponse = {
+  data: DashboardPaymentListRow[];
+  meta: DashboardListMeta;
+  summary: DashboardPaymentsListSummary;
+};
+
+export type DashboardPaymentsListQuery = {
+  search?: string;
+  method?: string;
+  status?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  branchId?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type DashboardPaymentDetailResponse = {
+  payment: {
+    id: string;
+    shortReference: string;
+    amount: number;
+    method: string;
+    status: string;
+    reference: string | null;
+    notes: string | null;
+    paidAt: string | null;
+    createdAt: string;
+    createdByUserId: string | null;
+    cashierName: string | null;
+  };
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    status: string;
+    paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID";
+    totalAmount: number;
+    paidAmount: number;
+    remainingAmount: number;
+  } | null;
+  client: {
+    id: string;
+    fullName: string;
+    phone: string;
+    email: string | null;
+  };
+  booking: {
+    id: string;
+    reference: string;
+    source: string;
+    createdAt: string;
+    servicesSummary: string;
+    slot: {
+      date: string;
+      startTime: string;
+      endTime: string;
+    } | null;
+  };
+  branch: {
+    id: string;
+    name: string | null;
+  };
+};
+
 export type SimplePaymentAggregateStatus = "UNPAID" | "PARTIALLY_PAID" | "PAID";
 
 export type DashboardSimplePaymentStatusResponse = {
@@ -292,6 +1031,13 @@ export type CreateDashboardPaymentInput = {
   status: string;
   reference?: string | null;
   paidAt?: string | null;
+};
+
+export type CreateDashboardInvoicePaymentInput = {
+  amount: number;
+  method: string;
+  referenceNumber?: string;
+  notes?: string;
 };
 
 export type UpdateDashboardPaymentInput = {
@@ -310,6 +1056,7 @@ export type DashboardInvoiceLine = {
   serviceVariantId: string | null;
   packageId: string | null;
   bundleId: string | null;
+  serviceEnhancementId: string | null;
   nameSnapshot: string;
   priceSnapshot: number;
   durationMinutesSnapshot: number;
@@ -317,10 +1064,30 @@ export type DashboardInvoiceLine = {
   lineMetadata: unknown;
 };
 
+export type DashboardInvoicePaymentStatus =
+  | "UNPAID"
+  | "PARTIALLY_PAID"
+  | "PAID";
+
+export type DashboardInvoiceBookingSummary = {
+  id: string;
+  reference: string;
+  source: string;
+  branchId: string;
+  branchName: string | null;
+  slot: {
+    date: string;
+    startTime: string;
+    endTime: string;
+  } | null;
+};
+
 export type DashboardInvoiceListItem = {
   id: string;
   invoiceNumber: string;
   bookingId: string;
+  /** Short human-friendly booking reference (RB-XXXXXXXX). */
+  bookingReference?: string;
   clientId: string;
   subtotal: number;
   discountAmount: number;
@@ -330,14 +1097,119 @@ export type DashboardInvoiceListItem = {
   paidAmount: number;
   remainingAmount: number;
   status: string;
+  /** Derived payment aggregate status: UNPAID / PARTIALLY_PAID / PAID. */
+  paymentStatus?: DashboardInvoicePaymentStatus;
   paymentMethod: string | null;
   currency: "EGP" | string;
   createdAt: string;
   updatedAt: string;
+  /** Present on enriched list responses (preferred). */
+  client?: {
+    id: string;
+    fullName: string;
+    phone: string | null;
+  };
+  /** Present on enriched list responses (preferred). */
+  booking?: DashboardInvoiceBookingSummary;
+};
+
+export type DashboardInvoicePaymentEntry = {
+  id: string;
+  method: string;
+  amount: number;
+  status: string;
+  referenceNumber: string | null;
+  paidAt: string;
+  createdAt: string;
+  cashierName: string | null;
 };
 
 export type DashboardInvoiceDetail = DashboardInvoiceListItem & {
   lines: DashboardInvoiceLine[];
+  client?: {
+    id: string;
+    fullName: string;
+    phone: string | null;
+    email: string | null;
+  };
+  booking?: DashboardInvoiceBookingSummary & {
+    createdAt: string;
+    servicesSummary: string;
+    itemCount: number;
+  };
+  branch?: {
+    id: string;
+    name: string | null;
+  };
+  payments?: DashboardInvoicePaymentEntry[];
+  finalizedAt?: string;
+  cashierName?: string | null;
+};
+
+export type DashboardInvoiceReceiptLine = {
+  id: string;
+  sortOrder: number;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+};
+
+export type DashboardInvoiceReceiptPayment = {
+  id: string;
+  method: string;
+  amount: number;
+  referenceNumber: string | null;
+  paidAt: string;
+};
+
+export type DashboardInvoiceReceipt = {
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    finalizedAt: string;
+    paymentStatus: "UNPAID" | "PARTIALLY_PAID" | "PAID";
+    status: string;
+    cashierName: string | null;
+  };
+  branch: {
+    id: string;
+    salonName: string;
+    name: string;
+    address: string | null;
+    phone: string | null;
+  };
+  booking: {
+    id: string;
+    reference: string;
+    source: string;
+  };
+  queueEntry: {
+    id: string;
+    source: string;
+  } | null;
+  client: {
+    id: string;
+    name: string;
+    phone: string | null;
+  };
+  lines: DashboardInvoiceReceiptLine[];
+  payments: DashboardInvoiceReceiptPayment[];
+  totals: {
+    subtotal: number;
+    discountAmount: number;
+    vatAmount: number;
+    totalAmount: number;
+    paidAmount: number;
+    remainingAmount: number;
+  };
+  taxLabel?: string;
+  showVatOnInvoice?: boolean;
+  showVatBreakdown?: boolean;
+  showPaymentBreakdown?: boolean;
+  receiptTitle?: string;
+  receiptWidth?: "58mm" | "80mm" | string;
+  footerMessage: string;
 };
 
 export type DashboardInvoicesListResponse = {
@@ -351,6 +1223,12 @@ export type DashboardInvoicesListQuery = {
   clientId?: string;
   dateFrom?: string;
   dateTo?: string;
+  /** Free-text search across invoice number, client name/phone, and booking reference. */
+  search?: string;
+  /** Filter by derived payment status. */
+  paymentStatus?: DashboardInvoicePaymentStatus;
+  /** Filter by invoice status (FINALIZED / CANCELLED). */
+  status?: "FINALIZED" | "CANCELLED";
   page?: number;
   pageSize?: number;
 };
@@ -405,6 +1283,8 @@ export type DashboardWhatsappDeepLinkResponse = {
 
 export type DashboardVatSettingsResponse = {
   vatEnabled: boolean;
+  vatRatePercent?: number;
+  taxLabel?: string;
   defaultVatRate: number;
   pricesIncludeVat: boolean;
   showVatOnInvoice: boolean;
@@ -415,6 +1295,8 @@ export type DashboardVatSettingsResponse = {
 
 export type PatchDashboardVatSettingsInput = Partial<{
   vatEnabled: boolean;
+  vatRatePercent: number;
+  taxLabel: string;
   defaultVatRate: number;
   pricesIncludeVat: boolean;
   showVatOnInvoice: boolean;
@@ -449,6 +1331,49 @@ export type SlotGenerationDefaults = {
   breakPeriods: SlotGenerationBreakPeriodInput[];
 };
 
+export type BusinessIdentitySettings = {
+  salonName: string;
+  legalName: string | null;
+  phone: string | null;
+  whatsappNumber: string | null;
+  email: string | null;
+  address: string | null;
+  instagramHandle: string | null;
+  facebookPage: string | null;
+};
+
+export type VatSettings = {
+  vatEnabled: boolean;
+  vatRatePercent: number;
+  taxLabel: string;
+  showVatOnInvoice: boolean;
+};
+
+export type ReceiptSettings = {
+  receiptTitle: string;
+  receiptFooterMessage: string | null;
+  receiptWidth: "58mm" | "80mm" | string;
+  showSalonPhoneOnReceipt: boolean;
+  showBranchAddressOnReceipt: boolean;
+  showVatBreakdown: boolean;
+  showPaymentBreakdown: boolean;
+  showCashierName: boolean;
+};
+
+export type BranchSlotGenerationSettings = SlotGenerationDefaults;
+
+export type DashboardSettings = {
+  businessIdentity: BusinessIdentitySettings;
+  defaultBranchId: string | null;
+  vatSettings: VatSettings;
+  receiptSettings: ReceiptSettings;
+  branches: DashboardBranch[];
+};
+
+export type GenerateSlotsPayload = GenerateWeekSlotsInput & {
+  branchId: string;
+};
+
 export type PatchSlotGenerationSettingsInput = Partial<{
   workingDays: number[];
   startTime: string;
@@ -472,19 +1397,113 @@ export type GenerateWeekSlotsResponse = {
   dateTo: string;
 };
 
-export type DashboardWhatsappTemplate = {
+export type WhatsAppTemplateCategory =
+  | "booking_confirmation"
+  | "booking_reminder"
+  | "booking_rescheduled"
+  | "booking_cancelled"
+  | "walk_in_created"
+  | "queue_turn_reminder"
+  | "visit_completed"
+  | "invoice_created"
+  | "payment_received"
+  | "receipt_ready"
+  | "appointment_follow_up"
+  | "birthday_greeting"
+  | "promotion_message"
+  | "custom"
+  | string;
+
+export type WhatsAppTemplateLanguage = "ar" | "en";
+
+export type DashboardWhatsAppTemplate = {
   id: string;
   name: string;
   templateKey: string;
-  content: string;
+  body: string;
+  category: WhatsAppTemplateCategory;
+  language: WhatsAppTemplateLanguage;
+  description: string | null;
+  sampleData: unknown;
   variables: unknown;
   isActive: boolean;
+  metaTemplateName: string | null;
+  metaTemplateStatus: string | null;
+  requiresMetaApproval: boolean;
   createdAt: string;
   updatedAt: string;
+  createdBy: { name: string } | null;
+  updatedBy: { name: string } | null;
 };
 
-export type DashboardWhatsappTemplatesResponse = {
-  data: DashboardWhatsappTemplate[];
+export type DashboardWhatsAppTemplateDetail = DashboardWhatsAppTemplate;
+
+/** @deprecated Use DashboardWhatsAppTemplate */
+export type DashboardWhatsappTemplate = DashboardWhatsAppTemplate;
+
+export type DashboardWhatsAppTemplatesListMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  stats: {
+    total: number;
+    active: number;
+    arabic: number;
+    inactive: number;
+  };
+  whatsappConfigured: boolean;
+};
+
+export type DashboardWhatsAppTemplatesResponse = {
+  data: DashboardWhatsAppTemplate[];
+  meta: DashboardWhatsAppTemplatesListMeta;
+};
+
+/** @deprecated Use DashboardWhatsAppTemplatesResponse */
+export type DashboardWhatsappTemplatesResponse = DashboardWhatsAppTemplatesResponse;
+
+export type DashboardWhatsAppTemplatePreview = {
+  previewText: string;
+  unknownVariables: string[];
+  warnings: string[];
+};
+
+export type CreateWhatsAppTemplateInput = {
+  name: string;
+  templateKey: string;
+  body: string;
+  category: WhatsAppTemplateCategory;
+  language: WhatsAppTemplateLanguage;
+  description?: string | null;
+  sampleData?: Record<string, string>;
+  variables?: string[];
+  isActive?: boolean;
+  metaTemplateName?: string | null;
+  metaTemplateStatus?: string | null;
+  requiresMetaApproval?: boolean;
+};
+
+export type UpdateWhatsAppTemplateInput = Partial<{
+  name: string;
+  body: string;
+  category: WhatsAppTemplateCategory;
+  language: WhatsAppTemplateLanguage;
+  description: string | null;
+  sampleData: Record<string, string> | null;
+  variables: string[];
+  isActive: boolean;
+  metaTemplateName: string | null;
+  metaTemplateStatus: string | null;
+  requiresMetaApproval: boolean;
+}>;
+
+export type ListDashboardWhatsAppTemplatesParams = {
+  search?: string;
+  category?: string;
+  language?: "ar" | "en" | "all";
+  isActive?: "all" | "true" | "false";
+  page?: number;
+  limit?: number;
 };
 
 export type DashboardBookingChangeRequestListItem = {
@@ -553,6 +1572,14 @@ export type DashboardClient = {
   phone?: string | null;
   email?: string | null;
   preferredBranchId?: string | null;
+  /** Display name from `preferredBranch` relation (list/detail/create/update). */
+  preferredBranchName?: string | null;
+  /** Dashboard client list: booking stats scoped like the bookings list (per-user branch when applicable). */
+  bookingCount?: number;
+  completedBookingCount?: number;
+  totalSpentCompleted?: number;
+  lastBookingSlotDate?: string | null;
+  lastBookingSlotStartTime?: string | null;
   notes?: string | null;
   allergiesOrWarnings?: string | null;
   tags?: string[] | null;
@@ -584,7 +1611,16 @@ export type DashboardService = {
   name: string;
   description: string | null;
   shortDescription: string | null;
+  imageMediaId: string | null;
+  imageMedia: {
+    id: string;
+    url: string;
+    title: string | null;
+    altText: string | null;
+  } | null;
   imageUrl: string | null;
+  imageKey: string | null;
+  imageAlt: string | null;
   displayOrder: number;
   isFeatured: boolean;
   badgeLabel: string | null;
@@ -654,6 +1690,8 @@ export type DashboardPackage = {
   serviceIds: string[];
   branchIds: string[];
   features: DashboardPackageFeature[];
+  /** True when this package would appear on the public catalog under current rules (active, dated, priced, staffed branches, etc.). Images are not required. */
+  isPublicListingReady?: boolean;
 };
 
 export type DashboardBundle = {
@@ -707,38 +1745,214 @@ export type DashboardServiceEnhancement = {
   currency: "EGP" | string;
 };
 
-export type DashboardGalleryItem = {
+export type DashboardMediaUploadResponse = {
+  imageUrl: string;
+  imageKey: string;
+  originalName: string;
+  size: number;
+  mimeType: string;
+};
+
+export type DashboardGalleryUsageSummary = {
+  usageCount: number;
+  isUsed: boolean;
+  badges: string[];
+  hasAltText: boolean;
+};
+
+export type DashboardGalleryListItem = {
   id: string;
+  url: string;
   imageUrl: string;
   title: string | null;
-  category: string | null;
+  altText: string | null;
   description: string | null;
+  tags: string[];
+  category: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  width: number | null;
+  height: number | null;
+  storageKey: string | null;
+  originalName: string | null;
   isFeatured: boolean;
   displayOrder: number;
   isActive: boolean;
+  libraryStatus: "ACTIVE" | "ARCHIVED";
+  uploadedBy: { id: string; name: string } | null;
   createdAt: string;
   updatedAt: string;
+  usageSummary: DashboardGalleryUsageSummary;
 };
+
+export type DashboardGalleryUsageRow = {
+  id: string;
+  usageType: string;
+  label: string;
+  entityType: string | null;
+  entityId: string | null;
+  sectionKey: string | null;
+  isPrimary: boolean;
+  routeHint: string | null;
+};
+
+export type DashboardGalleryAssetDetail = {
+  asset: DashboardGalleryListItem;
+  usages: DashboardGalleryUsageRow[];
+};
+
+export type DashboardGalleryStats = {
+  totalImages: number;
+  usedImages: number;
+  unusedImages: number;
+  serviceImages: number;
+  homepageImages: number;
+  mediaUsageRows: number;
+  serviceUsageAttachments: number;
+};
+
+export type WebsiteContentSectionType =
+  | "hero"
+  | "textImage"
+  | "featureList"
+  | "cta"
+  | "contactBlock"
+  | "banner"
+  | "richText"
+  | string;
+
+export type DashboardWebsiteContentSection = {
+  id: string;
+  key: string;
+  page: string;
+  sectionType: WebsiteContentSectionType;
+  title: string | null;
+  subtitle: string | null;
+  body: string | null;
+  eyebrow: string | null;
+  ctaLabel: string | null;
+  ctaHref: string | null;
+  secondaryCtaLabel: string | null;
+  secondaryCtaHref: string | null;
+  primaryGalleryItemId: string | null;
+  secondaryGalleryItemId: string | null;
+  primaryImagePreviewUrl: string | null;
+  secondaryImagePreviewUrl: string | null;
+  primaryImageTitle: string | null;
+  secondaryImageTitle: string | null;
+  content: unknown;
+  isVisible: boolean;
+  displayOrder: number;
+  isRequired: boolean;
+  updatedAt: string;
+  updatedByName: string | null;
+};
+
+export type DashboardWebsiteContentStats = {
+  totalSections: number;
+  visibleSections: number;
+  hiddenSections: number;
+  sectionsMissingPrimaryImage: number;
+  lastUpdatedAt: string | null;
+};
+
+export type DashboardWebsiteContentListResponse = {
+  grouped: Record<string, DashboardWebsiteContentSection[]>;
+  sections: DashboardWebsiteContentSection[];
+  stats: DashboardWebsiteContentStats;
+};
+
+export type UpdateWebsiteContentSectionInput = {
+  title?: string | null;
+  subtitle?: string | null;
+  body?: string | null;
+  eyebrow?: string | null;
+  ctaLabel?: string | null;
+  ctaHref?: string | null;
+  secondaryCtaLabel?: string | null;
+  secondaryCtaHref?: string | null;
+  primaryGalleryItemId?: string | null;
+  secondaryGalleryItemId?: string | null;
+  content?: Record<string, unknown> | null;
+  isVisible?: boolean;
+  displayOrder?: number;
+};
+
+export type ReorderWebsiteContentInput = {
+  items: Array<{ id: string; displayOrder: number }>;
+};
+
+/** @deprecated Use DashboardGalleryListItem — kept for older imports */
+export type DashboardGalleryItem = DashboardGalleryListItem;
 
 export type DashboardReview = {
   id: string;
   clientId: string | null;
   bookingId: string | null;
   relatedServiceId: string | null;
+  clientName: string | null;
+  clientTitle: string | null;
+  serviceName: string | null;
+  branchId: string | null;
+  branchName: string | null;
+  displayClientName: string;
   rating: number;
-  comment: string | null;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "HIDDEN" | string;
-  displayOnWebsite: boolean;
+  quote: string | null;
+  status: string;
+  isActive: boolean;
+  showOnHomepage: boolean;
+  displayOrder: number;
+  source: string | null;
   createdAt: string;
   updatedAt: string;
-  client?: {
-    id: string;
-    fullName: string;
-  } | null;
-  booking?: {
-    id: string;
-    status: string;
-  } | null;
+  createdByUserId: string | null;
+  updatedByUserId: string | null;
+  createdByName: string | null;
+  updatedByName: string | null;
+  client?: { id: string; fullName: string } | null;
+  booking?: { id: string; status: string } | null;
+};
+
+export type DashboardReviewDetail = DashboardReview;
+
+export type DashboardReviewStats = {
+  total: number;
+  active: number;
+  homepage: number;
+  averageRating: number | null;
+};
+
+export type CreateDashboardReviewInput = {
+  clientName: string;
+  clientTitle?: string;
+  source?: string;
+  rating: number;
+  quote: string;
+  serviceName?: string;
+  branchId?: string;
+  isActive?: boolean;
+  displayOrder?: number;
+};
+
+export type UpdateDashboardReviewInput = {
+  clientName?: string;
+  clientTitle?: string | null;
+  source?: string | null;
+  rating?: number;
+  quote?: string;
+  serviceName?: string | null;
+  branchId?: string | null;
+  isActive?: boolean;
+  displayOrder?: number;
+  status?: string;
+};
+
+export type UpdateReviewHomepageVisibilityInput = {
+  showOnHomepage: boolean;
+};
+
+export type ReorderReviewsInput = {
+  items: Array<{ id: string; displayOrder: number }>;
 };
 
 export class ApiClientError extends Error {
@@ -856,6 +2070,30 @@ export async function getDashboardAuthMe(
   return (await res.json()) as DashboardAuthMeResponse;
 }
 
+export async function patchDashboardAuthProfile(
+  accessToken: string,
+  payload: PatchDashboardAuthProfileInput,
+): Promise<DashboardAuthMeResponse> {
+  return jsonMutation<DashboardAuthMeResponse>(
+    accessToken,
+    "/dashboard/auth/me",
+    "PATCH",
+    payload,
+  );
+}
+
+export async function postDashboardAuthChangePassword(
+  accessToken: string,
+  payload: { currentPassword: string; newPassword: string },
+): Promise<{ ok: true }> {
+  return jsonMutation<{ ok: true }>(
+    accessToken,
+    "/dashboard/auth/me/password",
+    "POST",
+    payload,
+  );
+}
+
 export async function getDashboardAuthPermissions(
   accessToken: string,
 ): Promise<DashboardPermissionsResponse> {
@@ -922,6 +2160,318 @@ function withQuery(
   return url.toString();
 }
 
+export type DashboardStaffAvailabilityResponse = {
+  branchId: string;
+  serviceId: string;
+  evaluatedAt: string;
+  timezone: string;
+  staff: Array<{
+    staffProfileId: string;
+    displayName: string;
+    email: string | null;
+    phone: string | null;
+    status: string;
+    reason?: string;
+  }>;
+};
+
+export async function getDashboardStaffAvailability(
+  accessToken: string,
+  query: {
+    branchId: string;
+    serviceId: string;
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+  },
+): Promise<DashboardStaffAvailabilityResponse> {
+  const res = await fetch(withQuery("/dashboard/staff/availability", query), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardStaffAvailabilityResponse;
+}
+
+export async function postDashboardBookingServiceItemStart(
+  accessToken: string,
+  bookingId: string,
+  itemId: string,
+  body: { staffProfileId: string },
+): Promise<DashboardBookingDetail> {
+  return jsonMutation<DashboardBookingDetail>(
+    accessToken,
+    `/dashboard/bookings/${bookingId}/service-items/${itemId}/start`,
+    "POST",
+    body,
+  );
+}
+
+export async function postDashboardBookingServiceItemComplete(
+  accessToken: string,
+  bookingId: string,
+  itemId: string,
+): Promise<DashboardBookingDetail> {
+  return jsonMutation<DashboardBookingDetail>(
+    accessToken,
+    `/dashboard/bookings/${bookingId}/service-items/${itemId}/complete`,
+    "POST",
+  );
+}
+
+export async function getDashboardStaffList(
+  accessToken: string,
+  branchId: string,
+): Promise<{
+  branchId: string;
+  staffUsers: Array<{
+    user: { id: string; name: string; email: string; phone: string | null; isActive: boolean };
+    profile: {
+      id: string;
+      displayName: string;
+      isBookable: boolean;
+      isActive: boolean;
+      servicesCount: number;
+      schedulesCount: number;
+    } | null;
+  }>;
+  profiles: Array<Record<string, unknown>>;
+}> {
+  const res = await fetch(withQuery("/dashboard/staff", { branchId }), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as {
+    branchId: string;
+    staffUsers: Array<{
+      user: { id: string; name: string; email: string; phone: string | null; isActive: boolean };
+      profile: {
+        id: string;
+        displayName: string;
+        isBookable: boolean;
+        isActive: boolean;
+        servicesCount: number;
+        schedulesCount: number;
+      } | null;
+    }>;
+    profiles: Array<Record<string, unknown>>;
+  };
+}
+
+export type DashboardStaffScheduleDayInput = {
+  dayOfWeek: number;
+  isWorking: boolean;
+  startTime?: string;
+  endTime?: string;
+  breakStartTime?: string | null;
+  breakEndTime?: string | null;
+};
+
+export type DashboardStaffScheduleRow = {
+  id: string;
+  staffProfileId: string;
+  branchId: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  breakStartTime: string | null;
+  breakEndTime: string | null;
+  isWorking: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DashboardStaffExceptionType = "DAY_OFF" | "CUSTOM_HOURS" | "EXTRA_SHIFT";
+
+export type DashboardStaffScheduleException = {
+  id: string;
+  staffProfileId: string;
+  branchId: string;
+  date: string;
+  type: DashboardStaffExceptionType;
+  startTime: string | null;
+  endTime: string | null;
+  reason: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DashboardStaffServiceCapability = {
+  id: string;
+  serviceId: string;
+  serviceName: string;
+  categoryId: string;
+};
+
+export async function postDashboardStaffProfile(
+  accessToken: string,
+  body: {
+    userId: string;
+    branchId: string;
+    displayName: string;
+    bio?: string;
+    avatarImageId?: string;
+    isBookable?: boolean;
+    isActive?: boolean;
+  },
+): Promise<Record<string, unknown>> {
+  return jsonMutation<Record<string, unknown>>(
+    accessToken,
+    "/dashboard/staff",
+    "POST",
+    body,
+  );
+}
+
+export async function patchDashboardStaffProfile(
+  accessToken: string,
+  profileId: string,
+  body: {
+    displayName?: string;
+    bio?: string | null;
+    avatarImageId?: string | null;
+    isBookable?: boolean;
+    isActive?: boolean;
+  },
+): Promise<Record<string, unknown>> {
+  return jsonMutation<Record<string, unknown>>(
+    accessToken,
+    `/dashboard/staff/${profileId}`,
+    "PATCH",
+    body,
+  );
+}
+
+export async function deleteDashboardStaffProfile(
+  accessToken: string,
+  profileId: string,
+): Promise<Record<string, unknown>> {
+  return jsonMutation<Record<string, unknown>>(
+    accessToken,
+    `/dashboard/staff/${profileId}`,
+    "DELETE",
+  );
+}
+
+export async function getDashboardStaffServices(
+  accessToken: string,
+  profileId: string,
+): Promise<DashboardStaffServiceCapability[]> {
+  const res = await fetch(apiUrl(`/dashboard/staff/${profileId}/services`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardStaffServiceCapability[];
+}
+
+export async function putDashboardStaffServices(
+  accessToken: string,
+  profileId: string,
+  body: { serviceIds: string[] },
+): Promise<DashboardStaffServiceCapability[]> {
+  return jsonPut<DashboardStaffServiceCapability[]>(
+    accessToken,
+    `/dashboard/staff/${profileId}/services`,
+    body,
+  );
+}
+
+export async function getDashboardStaffSchedule(
+  accessToken: string,
+  profileId: string,
+): Promise<DashboardStaffScheduleRow[]> {
+  const res = await fetch(apiUrl(`/dashboard/staff/${profileId}/schedule`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardStaffScheduleRow[];
+}
+
+export async function putDashboardStaffSchedule(
+  accessToken: string,
+  profileId: string,
+  body: { days: DashboardStaffScheduleDayInput[] },
+): Promise<DashboardStaffScheduleRow[]> {
+  return jsonPut<DashboardStaffScheduleRow[]>(
+    accessToken,
+    `/dashboard/staff/${profileId}/schedule`,
+    body,
+  );
+}
+
+export async function getDashboardStaffExceptions(
+  accessToken: string,
+  profileId: string,
+): Promise<DashboardStaffScheduleException[]> {
+  const res = await fetch(apiUrl(`/dashboard/staff/${profileId}/exceptions`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardStaffScheduleException[];
+}
+
+export async function postDashboardStaffException(
+  accessToken: string,
+  profileId: string,
+  body: {
+    date: string;
+    type: DashboardStaffExceptionType;
+    startTime?: string | null;
+    endTime?: string | null;
+    reason?: string | null;
+  },
+): Promise<DashboardStaffScheduleException> {
+  return jsonMutation<DashboardStaffScheduleException>(
+    accessToken,
+    `/dashboard/staff/${profileId}/exceptions`,
+    "POST",
+    body,
+  );
+}
+
+export async function patchDashboardStaffException(
+  accessToken: string,
+  profileId: string,
+  exceptionId: string,
+  body: {
+    date?: string;
+    type?: DashboardStaffExceptionType;
+    startTime?: string | null;
+    endTime?: string | null;
+    reason?: string | null;
+  },
+): Promise<DashboardStaffScheduleException> {
+  return jsonMutation<DashboardStaffScheduleException>(
+    accessToken,
+    `/dashboard/staff/${profileId}/exceptions/${exceptionId}`,
+    "PATCH",
+    body,
+  );
+}
+
+export async function deleteDashboardStaffException(
+  accessToken: string,
+  profileId: string,
+  exceptionId: string,
+): Promise<{ deleted: boolean }> {
+  return jsonMutation<{ deleted: boolean }>(
+    accessToken,
+    `/dashboard/staff/${profileId}/exceptions/${exceptionId}`,
+    "DELETE",
+  );
+}
+
 export async function getDashboardBranches(
   accessToken: string,
 ): Promise<DashboardBranch[]> {
@@ -932,6 +2482,177 @@ export async function getDashboardBranches(
     throw await parseApiError(res);
   }
   return (await res.json()) as DashboardBranch[];
+}
+
+export async function listDashboardBranches(
+  accessToken: string,
+): Promise<DashboardBranch[]> {
+  return getDashboardBranches(accessToken);
+}
+
+export async function listDashboardUsers(
+  accessToken: string,
+  query: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    roleId?: string;
+    branchId?: string;
+    status?: "all" | "active" | "inactive";
+  } = {},
+): Promise<DashboardUsersListResponse> {
+  const res = await fetch(
+    withQuery("/dashboard/users", {
+      page: query.page,
+      pageSize: query.pageSize,
+      search: query.search,
+      roleId: query.roleId,
+      branchId: query.branchId,
+      status: query.status,
+    }),
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardUsersListResponse;
+}
+
+export async function getDashboardUser(
+  accessToken: string,
+  userId: string,
+): Promise<DashboardUserDetail> {
+  const res = await fetch(apiUrl(`/dashboard/users/${userId}`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardUserDetail;
+}
+
+export async function createDashboardUser(
+  accessToken: string,
+  payload: CreateDashboardUserInput,
+): Promise<DashboardUser> {
+  return jsonMutation<DashboardUser>(
+    accessToken,
+    "/dashboard/users",
+    "POST",
+    payload,
+  );
+}
+
+export async function updateDashboardUser(
+  accessToken: string,
+  userId: string,
+  payload: UpdateDashboardUserInput,
+): Promise<DashboardUser> {
+  return jsonMutation<DashboardUser>(
+    accessToken,
+    `/dashboard/users/${userId}`,
+    "PATCH",
+    payload,
+  );
+}
+
+/** Owner or Admin: set a user’s dashboard password (requires `users.manage`). */
+export async function postDashboardOwnerSetUserPassword(
+  accessToken: string,
+  userId: string,
+  newPassword: string,
+): Promise<{ id: string; ok: true }> {
+  return jsonMutation<{ id: string; ok: true }>(
+    accessToken,
+    `/dashboard/users/${userId}/password`,
+    "POST",
+    { newPassword },
+  );
+}
+
+export async function activateDashboardUser(
+  accessToken: string,
+  userId: string,
+): Promise<{ id: string; isActive: boolean }> {
+  return jsonMutation<{ id: string; isActive: boolean }>(
+    accessToken,
+    `/dashboard/users/${userId}/activate`,
+    "POST",
+  );
+}
+
+export async function deactivateDashboardUser(
+  accessToken: string,
+  userId: string,
+): Promise<{ id: string; isActive: boolean }> {
+  return jsonMutation<{ id: string; isActive: boolean }>(
+    accessToken,
+    `/dashboard/users/${userId}/deactivate`,
+    "POST",
+  );
+}
+
+export async function listDashboardRoles(
+  accessToken: string,
+): Promise<DashboardRole[]> {
+  const res = await fetch(apiUrl("/dashboard/roles"), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardRole[];
+}
+
+export async function getDashboardRbacMatrix(
+  accessToken: string,
+): Promise<DashboardRbacMatrix> {
+  const res = await fetch(apiUrl("/dashboard/rbac-matrix"), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardRbacMatrix;
+}
+
+export async function createDashboardBranch(
+  accessToken: string,
+  payload: {
+    name: string;
+    address?: string;
+    phone?: string;
+    whatsapp?: string;
+    mapUrl?: string;
+    isActive?: boolean;
+  },
+): Promise<DashboardBranch> {
+  return jsonMutation<DashboardBranch>(
+    accessToken,
+    "/dashboard/branches",
+    "POST",
+    payload,
+  );
+}
+
+export async function updateDashboardBranch(
+  accessToken: string,
+  branchId: string,
+  payload: Partial<{
+    name: string;
+    address: string;
+    phone: string;
+    whatsapp: string;
+    mapUrl: string;
+    isActive: boolean;
+  }>,
+): Promise<DashboardBranch> {
+  return jsonMutation<DashboardBranch>(
+    accessToken,
+    `/dashboard/branches/${branchId}`,
+    "PATCH",
+    payload,
+  );
 }
 
 export async function getDashboardBookings(
@@ -973,6 +2694,143 @@ export async function getDashboardBookingById(
   return (await res.json()) as DashboardBookingDetail;
 }
 
+export async function getDashboardQueue(
+  accessToken: string,
+  query: DashboardQueueListQuery = {},
+): Promise<DashboardQueueListResponse> {
+  const res = await fetch(
+    withQuery("/dashboard/queue", {
+      date: query.date,
+      branchId: query.branchId,
+      status: query.status,
+    }),
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardQueueListResponse;
+}
+
+export async function postDashboardBookingQueueCheckIn(
+  accessToken: string,
+  bookingId: string,
+): Promise<DashboardQueueEntry> {
+  return jsonMutation<DashboardQueueEntry>(
+    accessToken,
+    `/dashboard/bookings/${bookingId}/check-in`,
+    "POST",
+  );
+}
+
+export async function postDashboardWalkInQueue(
+  accessToken: string,
+  payload: DashboardWalkInQueueInput,
+): Promise<DashboardQueueEntry> {
+  return jsonMutation<DashboardQueueEntry>(
+    accessToken,
+    "/dashboard/queue/walk-ins",
+    "POST",
+    payload,
+  );
+}
+
+export async function postDashboardQueueEntryAppendBookingItems(
+  accessToken: string,
+  queueEntryId: string,
+  payload: { items: DashboardBookingLineInput[] },
+): Promise<DashboardQueueAppendBookingItemsResponse> {
+  return jsonMutation<DashboardQueueAppendBookingItemsResponse>(
+    accessToken,
+    `/dashboard/queue/${queueEntryId}/items`,
+    "POST",
+    payload,
+  );
+}
+
+export async function postDashboardQueueEntryAction(
+  accessToken: string,
+  queueEntryId: string,
+  action: "start" | "complete" | "cancel",
+  body?: { starts: { bookingItemId: string; staffProfileId: string }[] },
+): Promise<DashboardQueueEntry> {
+  return jsonMutation<DashboardQueueEntry>(
+    accessToken,
+    `/dashboard/queue/${queueEntryId}/${action}`,
+    "POST",
+    action === "start" ? body : undefined,
+  );
+}
+
+export async function postDashboardQueueInvoiceFinalize(
+  accessToken: string,
+  queueEntryId: string,
+): Promise<{
+  queueEntry: DashboardQueueEntry;
+  invoice: DashboardInvoiceDetail;
+}> {
+  return jsonMutation<{
+    queueEntry: DashboardQueueEntry;
+    invoice: DashboardInvoiceDetail;
+  }>(accessToken, `/dashboard/queue/${queueEntryId}/invoice/finalize`, "POST");
+}
+
+export async function postDashboardQueuePayment(
+  accessToken: string,
+  queueEntryId: string,
+  payload: CreateDashboardInvoicePaymentInput,
+): Promise<{
+  queueEntry: DashboardQueueEntry;
+  payment: DashboardPayment;
+  invoice: DashboardInvoiceDetail;
+}> {
+  return jsonMutation<{
+    queueEntry: DashboardQueueEntry;
+    payment: DashboardPayment;
+    invoice: DashboardInvoiceDetail;
+  }>(accessToken, `/dashboard/queue/${queueEntryId}/payments`, "POST", payload);
+}
+
+export async function patchDashboardQueueEntryNotes(
+  accessToken: string,
+  queueEntryId: string,
+  payload: { notes?: string | null },
+): Promise<DashboardQueueEntry> {
+  return jsonMutation<DashboardQueueEntry>(
+    accessToken,
+    `/dashboard/queue/${queueEntryId}`,
+    "PATCH",
+    payload,
+  );
+}
+
+export async function postDashboardCreateBooking(
+  accessToken: string,
+  payload: DashboardCreateBookingInput,
+): Promise<DashboardBookingDetail> {
+  return jsonMutation<DashboardBookingDetail>(
+    accessToken,
+    "/dashboard/bookings",
+    "POST",
+    payload,
+  );
+}
+
+export async function postDashboardCreateBookingChangeRequest(
+  accessToken: string,
+  bookingId: string,
+  payload: DashboardCreateBookingChangeRequestInput,
+): Promise<DashboardBookingChangeRequestCreated> {
+  return jsonMutation<DashboardBookingChangeRequestCreated>(
+    accessToken,
+    `/dashboard/bookings/${bookingId}/change-requests`,
+    "POST",
+    payload,
+  );
+}
+
 export async function getDashboardSlots(
   accessToken: string,
   branchId: string,
@@ -1001,9 +2859,12 @@ export async function getDashboardSlotById(
   branchId: string,
   slotId: string,
 ): Promise<DashboardSlot> {
-  const res = await fetch(apiUrl(`/dashboard/branches/${branchId}/slots/${slotId}`), {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const res = await fetch(
+    apiUrl(`/dashboard/branches/${branchId}/slots/${slotId}`),
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
   if (!res.ok) {
     throw await parseApiError(res);
   }
@@ -1023,6 +2884,21 @@ async function jsonMutation<T>(
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as T;
+}
+
+async function jsonPut<T>(accessToken: string, path: string, body: unknown): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     throw await parseApiError(res);
@@ -1136,6 +3012,18 @@ export async function postDashboardBookingAction(
   );
 }
 
+export async function deleteDashboardBookingItem(
+  accessToken: string,
+  bookingId: string,
+  itemId: string,
+): Promise<DashboardBookingDetail> {
+  return jsonMutation<DashboardBookingDetail>(
+    accessToken,
+    `/dashboard/bookings/${bookingId}/items/${itemId}`,
+    "DELETE",
+  );
+}
+
 export async function getDashboardBookingPayments(
   accessToken: string,
   bookingId: string,
@@ -1147,6 +3035,44 @@ export async function getDashboardBookingPayments(
     throw await parseApiError(res);
   }
   return (await res.json()) as DashboardBookingPaymentsResponse;
+}
+
+export async function getDashboardPayments(
+  accessToken: string,
+  query: DashboardPaymentsListQuery = {},
+): Promise<DashboardPaymentsListResponse> {
+  const res = await fetch(
+    withQuery("/dashboard/payments", {
+      search: query.search,
+      method: query.method,
+      status: query.status,
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+      branchId: query.branchId,
+      page: query.page,
+      pageSize: query.pageSize,
+    }),
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardPaymentsListResponse;
+}
+
+export async function getDashboardPaymentDetail(
+  accessToken: string,
+  paymentId: string,
+): Promise<DashboardPaymentDetailResponse> {
+  const res = await fetch(apiUrl(`/dashboard/payments/${paymentId}`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardPaymentDetailResponse;
 }
 
 export async function postDashboardBookingPayment(
@@ -1199,6 +3125,9 @@ export async function getDashboardInvoices(
       clientId: query.clientId,
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
+      search: query.search,
+      paymentStatus: query.paymentStatus,
+      status: query.status,
       page: query.page,
       pageSize: query.pageSize,
     }),
@@ -1225,6 +3154,19 @@ export async function getDashboardInvoiceById(
   return (await res.json()) as DashboardInvoiceDetail;
 }
 
+export async function getDashboardInvoiceReceipt(
+  accessToken: string,
+  invoiceId: string,
+): Promise<DashboardInvoiceReceipt> {
+  const res = await fetch(apiUrl(`/dashboard/invoices/${invoiceId}/receipt`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardInvoiceReceipt;
+}
+
 export async function postDashboardBookingInvoice(
   accessToken: string,
   bookingId: string,
@@ -1249,9 +3191,25 @@ export async function patchDashboardInvoice(
   );
 }
 
+export async function postDashboardInvoicePayment(
+  accessToken: string,
+  invoiceId: string,
+  payload: CreateDashboardInvoicePaymentInput,
+): Promise<{ payment: DashboardPayment; invoice: DashboardInvoiceDetail }> {
+  return jsonMutation<{
+    payment: DashboardPayment;
+    invoice: DashboardInvoiceDetail;
+  }>(accessToken, `/dashboard/invoices/${invoiceId}/payments`, "POST", payload);
+}
+
 export async function postDashboardWhatsappDeepLink(
   accessToken: string,
-  payload: { templateKey: string; bookingId: string; clientId?: string },
+  payload: {
+    templateKey: string;
+    bookingId: string;
+    clientId?: string;
+    language?: "ar" | "en";
+  },
 ): Promise<DashboardWhatsappDeepLinkResponse> {
   return jsonMutation<DashboardWhatsappDeepLinkResponse>(
     accessToken,
@@ -1271,6 +3229,81 @@ export async function getDashboardVatSettings(
     throw await parseApiError(res);
   }
   return (await res.json()) as DashboardVatSettingsResponse;
+}
+
+export async function getDashboardSettings(
+  accessToken: string,
+): Promise<DashboardSettings> {
+  const res = await fetch(apiUrl("/dashboard/settings"), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardSettings;
+}
+
+export async function getDashboardSettingsBundle(
+  accessToken: string,
+): Promise<DashboardSettings> {
+  return getDashboardSettings(accessToken);
+}
+
+export async function updateDashboardBusinessIdentity(
+  accessToken: string,
+  payload: Partial<BusinessIdentitySettings>,
+): Promise<DashboardSettings> {
+  return jsonMutation<DashboardSettings>(
+    accessToken,
+    "/dashboard/settings/business-identity",
+    "PATCH",
+    payload,
+  );
+}
+
+export async function updateDashboardDefaultBranch(
+  accessToken: string,
+  payload: { defaultBranchId: string | null },
+): Promise<DashboardSettings> {
+  return jsonMutation<DashboardSettings>(
+    accessToken,
+    "/dashboard/settings/default-branch",
+    "PATCH",
+    payload,
+  );
+}
+
+export async function setDashboardDefaultBranch(
+  accessToken: string,
+  branchId: string,
+): Promise<DashboardSettings> {
+  return updateDashboardDefaultBranch(accessToken, {
+    defaultBranchId: branchId,
+  });
+}
+
+export async function updateDashboardVatSettings(
+  accessToken: string,
+  payload: Partial<VatSettings>,
+): Promise<DashboardSettings> {
+  return jsonMutation<DashboardSettings>(
+    accessToken,
+    "/dashboard/settings/vat",
+    "PATCH",
+    payload,
+  );
+}
+
+export async function updateDashboardReceiptSettings(
+  accessToken: string,
+  payload: Partial<ReceiptSettings>,
+): Promise<DashboardSettings> {
+  return jsonMutation<DashboardSettings>(
+    accessToken,
+    "/dashboard/settings/receipt",
+    "PATCH",
+    payload,
+  );
 }
 
 export async function patchDashboardVatSettings(
@@ -1346,29 +3379,90 @@ export async function generateWeekSlots(
   );
 }
 
+export async function getDashboardBranchSlotSettings(
+  accessToken: string,
+  branchId: string,
+): Promise<BranchSlotGenerationSettings> {
+  const res = await fetch(
+    apiUrl(`/dashboard/branches/${branchId}/slot-settings`),
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as BranchSlotGenerationSettings;
+}
+
+export async function updateDashboardBranchSlotSettings(
+  accessToken: string,
+  branchId: string,
+  payload: PatchSlotGenerationSettingsInput,
+): Promise<BranchSlotGenerationSettings> {
+  return jsonMutation<BranchSlotGenerationSettings>(
+    accessToken,
+    `/dashboard/branches/${branchId}/slot-settings`,
+    "PATCH",
+    payload,
+  );
+}
+
+export async function generateDashboardBranchSlots(
+  accessToken: string,
+  payload: GenerateSlotsPayload,
+): Promise<GenerateWeekSlotsResponse> {
+  return generateWeekSlots(accessToken, payload.branchId, payload);
+}
+
+export async function listDashboardWhatsAppTemplates(
+  accessToken: string,
+  params: ListDashboardWhatsAppTemplatesParams = {},
+): Promise<DashboardWhatsAppTemplatesResponse> {
+  const res = await fetch(
+    withQuery("/dashboard/whatsapp-templates", {
+      search: params.search,
+      category: params.category,
+      language: params.language,
+      isActive: params.isActive,
+      page: params.page,
+      limit: params.limit,
+    }),
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardWhatsAppTemplatesResponse;
+}
+
+/** @deprecated Use listDashboardWhatsAppTemplates */
 export async function getDashboardWhatsappTemplates(
   accessToken: string,
-): Promise<DashboardWhatsappTemplatesResponse> {
-  const res = await fetch(apiUrl("/dashboard/whatsapp-templates"), {
+): Promise<DashboardWhatsAppTemplatesResponse> {
+  return listDashboardWhatsAppTemplates(accessToken, {});
+}
+
+export async function getDashboardWhatsAppTemplate(
+  accessToken: string,
+  id: string,
+): Promise<DashboardWhatsAppTemplate> {
+  const res = await fetch(apiUrl(`/dashboard/whatsapp-templates/${id}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
     throw await parseApiError(res);
   }
-  return (await res.json()) as DashboardWhatsappTemplatesResponse;
+  return (await res.json()) as DashboardWhatsAppTemplate;
 }
 
-export async function postDashboardWhatsappTemplate(
+export async function createDashboardWhatsAppTemplate(
   accessToken: string,
-  payload: {
-    name: string;
-    templateKey: string;
-    content: string;
-    variables?: string[];
-    isActive?: boolean;
-  },
-): Promise<DashboardWhatsappTemplate> {
-  return jsonMutation<DashboardWhatsappTemplate>(
+  payload: CreateWhatsAppTemplateInput,
+): Promise<DashboardWhatsAppTemplate> {
+  return jsonMutation<DashboardWhatsAppTemplate>(
     accessToken,
     "/dashboard/whatsapp-templates",
     "POST",
@@ -1376,20 +3470,73 @@ export async function postDashboardWhatsappTemplate(
   );
 }
 
-export async function patchDashboardWhatsappTemplate(
+/** @deprecated Use createDashboardWhatsAppTemplate */
+export async function postDashboardWhatsappTemplate(
+  accessToken: string,
+  payload: CreateWhatsAppTemplateInput,
+): Promise<DashboardWhatsAppTemplate> {
+  return createDashboardWhatsAppTemplate(accessToken, payload);
+}
+
+export async function updateDashboardWhatsAppTemplate(
   accessToken: string,
   templateId: string,
-  payload: Partial<{
-    name: string;
-    content: string;
-    variables: string[];
-    isActive: boolean;
-  }>,
-): Promise<DashboardWhatsappTemplate> {
-  return jsonMutation<DashboardWhatsappTemplate>(
+  payload: UpdateWhatsAppTemplateInput,
+): Promise<DashboardWhatsAppTemplate> {
+  return jsonMutation<DashboardWhatsAppTemplate>(
     accessToken,
     `/dashboard/whatsapp-templates/${templateId}`,
     "PATCH",
+    payload,
+  );
+}
+
+/** @deprecated Use updateDashboardWhatsAppTemplate */
+export async function patchDashboardWhatsappTemplate(
+  accessToken: string,
+  templateId: string,
+  payload: UpdateWhatsAppTemplateInput & { content?: string },
+): Promise<DashboardWhatsAppTemplate> {
+  const { content, ...rest } = payload;
+  return updateDashboardWhatsAppTemplate(accessToken, templateId, {
+    ...rest,
+    ...(content !== undefined && payload.body === undefined ? { body: content } : {}),
+  });
+}
+
+export async function activateDashboardWhatsAppTemplate(
+  accessToken: string,
+  templateId: string,
+): Promise<DashboardWhatsAppTemplate> {
+  return jsonMutation<DashboardWhatsAppTemplate>(
+    accessToken,
+    `/dashboard/whatsapp-templates/${templateId}/activate`,
+    "POST",
+    {},
+  );
+}
+
+export async function deactivateDashboardWhatsAppTemplate(
+  accessToken: string,
+  templateId: string,
+): Promise<DashboardWhatsAppTemplate> {
+  return jsonMutation<DashboardWhatsAppTemplate>(
+    accessToken,
+    `/dashboard/whatsapp-templates/${templateId}/deactivate`,
+    "POST",
+    {},
+  );
+}
+
+export async function previewDashboardWhatsAppTemplate(
+  accessToken: string,
+  templateId: string,
+  payload: { sampleData?: Record<string, string> } = {},
+): Promise<DashboardWhatsAppTemplatePreview> {
+  return jsonMutation<DashboardWhatsAppTemplatePreview>(
+    accessToken,
+    `/dashboard/whatsapp-templates/${templateId}/preview`,
+    "POST",
     payload,
   );
 }
@@ -1426,9 +3573,12 @@ export async function getDashboardBookingChangeRequestById(
   accessToken: string,
   requestId: string,
 ): Promise<DashboardBookingChangeRequestDetail> {
-  const res = await fetch(apiUrl(`/dashboard/booking-change-requests/${requestId}`), {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const res = await fetch(
+    apiUrl(`/dashboard/booking-change-requests/${requestId}`),
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
   if (!res.ok) {
     throw await parseApiError(res);
   }
@@ -1488,7 +3638,12 @@ export async function createDashboardClient(
   accessToken: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardClient> {
-  return jsonMutation<DashboardClient>(accessToken, "/dashboard/clients", "POST", payload);
+  return jsonMutation<DashboardClient>(
+    accessToken,
+    "/dashboard/clients",
+    "POST",
+    payload,
+  );
 }
 
 export async function patchDashboardClient(
@@ -1566,14 +3721,39 @@ export async function getDashboardServices(
   if (!res.ok) {
     throw await parseApiError(res);
   }
-  return (await res.json()) as { data: DashboardService[]; meta: DashboardListMeta };
+  return (await res.json()) as {
+    data: DashboardService[];
+    meta: DashboardListMeta;
+  };
+}
+
+export async function postDashboardMediaUpload(
+  accessToken: string,
+  file: File,
+): Promise<DashboardMediaUploadResponse> {
+  const form = new FormData();
+  form.set("file", file);
+  const res = await fetch(apiUrl("/dashboard/media/upload"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardMediaUploadResponse;
 }
 
 export async function postDashboardService(
   accessToken: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardService> {
-  return jsonMutation<DashboardService>(accessToken, "/dashboard/services", "POST", payload);
+  return jsonMutation<DashboardService>(
+    accessToken,
+    "/dashboard/services",
+    "POST",
+    payload,
+  );
 }
 
 export async function patchDashboardService(
@@ -1581,7 +3761,12 @@ export async function patchDashboardService(
   id: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardService> {
-  return jsonMutation<DashboardService>(accessToken, `/dashboard/services/${id}`, "PATCH", payload);
+  return jsonMutation<DashboardService>(
+    accessToken,
+    `/dashboard/services/${id}`,
+    "PATCH",
+    payload,
+  );
 }
 
 export async function patchDashboardServiceStatus(
@@ -1651,27 +3836,45 @@ export async function patchDashboardServiceVariantStatus(
 
 export async function getDashboardPackages(
   accessToken: string,
-  query: { page?: number; pageSize?: number; isActive?: boolean } = {},
+  query: {
+    page?: number;
+    pageSize?: number;
+    isActive?: boolean;
+    search?: string;
+    branchId?: string;
+    publicListing?: boolean;
+  } = {},
 ): Promise<{ data: DashboardPackage[]; meta: DashboardListMeta }> {
   const res = await fetch(
     withQuery("/dashboard/packages", {
       page: query.page,
       pageSize: query.pageSize,
       isActive: query.isActive,
+      search: query.search,
+      branchId: query.branchId,
+      publicListing: query.publicListing,
     }),
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
   if (!res.ok) {
     throw await parseApiError(res);
   }
-  return (await res.json()) as { data: DashboardPackage[]; meta: DashboardListMeta };
+  return (await res.json()) as {
+    data: DashboardPackage[];
+    meta: DashboardListMeta;
+  };
 }
 
 export async function postDashboardPackage(
   accessToken: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardPackage> {
-  return jsonMutation<DashboardPackage>(accessToken, "/dashboard/packages", "POST", payload);
+  return jsonMutation<DashboardPackage>(
+    accessToken,
+    "/dashboard/packages",
+    "POST",
+    payload,
+  );
 }
 
 export async function patchDashboardPackage(
@@ -1679,7 +3882,12 @@ export async function patchDashboardPackage(
   id: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardPackage> {
-  return jsonMutation<DashboardPackage>(accessToken, `/dashboard/packages/${id}`, "PATCH", payload);
+  return jsonMutation<DashboardPackage>(
+    accessToken,
+    `/dashboard/packages/${id}`,
+    "PATCH",
+    payload,
+  );
 }
 
 export async function patchDashboardPackageStatus(
@@ -1710,14 +3918,22 @@ export async function getDashboardBundles(
   if (!res.ok) {
     throw await parseApiError(res);
   }
-  return (await res.json()) as { data: DashboardBundle[]; meta: DashboardListMeta };
+  return (await res.json()) as {
+    data: DashboardBundle[];
+    meta: DashboardListMeta;
+  };
 }
 
 export async function postDashboardBundle(
   accessToken: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardBundle> {
-  return jsonMutation<DashboardBundle>(accessToken, "/dashboard/bundles", "POST", payload);
+  return jsonMutation<DashboardBundle>(
+    accessToken,
+    "/dashboard/bundles",
+    "POST",
+    payload,
+  );
 }
 
 export async function patchDashboardBundle(
@@ -1725,7 +3941,12 @@ export async function patchDashboardBundle(
   id: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardBundle> {
-  return jsonMutation<DashboardBundle>(accessToken, `/dashboard/bundles/${id}`, "PATCH", payload);
+  return jsonMutation<DashboardBundle>(
+    accessToken,
+    `/dashboard/bundles/${id}`,
+    "PATCH",
+    payload,
+  );
 }
 
 export async function patchDashboardBundleStatus(
@@ -1756,25 +3977,45 @@ export async function getDashboardOffers(
   if (!res.ok) {
     throw await parseApiError(res);
   }
-  return (await res.json()) as { data: DashboardOffer[]; meta: DashboardListMeta };
+  return (await res.json()) as {
+    data: DashboardOffer[];
+    meta: DashboardListMeta;
+  };
 }
 
 export async function getDashboardServiceEnhancements(
   accessToken: string,
-  query: { page?: number; pageSize?: number; isActive?: boolean } = {},
+  query: {
+    page?: number;
+    pageSize?: number;
+    isActive?: boolean;
+    search?: string;
+    priceMin?: number;
+    priceMax?: number;
+    durationMin?: number;
+    durationMax?: number;
+  } = {},
 ): Promise<{ data: DashboardServiceEnhancement[]; meta: DashboardListMeta }> {
   const res = await fetch(
     withQuery("/dashboard/service-enhancements", {
       page: query.page,
       pageSize: query.pageSize,
       isActive: query.isActive,
+      search: query.search,
+      priceMin: query.priceMin,
+      priceMax: query.priceMax,
+      durationMin: query.durationMin,
+      durationMax: query.durationMax,
     }),
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
   if (!res.ok) {
     throw await parseApiError(res);
   }
-  return (await res.json()) as { data: DashboardServiceEnhancement[]; meta: DashboardListMeta };
+  return (await res.json()) as {
+    data: DashboardServiceEnhancement[];
+    meta: DashboardListMeta;
+  };
 }
 
 export async function postDashboardServiceEnhancement(
@@ -1819,7 +4060,12 @@ export async function postDashboardOffer(
   accessToken: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardOffer> {
-  return jsonMutation<DashboardOffer>(accessToken, "/dashboard/offers", "POST", payload);
+  return jsonMutation<DashboardOffer>(
+    accessToken,
+    "/dashboard/offers",
+    "POST",
+    payload,
+  );
 }
 
 export async function patchDashboardOffer(
@@ -1827,7 +4073,12 @@ export async function patchDashboardOffer(
   id: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardOffer> {
-  return jsonMutation<DashboardOffer>(accessToken, `/dashboard/offers/${id}`, "PATCH", payload);
+  return jsonMutation<DashboardOffer>(
+    accessToken,
+    `/dashboard/offers/${id}`,
+    "PATCH",
+    payload,
+  );
 }
 
 export async function patchDashboardOfferStatus(
@@ -1843,20 +4094,98 @@ export async function patchDashboardOfferStatus(
   );
 }
 
+export async function listDashboardWebsiteContent(
+  accessToken: string,
+  query: { page?: string; isVisible?: boolean } = {},
+): Promise<DashboardWebsiteContentListResponse> {
+  const res = await fetch(
+    withQuery("/dashboard/website-content", {
+      page: query.page,
+      isVisible: query.isVisible,
+    }),
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardWebsiteContentListResponse;
+}
+
+export async function getDashboardWebsiteContentSection(
+  accessToken: string,
+  id: string,
+): Promise<DashboardWebsiteContentSection> {
+  const res = await fetch(apiUrl(`/dashboard/website-content/${id}`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardWebsiteContentSection;
+}
+
+export async function updateDashboardWebsiteContentSection(
+  accessToken: string,
+  id: string,
+  payload: UpdateWebsiteContentSectionInput,
+): Promise<DashboardWebsiteContentSection> {
+  return jsonMutation<DashboardWebsiteContentSection>(
+    accessToken,
+    `/dashboard/website-content/${id}`,
+    "PATCH",
+    payload,
+  );
+}
+
+export async function reorderDashboardWebsiteContent(
+  accessToken: string,
+  payload: ReorderWebsiteContentInput,
+): Promise<{ ok: true }> {
+  return jsonMutation<{ ok: true }>(
+    accessToken,
+    "/dashboard/website-content/reorder",
+    "PATCH",
+    payload,
+  );
+}
+
+export async function seedDashboardWebsiteContentDefaults(
+  accessToken: string,
+): Promise<{ ok: true; seededKeys: string[] }> {
+  return jsonMutation<{ ok: true; seededKeys: string[] }>(
+    accessToken,
+    "/dashboard/website-content/seed-defaults",
+    "POST",
+    {},
+  );
+}
+
 export async function getDashboardGallery(
   accessToken: string,
   query: {
     page?: number;
     pageSize?: number;
+    limit?: number;
+    search?: string;
     category?: string;
+    tag?: string;
+    usageType?: string;
+    usageBucket?: "unused" | "services" | "homepage" | "other_sections";
+    libraryStatus?: "ACTIVE" | "ARCHIVED";
     isActive?: boolean;
   } = {},
-): Promise<{ data: DashboardGalleryItem[]; meta: DashboardListMeta }> {
+): Promise<{ data: DashboardGalleryListItem[]; meta: DashboardListMeta }> {
   const res = await fetch(
     withQuery("/dashboard/gallery", {
       page: query.page,
       pageSize: query.pageSize,
+      limit: query.limit,
+      search: query.search,
       category: query.category,
+      tag: query.tag,
+      usageType: query.usageType,
+      usageBucket: query.usageBucket,
+      libraryStatus: query.libraryStatus,
       isActive: query.isActive,
     }),
     { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -1864,14 +4193,142 @@ export async function getDashboardGallery(
   if (!res.ok) {
     throw await parseApiError(res);
   }
-  return (await res.json()) as { data: DashboardGalleryItem[]; meta: DashboardListMeta };
+  return (await res.json()) as {
+    data: DashboardGalleryListItem[];
+    meta: DashboardListMeta;
+  };
+}
+
+export async function getDashboardGalleryStats(
+  accessToken: string,
+): Promise<DashboardGalleryStats> {
+  const res = await fetch(apiUrl("/dashboard/gallery/stats"), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardGalleryStats;
+}
+
+export async function getDashboardGalleryAsset(
+  accessToken: string,
+  id: string,
+): Promise<DashboardGalleryAssetDetail> {
+  const res = await fetch(apiUrl(`/dashboard/gallery/${id}`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardGalleryAssetDetail;
+}
+
+export async function uploadDashboardGalleryAsset(
+  accessToken: string,
+  file: File,
+  fields: {
+    title?: string;
+    altText?: string;
+    description?: string;
+    category?: string;
+    tagsRaw?: string;
+  } = {},
+): Promise<DashboardGalleryListItem> {
+  const form = new FormData();
+  form.set("file", file);
+  if (fields.title) form.set("title", fields.title);
+  if (fields.altText) form.set("altText", fields.altText);
+  if (fields.description) form.set("description", fields.description);
+  if (fields.category) form.set("category", fields.category);
+  if (fields.tagsRaw) form.set("tagsRaw", fields.tagsRaw);
+  const res = await fetch(apiUrl("/dashboard/gallery/upload"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardGalleryListItem;
+}
+
+export async function updateDashboardGalleryAsset(
+  accessToken: string,
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<DashboardGalleryListItem> {
+  return jsonMutation<DashboardGalleryListItem>(
+    accessToken,
+    `/dashboard/gallery/${id}`,
+    "PATCH",
+    payload,
+  );
+}
+
+export async function deleteDashboardGalleryAsset(
+  accessToken: string,
+  id: string,
+): Promise<void> {
+  const res = await fetch(apiUrl(`/dashboard/gallery/${id}`), {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+}
+
+export async function getDashboardGalleryAssetUsages(
+  accessToken: string,
+  id: string,
+): Promise<{ data: DashboardGalleryUsageRow[] }> {
+  const res = await fetch(apiUrl(`/dashboard/gallery/${id}/usages`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as { data: DashboardGalleryUsageRow[] };
+}
+
+export async function attachDashboardGalleryAsset(
+  accessToken: string,
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<{ ok: boolean }> {
+  return jsonMutation<{ ok: boolean }>(
+    accessToken,
+    `/dashboard/gallery/${id}/attach`,
+    "POST",
+    payload,
+  );
+}
+
+export async function detachDashboardGalleryUsage(
+  accessToken: string,
+  usageId: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(apiUrl(`/dashboard/gallery/usages/${usageId}`), {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as { ok: boolean };
 }
 
 export async function postDashboardGalleryItem(
   accessToken: string,
   payload: Record<string, unknown>,
-): Promise<DashboardGalleryItem> {
-  return jsonMutation<DashboardGalleryItem>(accessToken, "/dashboard/gallery", "POST", payload);
+): Promise<DashboardGalleryListItem> {
+  return jsonMutation<DashboardGalleryListItem>(
+    accessToken,
+    "/dashboard/gallery",
+    "POST",
+    payload,
+  );
 }
 
 export async function patchDashboardGalleryItem(
@@ -1879,7 +4336,12 @@ export async function patchDashboardGalleryItem(
   id: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardGalleryItem> {
-  return jsonMutation<DashboardGalleryItem>(accessToken, `/dashboard/gallery/${id}`, "PATCH", payload);
+  return jsonMutation<DashboardGalleryItem>(
+    accessToken,
+    `/dashboard/gallery/${id}`,
+    "PATCH",
+    payload,
+  );
 }
 
 export async function patchDashboardGalleryItemStatus(
@@ -1895,13 +4357,31 @@ export async function patchDashboardGalleryItemStatus(
   );
 }
 
+export async function getDashboardReviewsStats(
+  accessToken: string,
+): Promise<DashboardReviewStats> {
+  const res = await fetch(apiUrl("/dashboard/reviews/stats"), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardReviewStats;
+}
+
 export async function getDashboardReviews(
   accessToken: string,
   query: {
     page?: number;
     pageSize?: number;
+    limit?: number;
+    search?: string;
+    isActive?: boolean;
+    showOnHomepage?: boolean;
     status?: string;
-    displayOnWebsite?: boolean;
+    rating?: number;
+    ratingLte?: number;
+    branchId?: string;
     createdFrom?: string;
     createdTo?: string;
   } = {},
@@ -1910,8 +4390,14 @@ export async function getDashboardReviews(
     withQuery("/dashboard/reviews", {
       page: query.page,
       pageSize: query.pageSize,
+      limit: query.limit,
+      search: query.search,
+      isActive: query.isActive,
+      showOnHomepage: query.showOnHomepage,
       status: query.status,
-      displayOnWebsite: query.displayOnWebsite,
+      rating: query.rating,
+      ratingLte: query.ratingLte,
+      branchId: query.branchId,
       createdFrom: query.createdFrom,
       createdTo: query.createdTo,
     }),
@@ -1920,57 +4406,221 @@ export async function getDashboardReviews(
   if (!res.ok) {
     throw await parseApiError(res);
   }
-  return (await res.json()) as { data: DashboardReview[]; meta: DashboardListMeta };
+  return (await res.json()) as {
+    data: DashboardReview[];
+    meta: DashboardListMeta;
+  };
 }
 
+export async function getDashboardReview(
+  accessToken: string,
+  id: string,
+): Promise<DashboardReviewDetail> {
+  const res = await fetch(apiUrl(`/dashboard/reviews/${id}`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardReviewDetail;
+}
+
+export async function createDashboardReview(
+  accessToken: string,
+  payload: CreateDashboardReviewInput,
+): Promise<DashboardReview> {
+  return jsonMutation<DashboardReview>(
+    accessToken,
+    "/dashboard/reviews",
+    "POST",
+    payload,
+  );
+}
+
+export async function updateDashboardReview(
+  accessToken: string,
+  id: string,
+  payload: UpdateDashboardReviewInput,
+): Promise<DashboardReview> {
+  return jsonMutation<DashboardReview>(
+    accessToken,
+    `/dashboard/reviews/${id}`,
+    "PATCH",
+    payload,
+  );
+}
+
+export async function activateDashboardReview(
+  accessToken: string,
+  id: string,
+): Promise<DashboardReview> {
+  return jsonMutation<DashboardReview>(
+    accessToken,
+    `/dashboard/reviews/${id}/activate`,
+    "POST",
+    {},
+  );
+}
+
+export async function deactivateDashboardReview(
+  accessToken: string,
+  id: string,
+): Promise<DashboardReview> {
+  return jsonMutation<DashboardReview>(
+    accessToken,
+    `/dashboard/reviews/${id}/deactivate`,
+    "POST",
+    {},
+  );
+}
+
+export async function updateDashboardReviewHomepageVisibility(
+  accessToken: string,
+  id: string,
+  payload: UpdateReviewHomepageVisibilityInput,
+): Promise<DashboardReview> {
+  return jsonMutation<DashboardReview>(
+    accessToken,
+    `/dashboard/reviews/${id}/homepage-visibility`,
+    "PATCH",
+    payload,
+  );
+}
+
+export async function reorderDashboardReviews(
+  accessToken: string,
+  payload: ReorderReviewsInput,
+): Promise<{ ok: true }> {
+  return jsonMutation<{ ok: true }>(
+    accessToken,
+    "/dashboard/reviews/reorder",
+    "PATCH",
+    payload,
+  );
+}
+
+/** @deprecated Use updateDashboardReview */
 export async function patchDashboardReview(
   accessToken: string,
   id: string,
   payload: Record<string, unknown>,
 ): Promise<DashboardReview> {
-  return jsonMutation<DashboardReview>(accessToken, `/dashboard/reviews/${id}`, "PATCH", payload);
+  return updateDashboardReview(
+    accessToken,
+    id,
+    payload as UpdateDashboardReviewInput,
+  );
 }
 
 export async function getDashboardReportsOperations(
   accessToken: string,
   query: DashboardReportsQuery = {},
 ): Promise<DashboardReportSectionResponse> {
-  return getDashboardReportSection(accessToken, "/dashboard/reports/operations", query);
+  return getDashboardReportSection(
+    accessToken,
+    "/dashboard/reports/operations",
+    query,
+  );
 }
 
 export async function getDashboardReportsFinancial(
   accessToken: string,
   query: DashboardReportsQuery = {},
 ): Promise<DashboardReportSectionResponse> {
-  return getDashboardReportSection(accessToken, "/dashboard/reports/financial", query);
+  return getDashboardReportSection(
+    accessToken,
+    "/dashboard/reports/financial",
+    query,
+  );
 }
 
 export async function getDashboardReportsBookings(
   accessToken: string,
   query: DashboardReportsQuery = {},
 ): Promise<DashboardReportSectionResponse> {
-  return getDashboardReportSection(accessToken, "/dashboard/reports/bookings", query);
+  return getDashboardReportSection(
+    accessToken,
+    "/dashboard/reports/bookings",
+    query,
+  );
 }
 
 export async function getDashboardReportsServices(
   accessToken: string,
   query: DashboardReportsQuery = {},
 ): Promise<DashboardReportSectionResponse> {
-  return getDashboardReportSection(accessToken, "/dashboard/reports/services", query);
+  return getDashboardReportSection(
+    accessToken,
+    "/dashboard/reports/services",
+    query,
+  );
 }
 
 export async function getDashboardReportsClients(
   accessToken: string,
   query: DashboardReportsQuery = {},
 ): Promise<DashboardReportSectionResponse> {
-  return getDashboardReportSection(accessToken, "/dashboard/reports/clients", query);
+  return getDashboardReportSection(
+    accessToken,
+    "/dashboard/reports/clients",
+    query,
+  );
 }
 
 export async function getDashboardReportsPayments(
   accessToken: string,
   query: DashboardReportsQuery = {},
 ): Promise<DashboardReportSectionResponse> {
-  return getDashboardReportSection(accessToken, "/dashboard/reports/payments", query);
+  return getDashboardReportSection(
+    accessToken,
+    "/dashboard/reports/payments",
+    query,
+  );
+}
+
+export async function getDashboardFinancialReports(
+  accessToken: string,
+  query: DashboardReportsQuery = {},
+): Promise<DashboardFinancialReport> {
+  const res = await fetch(
+    withQuery("/dashboard/reports/financial-summary", query),
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardFinancialReport;
+}
+
+export async function exportDashboardFinancialReport(
+  accessToken: string,
+  query: DashboardReportsQuery & {
+    type?:
+      | "summary"
+      | "payments"
+      | "outstanding"
+      | "sales-items"
+      | "daily-closing";
+  } = {},
+): Promise<Blob> {
+  const res = await fetch(
+    withQuery("/dashboard/reports/financial/export", query),
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return await res.blob();
 }
 
 export async function getDashboardAuditLogs(
@@ -1979,14 +4629,18 @@ export async function getDashboardAuditLogs(
 ): Promise<DashboardAuditLogsResponse> {
   const res = await fetch(
     withQuery("/dashboard/audit-logs", {
+      search: query.search,
       module: query.module,
       action: query.action,
+      entityType: query.entityType,
       userId: query.userId,
+      branchId: query.branchId,
+      severity: query.severity,
       entityId: query.entityId,
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
       page: query.page,
-      pageSize: query.pageSize,
+      limit: query.limit,
     }),
     {
       method: "GET",
@@ -1997,4 +4651,353 @@ export async function getDashboardAuditLogs(
     throw await parseApiError(res);
   }
   return (await res.json()) as DashboardAuditLogsResponse;
+}
+
+export async function getDashboardAuditLogById(
+  accessToken: string,
+  id: string,
+): Promise<DashboardAuditLogDetail> {
+  const res = await fetch(apiUrl(`/dashboard/audit-logs/${id}`), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardAuditLogDetail;
+}
+
+export async function getDashboardAuditLogFacets(
+  accessToken: string,
+): Promise<DashboardAuditLogFacets> {
+  const res = await fetch(apiUrl("/dashboard/audit-logs/facets"), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardAuditLogFacets;
+}
+
+// --- Cash drawer & daily closing (finance) ---
+
+export type DashboardCashDrawerMovement = {
+  id: string;
+  type: "CASH_IN" | "CASH_OUT" | "ADJUSTMENT" | string;
+  amount: number;
+  reason: string;
+  notes: string | null;
+  createdAt: string;
+  createdBy: { id: string; name: string };
+};
+
+export type DashboardCashDrawerSession = {
+  id: string;
+  shortRef: string;
+  branchId: string;
+  businessDate: string;
+  status: "OPEN" | "CLOSED" | string;
+  openingBalance: number;
+  expectedCash: number;
+  countedCash: number | null;
+  cashDifference: number | null;
+  notes: string | null;
+  openedAt: string;
+  closedAt: string | null;
+  openedBy: { id: string; name: string };
+  closedBy: { id: string; name: string } | null;
+  movements: DashboardCashDrawerMovement[];
+  totals: {
+    cashPaymentsTotal: number;
+    cashInTotal: number;
+    cashOutTotal: number;
+    adjustmentTotal: number;
+  };
+};
+
+export type DashboardCashDrawerSummary = {
+  openingBalance: number;
+  cashPaymentsTotal: number;
+  cashInTotal: number;
+  cashOutTotal: number;
+  adjustmentTotal: number;
+  expectedCash: number;
+  countedCash: number | null;
+  cashDifference: number | null;
+  status: string;
+};
+
+export type DashboardCashDrawerCashPaymentRow = {
+  id: string;
+  amount: number;
+  paidAt: string | null;
+  createdAt: string;
+  client: { id: string; fullName: string } | null;
+  cashier: { id: string; name: string } | null;
+  invoice: { id: string; invoiceNumber: string } | null;
+  bookingId: string;
+};
+
+export type DashboardCashDrawerCurrentResponse = {
+  session: DashboardCashDrawerSession | null;
+  summary: DashboardCashDrawerSummary | null;
+  recentCashPayments: DashboardCashDrawerCashPaymentRow[];
+};
+
+export type DashboardCashDrawerDetailResponse =
+  DashboardCashDrawerCurrentResponse;
+
+export type DashboardPaymentBreakdownRow = {
+  amount: number;
+  count: number;
+};
+
+export type DashboardPaymentBreakdown = Record<
+  string,
+  DashboardPaymentBreakdownRow
+>;
+
+export type DashboardDailyClosingInvoiceSummary = {
+  finalizedCount: number;
+  paidCount: number;
+  partiallyPaidCount: number;
+  unpaidCount: number;
+  totalInvoiced: number;
+  totalPaid: number;
+  totalRemaining: number;
+};
+
+export type DashboardOperationalSummary = {
+  bookingCount: number;
+  completedBookingCount: number;
+  inProgressBookingCount: number;
+  cancelledBookingCount: number;
+  queueVisitCount: number;
+  queueCompletedCount: number;
+  queueActiveCount: number;
+};
+
+export type DashboardDailyClosingSummaryResponse = {
+  branch: { id: string; name: string };
+  businessDate: string;
+  status: "OPEN" | "DRAFT" | "CLOSED" | string;
+  existingClosingId: string | null;
+  closingStatus: string | null;
+  closedBy: { id: string; name: string } | null;
+  closedAt: string | null;
+  cashDrawerSummary: Record<string, unknown>;
+  drawerSessionStatus: string | null;
+  salesSummary: {
+    grossSales: number;
+    totalCollected: number;
+    outstandingBalance: number;
+  };
+  paymentBreakdown: DashboardPaymentBreakdown;
+  invoiceSummary: DashboardDailyClosingInvoiceSummary;
+  paymentSummary: { paymentCount: number; totalCollected: number };
+  operationalSummary: DashboardOperationalSummary;
+  warnings: string[];
+  recentInvoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    client: { id: string; fullName: string } | null;
+    totalAmount: number;
+    paidAmount: number;
+    remainingAmount: number;
+    paymentStatus: string;
+    createdAt: string;
+    bookingId: string;
+  }>;
+  recentPayments: Array<{
+    id: string;
+    amount: number;
+    method: string;
+    reference: string | null;
+    paidAt: string | null;
+    createdAt: string;
+    client: { id: string; fullName: string } | null;
+    cashier: { id: string; name: string } | null;
+    invoice: { id: string; invoiceNumber: string } | null;
+    bookingId: string;
+  }>;
+  snapshot: Record<string, unknown>;
+  draftNotes: string | null;
+};
+
+export type DashboardDailyClosingReport = {
+  id: string;
+  shortRef: string;
+  branch: { id: string; name: string };
+  businessDate: string;
+  status: string;
+  notes: string | null;
+  closedBy: { id: string; name: string } | null;
+  closedAt: string | null;
+  totals: {
+    totalInvoices: number;
+    grossSales: number;
+    totalCollected: number;
+    cashCollected: number;
+    cardCollected: number;
+    instapayCollected: number;
+    walletCollected: number;
+    bankTransferCollected: number;
+    otherCollected: number;
+    outstandingBalance: number;
+    expectedCash: number;
+    countedCash: number;
+    cashDifference: number;
+    invoiceCount: number;
+    paymentCount: number;
+    bookingCount: number;
+    completedBookingCount: number;
+    inProgressBookingCount: number;
+    cancelledBookingCount: number;
+    queueVisitCount: number;
+    queueCompletedCount: number;
+    queueActiveCount: number;
+  };
+  savedSnapshot: unknown;
+  liveSnapshot: Record<string, unknown>;
+  warnings: string[];
+  readOnly: boolean;
+};
+
+export async function getDashboardCashDrawerCurrent(
+  accessToken: string,
+  params: { branchId: string; date: string },
+): Promise<DashboardCashDrawerCurrentResponse> {
+  const res = await fetch(
+    withQuery("/dashboard/cash-drawer/current", {
+      branchId: params.branchId,
+      date: params.date,
+    }),
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) throw await parseApiError(res);
+  return (await res.json()) as DashboardCashDrawerCurrentResponse;
+}
+
+export async function openDashboardCashDrawer(
+  accessToken: string,
+  payload: {
+    branchId: string;
+    businessDate: string;
+    openingBalance: number;
+    notes?: string;
+  },
+): Promise<DashboardCashDrawerDetailResponse> {
+  return jsonMutation<DashboardCashDrawerDetailResponse>(
+    accessToken,
+    "/dashboard/cash-drawer/open",
+    "POST",
+    payload,
+  );
+}
+
+export async function getDashboardCashDrawer(
+  accessToken: string,
+  id: string,
+): Promise<DashboardCashDrawerDetailResponse> {
+  const res = await fetch(apiUrl(`/dashboard/cash-drawer/${id}`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await parseApiError(res);
+  return (await res.json()) as DashboardCashDrawerDetailResponse;
+}
+
+export async function updateDashboardCashDrawer(
+  accessToken: string,
+  id: string,
+  payload: { countedCash?: number; notes?: string },
+): Promise<DashboardCashDrawerDetailResponse> {
+  return jsonMutation<DashboardCashDrawerDetailResponse>(
+    accessToken,
+    `/dashboard/cash-drawer/${id}`,
+    "PATCH",
+    payload,
+  );
+}
+
+export async function addDashboardCashDrawerMovement(
+  accessToken: string,
+  id: string,
+  payload: {
+    type: "CASH_IN" | "CASH_OUT" | "ADJUSTMENT";
+    amount: number;
+    reason: string;
+    notes?: string;
+  },
+): Promise<DashboardCashDrawerDetailResponse> {
+  return jsonMutation<DashboardCashDrawerDetailResponse>(
+    accessToken,
+    `/dashboard/cash-drawer/${id}/movements`,
+    "POST",
+    payload,
+  );
+}
+
+export async function closeDashboardCashDrawer(
+  accessToken: string,
+  id: string,
+  payload: { countedCash: number; notes?: string },
+): Promise<DashboardCashDrawerDetailResponse> {
+  return jsonMutation<DashboardCashDrawerDetailResponse>(
+    accessToken,
+    `/dashboard/cash-drawer/${id}/close`,
+    "POST",
+    payload,
+  );
+}
+
+export async function getDashboardDailyClosingSummary(
+  accessToken: string,
+  params: { branchId: string; date: string },
+): Promise<DashboardDailyClosingSummaryResponse> {
+  const res = await fetch(
+    withQuery("/dashboard/daily-closing/summary", {
+      branchId: params.branchId,
+      date: params.date,
+    }),
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) throw await parseApiError(res);
+  return (await res.json()) as DashboardDailyClosingSummaryResponse;
+}
+
+export async function saveDashboardDailyClosingDraft(
+  accessToken: string,
+  payload: { branchId: string; businessDate: string; notes?: string },
+): Promise<DashboardDailyClosingReport> {
+  return jsonMutation<DashboardDailyClosingReport>(
+    accessToken,
+    "/dashboard/daily-closing",
+    "POST",
+    payload,
+  );
+}
+
+export async function getDashboardDailyClosing(
+  accessToken: string,
+  id: string,
+): Promise<DashboardDailyClosingReport> {
+  const res = await fetch(apiUrl(`/dashboard/daily-closing/${id}`), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await parseApiError(res);
+  return (await res.json()) as DashboardDailyClosingReport;
+}
+
+export async function closeDashboardDailyClosing(
+  accessToken: string,
+  id: string,
+  payload: { notes?: string },
+): Promise<DashboardDailyClosingReport> {
+  return jsonMutation<DashboardDailyClosingReport>(
+    accessToken,
+    `/dashboard/daily-closing/${id}/close`,
+    "POST",
+    payload,
+  );
 }

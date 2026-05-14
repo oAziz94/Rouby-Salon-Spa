@@ -15,12 +15,15 @@ export function toPublicGalleryItem(item: GalleryItem) {
 export function toPublicTestimonial(
   review: Review & { client: { fullName: string } | null },
 ) {
+  const name =
+    review.clientName?.trim() || review.client?.fullName?.trim() || 'Client';
   return {
-    id: review.id,
-    clientName: review.client?.fullName ?? 'Anonymous',
+    clientName: name,
+    clientTitle: review.clientTitle ?? null,
     rating: review.rating,
-    comment: review.comment,
-    createdAt: review.createdAt,
+    quote: review.comment ?? '',
+    serviceName: review.serviceName ?? null,
+    displayOrder: review.displayOrder,
   };
 }
 

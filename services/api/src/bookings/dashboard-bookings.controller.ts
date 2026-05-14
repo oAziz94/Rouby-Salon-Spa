@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -16,8 +17,11 @@ import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { BookingsService } from './bookings.service';
 import { DashboardBookingListQueryDto } from './dto/dashboard-booking-list-query.dto';
 import { DashboardCreateBookingDto } from './dto/dashboard-create-booking.dto';
+import { DashboardCreateChangeRequestDto } from './dto/dashboard-create-change-request.dto';
 import { DiscountBodyDto } from './dto/discount-body.dto';
 import { RescheduleBodyDto } from './dto/reschedule-body.dto';
+import { StartBookingServiceItemDto } from './dto/start-booking-service-item.dto';
+import { AppendBookingServiceItemsDto } from './dto/append-booking-service-items.dto';
 
 @ApiTags('dashboard-bookings')
 @ApiBearerAuth('dashboard-jwt')
@@ -54,6 +58,20 @@ export class DashboardBookingsController {
     @Body() body: DashboardCreateBookingDto,
   ) {
     return this.bookings.dashboardCreateBooking(user, body);
+  }
+
+  @Post(':bookingId/change-requests')
+  @RequirePermissions('bookings.update')
+  @ApiOperation({
+    summary:
+      'Create a pending cancel or reschedule request for a booking (staff-initiated; same approve flow as client requests)',
+  })
+  createChangeRequest(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('bookingId') bookingId: string,
+    @Body() body: DashboardCreateChangeRequestDto,
+  ) {
+    return this.bookings.dashboardCreateChangeRequest(user, bookingId, body);
   }
 
   @Post(':bookingId/confirm')
@@ -139,6 +157,52 @@ export class DashboardBookingsController {
     return this.bookings.markCompleted(user, bookingId);
   }
 
+  @Post(':bookingId/service-items')
+  @RequirePermissions('bookingServiceItems.create', 'bookings.update')
+  @ApiOperation({
+    summary:
+      'Append priced booking lines while visit is on the queue (same rules as queue items append)',
+  })
+  appendServiceItems(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('bookingId') bookingId: string,
+    @Body() body: AppendBookingServiceItemsDto,
+  ) {
+    return this.bookings.appendServiceItemsForActiveQueue(
+      user,
+      bookingId,
+      body.items,
+    );
+  }
+
+  @Post(':bookingId/service-items/:itemId/start')
+  @RequirePermissions('bookingServiceItems.start')
+  @ApiOperation({ summary: 'Assign staff and start a PENDING booking service line' })
+  startServiceItem(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('bookingId') bookingId: string,
+    @Param('itemId') itemId: string,
+    @Body() body: StartBookingServiceItemDto,
+  ) {
+    return this.bookings.startBookingServiceItem(
+      user,
+      bookingId,
+      itemId,
+      body.staffProfileId,
+    );
+  }
+
+  @Post(':bookingId/service-items/:itemId/complete')
+  @RequirePermissions('bookingServiceItems.complete')
+  @ApiOperation({ summary: 'Mark an IN_PROGRESS booking service line as completed' })
+  completeServiceItem(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('bookingId') bookingId: string,
+    @Param('itemId') itemId: string,
+  ) {
+    return this.bookings.completeBookingServiceItem(user, bookingId, itemId);
+  }
+
   @Post(':bookingId/mark-no-show')
   @RequirePermissions('bookings.status.progress')
   @ApiOperation({ summary: 'Mark no-show' })
@@ -168,5 +232,19 @@ export class DashboardBookingsController {
     @Body() body: DiscountBodyDto,
   ) {
     return this.bookings.applyDiscount(user, bookingId, body);
+  }
+
+  @Delete(':bookingId/items/:itemId')
+  @RequirePermissions('bookings.update')
+  @ApiOperation({
+    summary:
+      'Remove a single line item from a booking and reprice (blocks on terminal state, finalized invoice, or last item)',
+  })
+  removeItem(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('bookingId') bookingId: string,
+    @Param('itemId') itemId: string,
+  ) {
+    return this.bookings.removeBookingItem(user, bookingId, itemId);
   }
 }

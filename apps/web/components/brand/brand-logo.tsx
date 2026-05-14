@@ -10,7 +10,7 @@ type BrandLogoProps = {
 
 export function BrandLogo({
   className = "",
-  heightClass = "h-10",
+  heightClass = "h-12",
   priority = false,
 }: BrandLogoProps) {
   return (
@@ -18,9 +18,9 @@ export function BrandLogo({
       <Image
         src="/brand/alrouby-logo.png"
         alt="Alrouby Salon & Spa"
-        width={160}
-        height={64}
-        className={`${heightClass} w-auto max-w-[min(200px,42vw)] object-contain object-left`}
+        width={320}
+        height={128}
+        className={`${heightClass} w-auto max-w-[min(380px,90vw)] object-contain object-left`}
         priority={priority}
       />
     </span>

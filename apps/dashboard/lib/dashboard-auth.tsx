@@ -18,6 +18,7 @@ import {
 } from "react";
 
 const TOKEN_KEY = "dashboard_access_token";
+const TOKEN_BRIDGE_KEY = "dashboard_access_token_bridge";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -30,6 +31,7 @@ type DashboardAuthContextType = {
   login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => void;
   hasPermission: (permission?: string) => boolean;
+  refreshUser: () => Promise<void>;
 };
 
 const DashboardAuthContext = createContext<DashboardAuthContextType | null>(null);
@@ -42,7 +44,11 @@ function readToken(): string | null {
   if (fromSession) {
     return fromSession;
   }
-  return localStorage.getItem(TOKEN_KEY);
+  const fromPersistent = localStorage.getItem(TOKEN_KEY);
+  if (fromPersistent) {
+    return fromPersistent;
+  }
+  return localStorage.getItem(TOKEN_BRIDGE_KEY);
 }
 
 function writeToken(token: string | null, rememberMe = false): void {
@@ -51,11 +57,15 @@ function writeToken(token: string | null, rememberMe = false): void {
   }
   sessionStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_BRIDGE_KEY);
   if (token) {
+    sessionStorage.setItem(TOKEN_KEY, token);
     if (rememberMe) {
       localStorage.setItem(TOKEN_KEY, token);
     } else {
-      sessionStorage.setItem(TOKEN_KEY, token);
+      // Bridge token allows opening protected dashboard pages in a new tab.
+      // Explicit logout still clears it.
+      localStorage.setItem(TOKEN_BRIDGE_KEY, token);
     }
   }
 }
@@ -72,6 +82,19 @@ export function DashboardAuthProvider({
   const [permissions, setPermissions] = useState<string[]>([]);
   const [token, setToken] = useState<string | null>(null);
   const [authError, setAuthError] = useState<ApiClientError | null>(null);
+
+  const refreshUser = useCallback(async () => {
+    const existingToken = readToken();
+    if (!existingToken) {
+      return;
+    }
+    try {
+      const me = await getDashboardAuthMe(existingToken);
+      setUser(me);
+    } catch {
+      // Leave existing user state; caller may show an error toast.
+    }
+  }, []);
 
   const logout = useCallback(() => {
     writeToken(null);
@@ -165,8 +188,9 @@ export function DashboardAuthProvider({
       login,
       logout,
       hasPermission,
+      refreshUser,
     }),
-    [authError, hasPermission, login, logout, permissions, status, token, user],
+    [authError, hasPermission, login, logout, permissions, refreshUser, status, token, user],
   );
 
   return (

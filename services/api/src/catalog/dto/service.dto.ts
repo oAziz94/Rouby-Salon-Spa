@@ -11,6 +11,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PriceDisplayType } from '@prisma/client';
@@ -52,9 +53,23 @@ export class CreateServiceDto {
   shortDescription?: string;
 
   @IsOptional()
+  @IsUUID()
+  imageMediaId?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(2000)
-  imageUrl?: string;
+  imageUrl?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  imageKey?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  imageAlt?: string | null;
 
   @IsOptional()
   @Type(() => Number)
@@ -145,9 +160,24 @@ export class PatchServiceDto {
   shortDescription?: string | null;
 
   @IsOptional()
+  @ValidateIf((_o, v) => v !== null && v !== undefined)
+  @IsUUID()
+  imageMediaId?: string | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(2000)
-  imageUrl?: string;
+  imageUrl?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  imageKey?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  imageAlt?: string | null;
 
   @IsOptional()
   @Type(() => Number)

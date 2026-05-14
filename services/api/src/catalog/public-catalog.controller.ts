@@ -22,6 +22,7 @@ export class PublicCatalogController {
       pageSize: query.pageSize,
       categoryId: query.categoryId,
       branchId: query.branchId,
+      isFeatured: query.isFeatured,
     });
   }
 

@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsDate,
   IsEnum,
   IsInt,
   IsNumber,
@@ -38,9 +39,11 @@ export class CreateOfferDto {
   discountValue!: number;
 
   @Type(() => Date)
+  @IsDate()
   startDate!: Date;
 
   @Type(() => Date)
+  @IsDate()
   endDate!: Date;
 
   @IsOptional()
@@ -111,10 +114,12 @@ export class PatchOfferDto {
 
   @IsOptional()
   @Type(() => Date)
+  @IsDate()
   startDate?: Date;
 
   @IsOptional()
   @Type(() => Date)
+  @IsDate()
   endDate?: Date;
 
   @IsOptional()

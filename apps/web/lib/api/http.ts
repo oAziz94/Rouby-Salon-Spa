@@ -28,7 +28,15 @@ function shouldSkipApiFetchDuringBuild(baseUrl: string): boolean {
   return isBuildPhase && isLocalApi;
 }
 
-export async function getJson<T>(path: string): Promise<T> {
+export type GetJsonOptions = {
+  /**
+   * Skip Next.js Data Cache for this request (e.g. staff toggled catalog visibility).
+   * Default uses `revalidate: 60` for general public catalog reads.
+   */
+  noStore?: boolean;
+};
+
+export async function getJson<T>(path: string, options?: GetJsonOptions): Promise<T> {
   const normalized = path.startsWith("/") ? path : `/${path}`;
   const baseUrl = resolveApiBaseUrl();
   if (shouldSkipApiFetchDuringBuild(baseUrl)) {
@@ -39,13 +47,15 @@ export async function getJson<T>(path: string): Promise<T> {
     );
   }
 
+  const fetchInit: RequestInit = {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    ...(options?.noStore ? { cache: "no-store" } : { next: { revalidate: 60 } }),
+  };
+
   let res: Response;
   try {
-    res = await fetch(`${baseUrl}${normalized}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      next: { revalidate: 60 },
-    });
+    res = await fetch(`${baseUrl}${normalized}`, fetchInit);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Network request failed while contacting API.";

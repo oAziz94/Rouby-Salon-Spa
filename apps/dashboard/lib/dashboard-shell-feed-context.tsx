@@ -1,6 +1,9 @@
 "use client";
 
-import type { DashboardOverviewActivity } from "@rouby/api-client";
+import type {
+  DashboardOverviewActivity,
+  DashboardOverviewAppointment,
+} from "@rouby/api-client";
 import {
   createContext,
   useCallback,
@@ -12,7 +15,9 @@ import {
 
 type DashboardShellFeedContextValue = {
   recentActivity: DashboardOverviewActivity[];
+  upcomingAppointments: DashboardOverviewAppointment[];
   setOverviewRecentActivity: (items: DashboardOverviewActivity[] | null) => void;
+  setOverviewUpcomingAppointments: (items: DashboardOverviewAppointment[] | null) => void;
 };
 
 const DashboardShellFeedContext = createContext<DashboardShellFeedContextValue | null>(
@@ -21,14 +26,34 @@ const DashboardShellFeedContext = createContext<DashboardShellFeedContextValue |
 
 export function DashboardShellFeedProvider({ children }: { children: ReactNode }) {
   const [recentActivity, setRecentActivity] = useState<DashboardOverviewActivity[]>([]);
+  const [upcomingAppointments, setUpcomingAppointments] = useState<DashboardOverviewAppointment[]>(
+    [],
+  );
 
   const setOverviewRecentActivity = useCallback((items: DashboardOverviewActivity[] | null) => {
     setRecentActivity(items ?? []);
   }, []);
 
+  const setOverviewUpcomingAppointments = useCallback(
+    (items: DashboardOverviewAppointment[] | null) => {
+      setUpcomingAppointments(items ?? []);
+    },
+    [],
+  );
+
   const value = useMemo(
-    () => ({ recentActivity, setOverviewRecentActivity }),
-    [recentActivity, setOverviewRecentActivity],
+    () => ({
+      recentActivity,
+      upcomingAppointments,
+      setOverviewRecentActivity,
+      setOverviewUpcomingAppointments,
+    }),
+    [
+      recentActivity,
+      upcomingAppointments,
+      setOverviewRecentActivity,
+      setOverviewUpcomingAppointments,
+    ],
   );
 
   return (

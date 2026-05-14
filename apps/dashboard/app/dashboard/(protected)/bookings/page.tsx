@@ -2,33 +2,47 @@
 
 import {
   ApiClientError,
+  deleteDashboardBookingItem,
   getDashboardBookingById,
   getDashboardBookings,
   getDashboardBranches,
   getDashboardSlots,
+  getDashboardStaffAvailability,
   postDashboardBookingAction,
+  postDashboardBookingQueueCheckIn,
+  postDashboardCreateBookingChangeRequest,
+  postDashboardBookingServiceItemStart,
+  postDashboardBookingServiceItemComplete,
   type DashboardBookingDetail,
   type DashboardBookingsListItem,
   type DashboardBranch,
   type DashboardListMeta,
   type DashboardSlot,
+  type DashboardStaffAvailabilityResponse,
 } from "@rouby/api-client";
-import { formatDateTimeAmPm, formatWallClock12h, formatWallClockRange12h } from "@rouby/wall-clock";
+import { cairoTodayYmd, formatDateTimeAmPm, formatWallClock12h, formatWallClockRange12h } from "@rouby/wall-clock";
 import {
   AlertCircle,
   Building2,
   CalendarClock,
   ChevronRight,
   ClipboardList,
+  ListTodo,
   Loader2,
   MapPin,
+  Plus,
   Receipt,
   Sparkles,
   StickyNote,
+  Trash2,
   UserRound,
 } from "lucide-react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
+import { DashboardCreateBookingDialog } from "@/components/dashboard-create-booking-dialog";
+import { useSystemDialog } from "@/components/system-dialog-provider";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 
 type PageState = "loading" | "loaded" | "empty" | "error";
@@ -116,6 +130,18 @@ function formatApiError(error: unknown): string {
     if (error.code === "INVALID_STATUS_TRANSITION") {
       return "Invalid booking status transition for this action.";
     }
+    if (error.code === "QUEUE_ACTIVE_FOR_BOOKING") {
+      return "An active queue entry already exists for this booking.";
+    }
+    if (error.code === "BOOKING_NOT_ELIGIBLE_FOR_QUEUE") {
+      return "This booking status cannot be checked in to the queue.";
+    }
+    if (error.code === "BOOKING_LAST_ITEM") {
+      return "A booking must keep at least one item — cancel the booking instead.";
+    }
+    if (error.code === "INVOICE_FINALIZED_BLOCKS_ITEMS") {
+      return "Cannot change items after the invoice has been finalized.";
+    }
     return error.message;
   }
   if (error instanceof Error) {
@@ -141,6 +167,9 @@ function summarizeBookingItems(detail: DashboardBookingDetail): string {
 }
 
 function formatAppointmentFromListRow(row: DashboardBookingsListItem): string {
+  if (row.source === "WALK_IN") {
+    return `Walk-in · ${formatDateTimeAmPm(row.createdAt)}`;
+  }
   if (!row.slot?.date) {
     return "—";
   }
@@ -152,6 +181,16 @@ function formatAppointmentFromListRow(row: DashboardBookingsListItem): string {
     return `${date} · ${formatWallClock12h(startTime)}`;
   }
   return date;
+}
+
+function formatAppointmentFromDetail(detail: DashboardBookingDetail): string {
+  if (detail.source === "WALK_IN") {
+    return `Walk-in · ${formatDateTimeAmPm(detail.createdAt)}`;
+  }
+  if (detail.slot) {
+    return `${detail.slot.date} · ${formatWallClockRange12h(detail.slot.startTime, detail.slot.endTime)}`;
+  }
+  return `Slot ID: ${detail.slotId}`;
 }
 
 function listRowClientLabel(row: DashboardBookingsListItem): string {
@@ -170,7 +209,6 @@ type DrawerAction =
   | "cancel"
   | "mark-arrived"
   | "mark-in-progress"
-  | "mark-completed"
   | "mark-no-show"
   | "recalculate-pricing"
   | "discount";
@@ -183,7 +221,10 @@ const dangerOutlineClass =
   "inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#E7B9A4]/90 bg-[#FFF9F6] px-3.5 py-2 text-xs font-semibold text-[#8B4428] shadow-sm transition hover:bg-[#FFF1EC] disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function DashboardBookingsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { token, user, hasPermission } = useDashboardAuth();
+  const { confirm } = useSystemDialog();
   const [state, setState] = useState<PageState>("loading");
   const [error, setError] = useState("");
   const [rows, setRows] = useState<DashboardBookingsListItem[]>([]);
@@ -207,6 +248,29 @@ export default function DashboardBookingsPage() {
   const [discountReason, setDiscountReason] = useState<string>("");
   const [actionLoading, setActionLoading] = useState<DrawerAction | null>(null);
   const [actionError, setActionError] = useState("");
+  const consumedBookingFromUrlRef = useRef(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [staffChangeType, setStaffChangeType] = useState<"" | "CANCEL" | "RESCHEDULE">("");
+  const [staffChangeReason, setStaffChangeReason] = useState("");
+  const [staffChangeDate, setStaffChangeDate] = useState("");
+  const [staffChangeSlots, setStaffChangeSlots] = useState<DashboardSlot[]>([]);
+  const [staffChangeSlotId, setStaffChangeSlotId] = useState("");
+  const [staffChangeSlotsLoading, setStaffChangeSlotsLoading] = useState(false);
+  const [staffChangeSubmitting, setStaffChangeSubmitting] = useState(false);
+  const [staffChangeError, setStaffChangeError] = useState("");
+  const [staffChangeSuccess, setStaffChangeSuccess] = useState("");
+  const [checkInLoading, setCheckInLoading] = useState(false);
+  const [removingItemId, setRemovingItemId] = useState<string>("");
+
+  const [lineStartItemId, setLineStartItemId] = useState<string | null>(null);
+  const [lineStartStaffOptions, setLineStartStaffOptions] = useState<
+    DashboardStaffAvailabilityResponse["staff"]
+  >([]);
+  const [lineStartStaffPick, setLineStartStaffPick] = useState("");
+  const [lineStartLoading, setLineStartLoading] = useState(false);
+  const [lineStartSubmitting, setLineStartSubmitting] = useState(false);
+  const [lineStartError, setLineStartError] = useState("");
+  const [lineCompleteBusyId, setLineCompleteBusyId] = useState<string | null>(null);
 
   const canRead = hasPermission("bookings.read");
   const canConfirm = hasPermission("bookings.confirm");
@@ -214,9 +278,13 @@ export default function DashboardBookingsPage() {
   const canCancel = hasPermission("bookings.cancel");
   const canReschedule = hasPermission("bookings.reschedule");
   const canProgress = hasPermission("bookings.status.progress");
+  const canQueueManage = hasPermission("queue.manage");
   const canUpdate = hasPermission("bookings.update");
   const canDiscount = hasPermission("bookings.discount.apply");
   const canReadBranches = hasPermission("branches.read");
+  const canCreateBooking = hasPermission("bookings.create");
+  const canStartServiceLine = hasPermission("bookingServiceItems.start");
+  const canCompleteServiceLine = hasPermission("bookingServiceItems.complete");
 
   const branchNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -246,9 +314,26 @@ export default function DashboardBookingsPage() {
 
   function closeDrawer() {
     setDrawerOpen(false);
+    setSelectedBookingId("");
     setDetail(null);
     setDetailError("");
     setActionError("");
+    setCheckInLoading(false);
+    setRemovingItemId("");
+    setLineStartItemId(null);
+    setLineStartStaffOptions([]);
+    setLineStartStaffPick("");
+    setLineStartLoading(false);
+    setLineStartSubmitting(false);
+    setLineStartError("");
+    setLineCompleteBusyId(null);
+    setStaffChangeType("");
+    setStaffChangeReason("");
+    setStaffChangeDate("");
+    setStaffChangeSlots([]);
+    setStaffChangeSlotId("");
+    setStaffChangeError("");
+    setStaffChangeSuccess("");
   }
 
   const canAccessMultipleBranches = useMemo(
@@ -324,7 +409,13 @@ export default function DashboardBookingsPage() {
     try {
       const response = await getDashboardBookingById(token, bookingId);
       setDetail(response);
-      const slotDate = response.slot?.date ?? toDateInput(new Date());
+      const slotDate = response.slot?.date ?? cairoTodayYmd();
+      setStaffChangeType("");
+      setStaffChangeReason("");
+      setStaffChangeDate(slotDate);
+      setStaffChangeSlotId("");
+      setStaffChangeError("");
+      setStaffChangeSuccess("");
       if (canReschedule) {
         try {
           const slotsResponse = await getDashboardSlots(token, response.branchId, {
@@ -352,6 +443,100 @@ export default function DashboardBookingsPage() {
       setDetailLoading(false);
     }
   }
+
+  function catalogServiceIdForLine(it: DashboardBookingDetail["items"][number]): string | null {
+    return it.catalogServiceId ?? it.serviceId;
+  }
+
+  function isBookableServiceLine(it: DashboardBookingDetail["items"][number]): boolean {
+    return it.itemType === "SERVICE" || it.itemType === "SERVICE_VARIANT";
+  }
+
+  useEffect(() => {
+    if (!lineStartItemId || !token || !detail) {
+      return;
+    }
+    const it = detail.items.find((i) => i.id === lineStartItemId);
+    if (!it || !isBookableServiceLine(it)) {
+      setLineStartStaffOptions([]);
+      return;
+    }
+    const sid = catalogServiceIdForLine(it);
+    if (!sid) {
+      setLineStartStaffOptions([]);
+      setLineStartError("Cannot resolve a catalog service for this line.");
+      return;
+    }
+    let cancelled = false;
+    setLineStartLoading(true);
+    setLineStartError("");
+    const dateStr = detail.slot?.date ?? cairoTodayYmd();
+    void getDashboardStaffAvailability(token, {
+      branchId: detail.branchId,
+      serviceId: sid,
+      date: dateStr,
+    })
+      .then((res: DashboardStaffAvailabilityResponse) => {
+        if (cancelled) return;
+        setLineStartStaffOptions(res.staff);
+        const pick =
+          res.staff.find((s) => s.status === "AVAILABLE")?.staffProfileId ??
+          res.staff.find((s) => s.status === "BUSY")?.staffProfileId ??
+          "";
+        setLineStartStaffPick(pick);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setLineStartError(formatApiError(e));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLineStartLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lineStartItemId, token, detail]);
+
+  async function submitLineStartService(): Promise<void> {
+    if (!token || !selectedBookingId || !lineStartItemId || !lineStartStaffPick) {
+      return;
+    }
+    setLineStartSubmitting(true);
+    setLineStartError("");
+    try {
+      await postDashboardBookingServiceItemStart(token, selectedBookingId, lineStartItemId, {
+        staffProfileId: lineStartStaffPick,
+      });
+      setLineStartItemId(null);
+      await loadDetail(selectedBookingId);
+    } catch (e) {
+      setLineStartError(formatApiError(e));
+    } finally {
+      setLineStartSubmitting(false);
+    }
+  }
+
+  async function completeBookingLine(itemId: string): Promise<void> {
+    if (!token || !selectedBookingId) {
+      return;
+    }
+    setLineCompleteBusyId(itemId);
+    setActionError("");
+    try {
+      await postDashboardBookingServiceItemComplete(token, selectedBookingId, itemId);
+      await loadDetail(selectedBookingId);
+    } catch (e) {
+      setActionError(formatApiError(e));
+    } finally {
+      setLineCompleteBusyId(null);
+    }
+  }
+
+  const loadDetailRef = useRef(loadDetail);
+  loadDetailRef.current = loadDetail;
 
   useEffect(() => {
     if (!token || !canRead) {
@@ -388,6 +573,49 @@ export default function DashboardBookingsPage() {
   }, [loadList]);
 
   useEffect(() => {
+    if (!token || !drawerOpen || !detail || staffChangeType !== "RESCHEDULE") {
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(staffChangeDate)) {
+      return;
+    }
+    let cancelled = false;
+    setStaffChangeSlotsLoading(true);
+    void getDashboardSlots(token, detail.branchId, {
+      dateFrom: staffChangeDate,
+      dateTo: staffChangeDate,
+      page: 1,
+      pageSize: 100,
+    })
+      .then((res) => {
+        if (!cancelled) {
+          setStaffChangeSlots(res.data);
+          const firstOther = res.data.find((s) => s.id !== detail.slotId)?.id ?? "";
+          setStaffChangeSlotId((prev) => {
+            if (prev && res.data.some((s) => s.id === prev && s.id !== detail.slotId)) {
+              return prev;
+            }
+            return firstOther;
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStaffChangeSlots([]);
+          setStaffChangeSlotId("");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setStaffChangeSlotsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, drawerOpen, detail, staffChangeType, staffChangeDate]);
+
+  useEffect(() => {
     if (!drawerOpen) {
       return;
     }
@@ -404,6 +632,101 @@ export default function DashboardBookingsPage() {
       window.removeEventListener("keydown", onEscape);
     };
   }, [drawerOpen]);
+
+  useEffect(() => {
+    if (!token || !canRead || consumedBookingFromUrlRef.current) {
+      return;
+    }
+    const raw = searchParams.get("bookingId")?.trim() ?? "";
+    if (!raw || raw.length < 32) {
+      return;
+    }
+    consumedBookingFromUrlRef.current = true;
+    setDrawerOpen(true);
+    setSelectedBookingId(raw);
+    void loadDetailRef.current(raw);
+    router.replace("/dashboard/bookings", { scroll: false });
+  }, [canRead, router, searchParams, token]);
+
+  async function submitStaffChangeRequest() {
+    if (!token || !selectedBookingId || !staffChangeType) {
+      return;
+    }
+    setStaffChangeSubmitting(true);
+    setStaffChangeError("");
+    setStaffChangeSuccess("");
+    try {
+      if (staffChangeType === "RESCHEDULE") {
+        if (!staffChangeSlotId) {
+          setStaffChangeError("Select a target slot for reschedule.");
+          return;
+        }
+        await postDashboardCreateBookingChangeRequest(token, selectedBookingId, {
+          requestType: "RESCHEDULE",
+          requestedSlotId: staffChangeSlotId,
+          reason: staffChangeReason.trim() || undefined,
+        });
+      } else {
+        await postDashboardCreateBookingChangeRequest(token, selectedBookingId, {
+          requestType: "CANCEL",
+          reason: staffChangeReason.trim() || undefined,
+        });
+      }
+      setStaffChangeSuccess(
+        "Request recorded. A user with cancel or reschedule permission can approve it from Change Requests.",
+      );
+      setStaffChangeType("");
+      setStaffChangeReason("");
+      await loadList();
+    } catch (requestError) {
+      setStaffChangeError(formatApiError(requestError));
+    } finally {
+      setStaffChangeSubmitting(false);
+    }
+  }
+
+  async function removeItem(itemId: string, itemName: string) {
+    if (!token || !detail) {
+      return;
+    }
+    const confirmed = await confirm({
+      title: "Remove line item?",
+      message: `Remove “${itemName}” from this booking? Pricing will be recalculated automatically.`,
+      tone: "danger",
+      confirmLabel: "Remove",
+      cancelLabel: "Cancel",
+    });
+    if (!confirmed) {
+      return;
+    }
+    setRemovingItemId(itemId);
+    setActionError("");
+    try {
+      await deleteDashboardBookingItem(token, detail.id, itemId);
+      await Promise.all([loadList(), loadDetail(detail.id)]);
+    } catch (requestError) {
+      setActionError(formatApiError(requestError));
+    } finally {
+      setRemovingItemId("");
+    }
+  }
+
+  async function checkInToQueue() {
+    if (!token || !detail) {
+      return;
+    }
+    setCheckInLoading(true);
+    setActionError("");
+    try {
+      await postDashboardBookingQueueCheckIn(token, detail.id);
+      await loadDetail(detail.id);
+      await loadList();
+    } catch (requestError) {
+      setActionError(formatApiError(requestError));
+    } finally {
+      setCheckInLoading(false);
+    }
+  }
 
   async function triggerAction(action: DrawerAction) {
     if (!token || !selectedBookingId) {
@@ -464,9 +787,21 @@ export default function DashboardBookingsPage() {
         <header className="rounded-2xl bg-white/90 p-6 shadow-[0_8px_30px_rgba(31,36,32,0.05)] ring-1 ring-[#E8E0D4]/70 md:p-8">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-semibold tracking-tight text-[#1F2420] md:text-3xl">Bookings</h1>
-                <Sparkles className="h-5 w-5 text-[#B9974A]" strokeWidth={1.75} aria-hidden />
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-semibold tracking-tight text-[#1F2420] md:text-3xl">Bookings</h1>
+                  <Sparkles className="h-5 w-5 text-[#B9974A]" strokeWidth={1.75} aria-hidden />
+                </div>
+                {canCreateBooking ? (
+                  <button
+                    type="button"
+                    onClick={() => setCreateDialogOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA] shadow-sm transition hover:bg-[#0A3F35]"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden />
+                    New booking
+                  </button>
+                ) : null}
               </div>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[#7A6A58] md:text-base">
                 Manage appointment requests, confirmations, arrivals, and completion.
@@ -567,7 +902,11 @@ export default function DashboardBookingsPage() {
                   value={dateFrom}
                   onChange={(event) => {
                     setPage(1);
-                    setDateFrom(event.target.value);
+                    const nextFrom = event.target.value;
+                    setDateFrom(nextFrom);
+                    if (nextFrom && dateTo && dateTo < nextFrom) {
+                      setDateTo(nextFrom);
+                    }
                   }}
                   className="w-full rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-3 py-2.5 text-sm text-[#1F2420] shadow-sm outline-none transition focus:border-[#B9974A]/50"
                 />
@@ -579,6 +918,7 @@ export default function DashboardBookingsPage() {
                 <input
                   type="date"
                   value={dateTo}
+                  min={dateFrom || undefined}
                   onChange={(event) => {
                     setPage(1);
                     setDateTo(event.target.value);
@@ -926,9 +1266,7 @@ export default function DashboardBookingsPage() {
                         Appointment
                       </div>
                       <p className="mt-2 text-sm font-medium text-[#1F2420]">
-                        {detail.slot
-                          ? `${detail.slot.date} · ${formatWallClockRange12h(detail.slot.startTime, detail.slot.endTime)}`
-                          : `Slot ID: ${detail.slotId}`}
+                        {formatAppointmentFromDetail(detail)}
                       </p>
                       <p className="mt-1 text-xs text-[#7A6A58]">
                         Created {formatDateTimeAmPm(detail.createdAt)} · Updated{" "}
@@ -954,20 +1292,127 @@ export default function DashboardBookingsPage() {
                       {detail.items.length === 0 ? (
                         <p className="mt-2 text-sm text-[#7A6A58]">No items on this booking.</p>
                       ) : (
-                        <ul className="mt-3 space-y-2">
-                          {detail.items.map((item) => (
-                            <li
-                              key={item.id}
-                              className="rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] px-3 py-2.5"
-                            >
-                              <p className="text-sm font-medium text-[#1F2420]">{item.nameSnapshot}</p>
-                              <p className="mt-1 text-xs text-[#7A6A58]">
-                                {item.itemType} · Qty {item.quantity} · {formatEGP(item.priceSnapshot)} ·{" "}
-                                {item.durationMinutesSnapshot} min
-                              </p>
-                            </li>
-                          ))}
-                        </ul>
+                        (() => {
+                          const removeBlockedByStatus = ["CANCELLED", "REJECTED", "COMPLETED", "NO_SHOW"].includes(
+                            detail.status,
+                          );
+                          const removeBlockedByInvoice = Boolean(detail.finalizedInvoice);
+                          const removeBlockedByLastItem = detail.items.length <= 1;
+                          const canRemoveAny =
+                            canUpdate && !removeBlockedByStatus && !removeBlockedByInvoice && !removeBlockedByLastItem;
+                          return (
+                            <>
+                              <ul className="mt-3 space-y-2">
+                                {detail.items.map((item) => {
+                                  const lineSt = item.lineStatus ?? "PENDING";
+                                  const sid = catalogServiceIdForLine(item);
+                                  const showLineOps =
+                                    isBookableServiceLine(item) &&
+                                    Boolean(sid) &&
+                                    !["CANCELLED", "REJECTED", "COMPLETED", "NO_SHOW"].includes(detail.status);
+                                  return (
+                                    <li
+                                      key={item.id}
+                                      className="flex flex-col gap-2 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] px-3 py-2.5"
+                                    >
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <p className="text-sm font-medium text-[#1F2420]">{item.nameSnapshot}</p>
+                                          <p className="mt-1 text-xs text-[#7A6A58]">
+                                            {item.itemType} · Qty {item.quantity} · {formatEGP(item.priceSnapshot)} ·{" "}
+                                            {item.durationMinutesSnapshot} min
+                                          </p>
+                                          {showLineOps ? (
+                                            <p className="mt-1 text-xs text-[#5C5348]">
+                                              <span className="font-medium">Line status:</span> {lineSt}
+                                              {item.staffDisplayName ? (
+                                                <>
+                                                  {" "}
+                                                  · <span className="font-medium">Staff:</span> {item.staffDisplayName}
+                                                </>
+                                              ) : null}
+                                              {item.startedAt ? (
+                                                <>
+                                                  {" "}
+                                                  · Started {formatDateTimeAmPm(item.startedAt)}
+                                                </>
+                                              ) : null}
+                                              {item.completedAt ? (
+                                                <>
+                                                  {" "}
+                                                  · Completed {formatDateTimeAmPm(item.completedAt)}
+                                                </>
+                                              ) : null}
+                                            </p>
+                                          ) : null}
+                                        </div>
+                                        {canUpdate ? (
+                                          <button
+                                            type="button"
+                                            aria-label={`Remove ${item.nameSnapshot}`}
+                                            onClick={() => void removeItem(item.id, item.nameSnapshot)}
+                                            disabled={
+                                              !canRemoveAny ||
+                                              removingItemId === item.id ||
+                                              removingItemId !== "" ||
+                                              actionLoading !== null
+                                            }
+                                            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#E7B9A4]/80 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#8B4428] shadow-sm transition hover:bg-[#FFF1EC] disabled:cursor-not-allowed disabled:opacity-40"
+                                          >
+                                            {removingItemId === item.id ? (
+                                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                                            ) : (
+                                              <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                                            )}
+                                            Remove
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                      {showLineOps ? (
+                                        <div className="flex flex-wrap gap-2 border-t border-[#F0EBE3] pt-2">
+                                          {lineSt === "PENDING" && canStartServiceLine ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setLineStartError("");
+                                                setLineStartItemId(item.id);
+                                              }}
+                                              className="inline-flex items-center rounded-lg border border-[#062A2D]/30 bg-[#EEF6F3] px-2.5 py-1.5 text-[11px] font-semibold text-[#0A3F35] hover:bg-[#E2F0EC]"
+                                            >
+                                              Start service
+                                            </button>
+                                          ) : null}
+                                          {lineSt === "IN_PROGRESS" && canCompleteServiceLine ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => void completeBookingLine(item.id)}
+                                              disabled={lineCompleteBusyId === item.id}
+                                              className="inline-flex items-center rounded-lg bg-[#062A2D] px-2.5 py-1.5 text-[11px] font-semibold text-[#F6F2EA] disabled:opacity-50"
+                                            >
+                                              {lineCompleteBusyId === item.id ? (
+                                                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                                              ) : null}
+                                              Complete service
+                                            </button>
+                                          ) : null}
+                                        </div>
+                                      ) : null}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                              {canUpdate && !canRemoveAny ? (
+                                <p className="mt-2 text-[11px] leading-relaxed text-[#B5A896]">
+                                  {removeBlockedByStatus
+                                    ? "Items are locked: this booking is in a terminal status."
+                                    : removeBlockedByInvoice
+                                      ? "Items are locked: a finalized invoice exists for this booking."
+                                      : "At least one item must remain — cancel the booking instead of removing the last item."}
+                                </p>
+                              ) : null}
+                            </>
+                          );
+                        })()
                       )}
                       <p className="mt-2 text-xs text-[#B5A896]">Summary: {summarizeBookingItems(detail)}</p>
                     </section>
@@ -1011,6 +1456,24 @@ export default function DashboardBookingsPage() {
                           </dd>
                         </div>
                       </dl>
+                      {detail.finalizedInvoice ? (
+                        <div className="mt-3 border-t border-[#F0EBE3] pt-3">
+                          <p className="text-xs text-[#7A6A58]">
+                            Finalized invoice:{" "}
+                            <span className="font-semibold text-[#1F2420]">
+                              {detail.finalizedInvoice.invoiceNumber}
+                            </span>
+                          </p>
+                          <Link
+                            href={`/dashboard/invoices/${detail.finalizedInvoice.id}/receipt`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 inline-flex items-center rounded-xl border border-[#062A2D]/35 bg-white px-3 py-1.5 text-xs font-semibold text-[#062A2D] shadow-sm transition hover:bg-[#F7FBFA]"
+                          >
+                            Print Receipt
+                          </Link>
+                        </div>
+                      ) : null}
                     </section>
 
                     <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
@@ -1025,6 +1488,106 @@ export default function DashboardBookingsPage() {
                         <span className="font-medium text-[#1F2420]">Internal:</span> {detail.adminNotes || "—"}
                       </p>
                     </section>
+
+                    {canUpdate ? (
+                      <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
+                        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                          <ListTodo className="h-4 w-4 text-[#B9974A]" aria-hidden />
+                          Change request (queue)
+                        </div>
+                        <p className="mt-1 text-xs leading-relaxed text-[#B5A896]">
+                          Record a pending cancellation or reschedule for this client. It appears on{" "}
+                          <Link
+                            href="/dashboard/booking-change-requests"
+                            className="font-semibold text-[#062A2D] underline-offset-2 hover:underline"
+                          >
+                            Change Requests
+                          </Link>{" "}
+                          until someone with the right permission approves it.
+                        </p>
+                        <label className="mt-3 block text-xs font-medium text-[#7A6A58]">Request type</label>
+                        <select
+                          value={staffChangeType}
+                          onChange={(e) =>
+                            setStaffChangeType(e.target.value as "" | "CANCEL" | "RESCHEDULE")
+                          }
+                          className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50"
+                        >
+                          <option value="">Choose…</option>
+                          <option value="CANCEL">Cancellation</option>
+                          <option value="RESCHEDULE">Reschedule</option>
+                        </select>
+                        {staffChangeType === "RESCHEDULE" ? (
+                          <div className="mt-3 space-y-2">
+                            <label className="block text-xs font-medium text-[#7A6A58]">Target date</label>
+                            <input
+                              type="date"
+                              value={staffChangeDate}
+                              onChange={(e) => setStaffChangeDate(e.target.value)}
+                              className="w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-[#B9974A]/50"
+                            />
+                            <label className="block text-xs font-medium text-[#7A6A58]">Target slot</label>
+                            <select
+                              value={staffChangeSlotId}
+                              onChange={(e) => setStaffChangeSlotId(e.target.value)}
+                              disabled={staffChangeSlotsLoading || staffChangeSlots.length === 0}
+                              className="w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-[#B9974A]/50 disabled:opacity-60"
+                            >
+                              <option value="">
+                                {staffChangeSlotsLoading
+                                  ? "Loading…"
+                                  : staffChangeSlots.length === 0
+                                    ? "No slots"
+                                    : "Select slot"}
+                              </option>
+                              {staffChangeSlots
+                                .filter((s) => s.id !== detail.slotId)
+                                .map((s) => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.date}{" "}
+                                    {formatWallClockRange12h(s.startTime, s.endTime, " – ")} ({s.status})
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        ) : null}
+                        <label className="mt-3 block text-xs font-medium text-[#7A6A58]">
+                          Reason / notes (optional)
+                        </label>
+                        <textarea
+                          value={staffChangeReason}
+                          onChange={(e) => setStaffChangeReason(e.target.value)}
+                          rows={2}
+                          className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-[#B9974A]/50"
+                        />
+                        <button
+                          type="button"
+                          disabled={
+                            staffChangeSubmitting ||
+                            !staffChangeType ||
+                            (staffChangeType === "RESCHEDULE" && !staffChangeSlotId)
+                          }
+                          onClick={() => void submitStaffChangeRequest()}
+                          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-3 py-2 text-sm font-semibold text-[#062A2D] shadow-sm transition hover:border-[#B9974A]/45 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {staffChangeSubmitting ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                          ) : null}
+                          Submit change request
+                        </button>
+                        {staffChangeError ? (
+                          <p className="mt-2 flex gap-2 text-sm text-[#8B4428]">
+                            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
+                            {staffChangeError}
+                          </p>
+                        ) : null}
+                        {staffChangeSuccess ? (
+                          <p className="mt-2 rounded-xl border border-[#0E342B]/20 bg-[#E8F2EE] px-3 py-2 text-sm text-[#0E342B]">
+                            {staffChangeSuccess}
+                          </p>
+                        ) : null}
+                      </section>
+                    ) : null}
 
                     <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
@@ -1085,20 +1648,48 @@ export default function DashboardBookingsPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => void triggerAction("mark-completed")}
-                              disabled={actionLoading !== null}
-                              className={primaryActionClass}
-                            >
-                              Completed
-                            </button>
-                            <button
-                              type="button"
                               onClick={() => void triggerAction("mark-no-show")}
                               disabled={actionLoading !== null}
                               className={dangerOutlineClass}
                             >
                               No-show
                             </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {detail &&
+                      canQueueManage &&
+                      canProgress &&
+                      ["CONFIRMED", "RESCHEDULED", "ARRIVED"].includes(detail.status) ? (
+                        <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
+                          <p className="text-xs font-semibold text-[#1F2420]">Queue</p>
+                          <p className="mt-1 text-[0.7rem] leading-relaxed text-[#B5A896]">
+                            Adds this booking to the operational queue. Confirmed or rescheduled bookings are also
+                            marked arrived when applicable.
+                          </p>
+                          <div className="mt-2 flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void checkInToQueue()}
+                              disabled={
+                                checkInLoading ||
+                                actionLoading !== null ||
+                                Boolean(detail.activeQueueEntryId)
+                              }
+                              className={secondaryActionClass}
+                            >
+                              {checkInLoading ? "Checking in…" : "Check in to Queue"}
+                            </button>
+                            {detail.activeQueueEntryId ? (
+                              <p className="text-[0.7rem] text-[#7A6A58]">
+                                Already in queue — complete or cancel the visit from{" "}
+                                <Link href="/dashboard/queue" className="font-semibold underline underline-offset-2">
+                                  Queue
+                                </Link>
+                                .
+                              </p>
+                            ) : null}
                           </div>
                         </div>
                       ) : null}
@@ -1214,8 +1805,85 @@ export default function DashboardBookingsPage() {
                   </div>
                 ) : null}
               </div>
+
+              {lineStartItemId && detail ? (
+                <div className="absolute inset-0 z-[60] flex items-center justify-center bg-[#062A2D]/35 p-4 backdrop-blur-[1px]">
+                  <div
+                    className="w-full max-w-md rounded-2xl border border-[#E8E0D4] bg-[#FFFCF7] p-5 shadow-xl"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Assign staff to start service"
+                  >
+                    <h3 className="text-base font-semibold text-[#062A2D]">Start service line</h3>
+                    <p className="mt-1 text-xs text-[#7A6A58]">
+                      {detail.items.find((i) => i.id === lineStartItemId)?.nameSnapshot ?? "Service"}
+                    </p>
+                    {lineStartLoading ? (
+                      <p className="mt-4 flex items-center gap-2 text-sm text-[#7A6A58]">
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        Loading qualified staff…
+                      </p>
+                    ) : null}
+                    <label className="mt-4 block text-xs font-medium text-[#7A6A58]">
+                      Staff member
+                      <select
+                        className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm"
+                        value={lineStartStaffPick}
+                        onChange={(e) => setLineStartStaffPick(e.target.value)}
+                      >
+                        <option value="">Select…</option>
+                        {lineStartStaffOptions.map((s) => (
+                          <option key={s.staffProfileId} value={s.staffProfileId}>
+                            {s.displayName} ({s.status}
+                            {s.reason ? ` — ${s.reason}` : ""})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {lineStartError ? (
+                      <p className="mt-3 flex gap-2 rounded-xl border border-[#E7B9A4]/70 bg-[#FFF1EC] px-3 py-2 text-xs text-[#8B4428]">
+                        <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
+                        {lineStartError}
+                      </p>
+                    ) : null}
+                    <div className="mt-5 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLineStartItemId(null)}
+                        className="rounded-xl border border-[#E8E0D4] bg-white px-4 py-2 text-sm font-semibold text-[#1F2420]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={lineStartSubmitting || lineStartLoading || !lineStartStaffPick}
+                        onClick={() => void submitLineStartService()}
+                        className="rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA] disabled:opacity-50"
+                      >
+                        {lineStartSubmitting ? "Starting…" : "Start with selected staff"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </aside>
           </div>
+        ) : null}
+
+        {token && canCreateBooking ? (
+          <DashboardCreateBookingDialog
+            open={createDialogOpen}
+            onClose={() => setCreateDialogOpen(false)}
+            token={token}
+            branches={branches}
+            initialBranchId={branchId || user?.branchId || branches[0]?.id || ""}
+            branchSelectDisabled={!canAccessMultipleBranches}
+            onCreated={(created) => {
+              setCreateDialogOpen(false);
+              void loadList();
+              openDrawer(created.id);
+            }}
+          />
         ) : null}
       </section>
     </PermissionGuard>

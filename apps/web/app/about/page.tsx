@@ -7,6 +7,13 @@ import { AboutFeatureCard } from "@/components/about/about-feature-card";
 import { AboutPhilosophyCard } from "@/components/about/about-philosophy-card";
 import { AboutTeamCard } from "@/components/about/about-team-card";
 import { getAboutPageContent } from "@/lib/site-content-about";
+import {
+  mergeAboutBotanicalImageUrl,
+  mergeAboutPageContent,
+  mergeAboutPhilosophyImageUrl,
+  mergeAboutTeamRows,
+  mergeAboutWhyRows,
+} from "@/lib/website-public-merge";
 import { getPublicGallery, getPublicSiteContent, type PublicSiteContent } from "@/lib/api/public";
 
 const ABOUT_BOTANICAL_FILENAMES = [
@@ -29,11 +36,6 @@ const DEDICATED_EXPERIENCE_FILENAMES = [
   "home-experience.jpeg",
   "home-experience.png",
 ] as const;
-
-const STOCK_BOTANICAL =
-  "https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=1400&q=80";
-const STOCK_MASSAGE =
-  "https://images.unsplash.com/photo-1600334129128-685c5582fd35?auto=format&fit=crop&w=1400&q=80";
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -72,22 +74,25 @@ function galleryUrlsByFeaturedFirst(
 
 const MVP_TEAM = [
   {
+    initial: "G",
+    name: "Ghada AlRouby",
+    title: "Founder & Salon Expert",
+    specialization:
+      "Over 20 years of experience in salon management and hair services, leading AlRouby with expertise, care, and a refined beauty vision.",
+  },
+  {
     initial: "S",
-    name: "Sarah Anderson",
-    title: "Master Aesthetician",
-    specialization: "Facials & skin treatments",
+    name: "Shorouk Ayman",
+    title: "Architect & Design Visionary",
+    specialization:
+      "The architect behind AlRouby's elegant atmosphere, shaping the space with warmth, comfort, and premium design details.",
   },
   {
-    initial: "M",
-    name: "Michael Rivera",
-    title: "Senior Massage Therapist",
-    specialization: "Therapeutic & relaxation massage",
-  },
-  {
-    initial: "E",
-    name: "Elena Marchetti",
-    title: "Lead Nail Artist",
-    specialization: "Manicures & artistic finishes",
+    initial: "P",
+    name: "Paulette Daw",
+    title: "Branch Manager & Skin Care Specialist",
+    specialization:
+      "Experienced in branch management, skin care, and facial treatments, bringing professional care and attention to every client visit.",
   },
 ] as const;
 
@@ -113,6 +118,13 @@ const WHY_ITEMS = [
     icon: Award,
   },
 ] as const;
+
+const ABOUT_ICONS: Record<string, typeof Leaf> = {
+  Leaf,
+  Users,
+  Sparkles,
+  Award,
+};
 
 export async function generateMetadata(): Promise<Metadata> {
   let title = "About | Alrouby Salon & Spa";
@@ -140,18 +152,59 @@ export default async function AboutPage() {
 
   const siteContent: PublicSiteContent | null =
     siteContentResult.status === "fulfilled" ? siteContentResult.value : null;
-  const content = getAboutPageContent(siteContent);
+  const content = mergeAboutPageContent(siteContent, getAboutPageContent(siteContent));
+  const whyFromCms = mergeAboutWhyRows(siteContent);
+  const whyItems =
+    whyFromCms === null
+      ? WHY_ITEMS.map((item) => ({
+          title: item.title,
+          description: item.description,
+          Icon: item.icon,
+        }))
+      : whyFromCms.length === 0
+        ? []
+        : whyFromCms.map((item) => ({
+            title: item.title,
+            description: item.description,
+            Icon: ABOUT_ICONS[item.iconKey] ?? Leaf,
+          }));
+  const teamFromCms = mergeAboutTeamRows(siteContent);
+  const teamMembers =
+    teamFromCms === null
+      ? MVP_TEAM.map((m) => ({ ...m, imageUrl: null as string | null }))
+      : teamFromCms.length === 0
+        ? []
+        : teamFromCms.map((m) => ({
+            initial: m.initial,
+            name: m.name,
+            title: m.title,
+            specialization: m.specialization,
+            imageUrl: m.imageUrl ?? null,
+          }));
 
   const galleryItems = galleryResult.status === "fulfilled" ? galleryResult.value.data : [];
   const pool = galleryUrlsByFeaturedFirst(galleryItems);
 
+  const about = asRecord(siteContent?.aboutSection);
+  const cmsStoryImage =
+    readString(about.storyImageUrl) ?? readString(about.botanicalImageUrl);
+  const cmsBotanicalFromWebsite = mergeAboutBotanicalImageUrl(siteContent);
+  const cmsPhilosophyFromWebsite = mergeAboutPhilosophyImageUrl(siteContent);
+
   const botanicalImage =
+    cmsBotanicalFromWebsite ??
+    cmsStoryImage ??
     resolveBrandImageUrl(ABOUT_BOTANICAL_FILENAMES) ??
     resolveBrandImageUrl(DEDICATED_EXPERIENCE_FILENAMES) ??
     pool[0] ??
-    STOCK_BOTANICAL;
+    null;
   const philosophyImage =
-    resolveBrandImageUrl(ABOUT_PHILOSOPHY_FILENAMES) ?? pool[1] ?? pool[0] ?? STOCK_MASSAGE;
+    cmsPhilosophyFromWebsite ??
+    readString(about.philosophyImageUrl) ??
+    resolveBrandImageUrl(ABOUT_PHILOSOPHY_FILENAMES) ??
+    pool[1] ??
+    pool[0] ??
+    null;
 
   return (
     <div className="bg-[#faf7f0] text-[#1f2420]">
@@ -174,12 +227,19 @@ export default async function AboutPage() {
         <section aria-labelledby="about-botanical-heading">
           <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
             <div className="order-2 overflow-hidden rounded-2xl border border-[#e8dbc4] bg-[#f3ebdd] shadow-[0_22px_40px_rgba(26,40,28,0.14)] lg:order-1">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={botanicalImage}
-                alt="Botanical spa setting with oils, towels, and natural greenery"
-                className="aspect-[4/5] w-full object-cover sm:aspect-[5/6] lg:min-h-[420px]"
-              />
+              {botanicalImage ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={botanicalImage}
+                  alt="Botanical spa setting with oils, towels, and natural greenery"
+                  className="aspect-[4/5] w-full object-cover sm:aspect-[5/6] lg:min-h-[420px]"
+                />
+              ) : (
+                <div
+                  className="aspect-[4/5] w-full bg-gradient-to-br from-[#e8dcc4] to-[#d4c4a8] sm:aspect-[5/6] lg:min-h-[420px]"
+                  aria-hidden
+                />
+              )}
             </div>
             <div className="order-1 lg:order-2">
               <h2
@@ -213,14 +273,16 @@ export default async function AboutPage() {
             </p>
           </div>
           <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
-            {WHY_ITEMS.map((item) => (
+            {whyItems.length === 0 ? null : (
+            whyItems.map((item) => (
               <AboutFeatureCard
                 key={item.title}
-                icon={item.icon}
+                icon={item.Icon}
                 title={item.title}
                 description={item.description}
               />
-            ))}
+            ))
+            )}
           </div>
         </section>
 
@@ -238,37 +300,56 @@ export default async function AboutPage() {
               </div>
             </div>
             <div className="overflow-hidden rounded-2xl border border-[#e8dbc4] shadow-[0_22px_40px_rgba(26,40,28,0.14)]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={philosophyImage}
-                alt="Therapeutic massage emphasizing relaxation and skilled touch"
-                className="h-full min-h-[280px] w-full object-cover sm:min-h-[360px] lg:min-h-full"
-              />
+              {philosophyImage ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={philosophyImage}
+                  alt="Therapeutic massage emphasizing relaxation and skilled touch"
+                  className="h-full min-h-[280px] w-full object-cover sm:min-h-[360px] lg:min-h-full"
+                />
+              ) : (
+                <div
+                  className="min-h-[280px] w-full bg-gradient-to-br from-[#e8dcc4] to-[#d4c4a8] sm:min-h-[360px] lg:min-h-full"
+                  aria-hidden
+                />
+              )}
             </div>
           </div>
         </section>
 
-        <section aria-labelledby="about-experts-heading">
-          <div className="text-center">
-            <h2 id="about-experts-heading" className="font-heading text-3xl text-primary sm:text-4xl">
-              {content.expertsHeading}
-            </h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-[#5f6c61] sm:text-base">
-              {content.expertsSubheading}
-            </p>
-          </div>
-          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {MVP_TEAM.map((member) => (
-              <AboutTeamCard
-                key={member.name}
-                initial={member.initial}
-                name={member.name}
-                title={member.title}
-                specialization={member.specialization}
-              />
-            ))}
+        {teamMembers.length > 0 ? (
+        <section aria-labelledby="about-experts-heading" className="scroll-mt-24">
+          <div className="mx-auto w-full max-w-[1180px]">
+            <div className="text-center">
+              <p className="mx-auto inline-flex items-center gap-2 rounded-full border border-[#dcc9a5] bg-[#f8efdd] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#a4782f]">
+                <Users className="h-3.5 w-3.5 text-[#b9974a]" aria-hidden />
+                {content.expertsEyebrow}
+              </p>
+              <h2
+                id="about-experts-heading"
+                className="mx-auto mt-6 max-w-3xl font-heading text-3xl leading-tight text-primary sm:text-4xl"
+              >
+                {content.expertsHeading}
+              </h2>
+              <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-[#5f6c61] sm:text-base">
+                {content.expertsSubheading}
+              </p>
+            </div>
+            <div className="mt-10 grid auto-rows-fr grid-cols-1 gap-8 lg:grid-cols-3 lg:gap-x-10 lg:gap-y-8">
+              {teamMembers.map((member) => (
+                <AboutTeamCard
+                  key={member.name}
+                  initial={member.initial}
+                  name={member.name}
+                  title={member.title}
+                  specialization={member.specialization}
+                  imageUrl={member.imageUrl}
+                />
+              ))}
+            </div>
           </div>
         </section>
+        ) : null}
       </div>
     </div>
   );

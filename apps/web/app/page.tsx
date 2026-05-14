@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Users,
 } from "lucide-react";
 import fs from "node:fs";
 import path from "node:path";
@@ -23,8 +24,16 @@ import {
   getPublicServices,
   getPublicSiteContent,
   getPublicTestimonials,
+  type PublicService,
   type PublicSiteContent,
 } from "@/lib/api/public";
+import {
+  mergeHomeExperience,
+  mergeHomeFooterStrip,
+  mergeHomeHero,
+  mergeHomeWellnessCta,
+  mergeHomeWhyChoose,
+} from "@/lib/website-public-merge";
 import { formatEgp } from "@/lib/format/currency";
 
 /** First filename match wins. Files live under apps/web/public/brand/. */
@@ -78,27 +87,19 @@ function getErrorMessage(reason: unknown): string {
   return "Unable to load this section right now.";
 }
 
-function getHeroData(siteContent: PublicSiteContent | null) {
-  const hero = asRecord(siteContent?.homeHero);
-  return {
-    heading: readString(hero.heading) ?? "Premium Beauty & Wellness Experience",
-    subheading:
-      readString(hero.subheading) ??
-      "Explore services, packages, and bundles, then submit your booking request with confidence.",
-    ctaLabel: readString(hero.ctaLabel) ?? "Book Appointment",
-    secondaryCtaLabel: readString(hero.secondaryCtaLabel) ?? "View Services",
-  };
-}
+const HOME_ICONS: Record<string, LucideIcon> = {
+  Leaf,
+  Crown,
+  ShieldCheck,
+  Award,
+  Sparkles,
+  Gem,
+  Clock3,
+  Users,
+};
 
 function getImagePool(galleryUrls: string[], serviceUrls: string[], packageUrls: string[]) {
-  const merged = [...galleryUrls, ...serviceUrls, ...packageUrls];
-  return merged.length > 0
-    ? merged
-    : [
-        "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1519823551278-64ac92734fb1?auto=format&fit=crop&w=1200&q=80",
-        "https://images.unsplash.com/photo-1520483601560-389dff434fdf?auto=format&fit=crop&w=1200&q=80",
-      ];
+  return [...galleryUrls, ...serviceUrls, ...packageUrls].filter(Boolean);
 }
 
 function formatServicePriceLabel(basePrice: number | null) {
@@ -139,12 +140,14 @@ export default async function HomePage() {
   const [
     siteContentResult,
     servicesResult,
+    featuredServicesResult,
     packagesResult,
     galleryResult,
     testimonialsResult,
   ] = await Promise.allSettled([
     getPublicSiteContent(),
-    getPublicServices(),
+    getPublicServices({ pageSize: 100 }),
+    getPublicServices({ pageSize: 24, isFeatured: true }),
     getPublicPackages(),
     getPublicGallery(),
     getPublicTestimonials(),
@@ -152,16 +155,29 @@ export default async function HomePage() {
 
   const siteContent =
     siteContentResult.status === "fulfilled" ? siteContentResult.value : null;
-  const hero = getHeroData(siteContent);
+  const hero = mergeHomeHero(siteContent);
+  const whyChoose = mergeHomeWhyChoose(siteContent);
+  const experienceBlock = mergeHomeExperience(siteContent);
+  const wellnessCta = mergeHomeWellnessCta(siteContent);
+  const homeFooterLine = mergeHomeFooterStrip(siteContent).line;
   const social = getSocialLinks(siteContent);
   const services = servicesResult.status === "fulfilled" ? servicesResult.value.data : [];
+  const featuredServicesPool =
+    featuredServicesResult.status === "fulfilled" ? featuredServicesResult.value.data : [];
   const packages = packagesResult.status === "fulfilled" ? packagesResult.value.data : [];
   const gallery = galleryResult.status === "fulfilled" ? galleryResult.value.data : [];
   const testimonials =
     testimonialsResult.status === "fulfilled" ? testimonialsResult.value.data : [];
 
-  const serviceCards = services.slice(0, 4);
-  const packageCards = packages.slice(0, 3);
+  function sortServicesForDisplay(a: PublicService, b: PublicService): number {
+    if (a.displayOrder !== b.displayOrder) return a.displayOrder - b.displayOrder;
+    return a.name.localeCompare(b.name);
+  }
+
+  const visibleServices =
+    featuredServicesPool.length > 0
+      ? [...featuredServicesPool].sort(sortServicesForDisplay).slice(0, 4)
+      : services.slice(0, 4);
 
   const imagePool = getImagePool(
     gallery.map((item) => item.imageUrl).filter(Boolean),
@@ -169,71 +185,18 @@ export default async function HomePage() {
     packages.map((item) => item.imageUrl).filter((url): url is string => Boolean(url)),
   );
 
-  const heroImage = getDedicatedHeroImageUrl() ?? imagePool[0];
-  const experienceSectionImage = getDedicatedExperienceImageUrl() ?? imagePool[1] ?? heroImage;
-  const serviceFallbackNames = [
-    "Botanical Facial",
-    "Signature Massage",
-    "Luxury Manicure",
-    "Hot Stone Therapy",
-  ];
-  const packageFallback = [
-    { name: "Essential Escape", price: 5600 },
-    { name: "Royal Retreat", price: 9600 },
-    { name: "Botanical Bliss", price: 7600 },
-  ] as const;
+  /** CMS / gallery-attached hero wins over static brand files so dashboard “attach to hero” updates the site. */
+  const heroImageSrc =
+    hero.heroImageUrl ?? getDedicatedHeroImageUrl() ?? imagePool[0] ?? null;
+  const experienceSectionImageSrc =
+    (experienceBlock.visible ? experienceBlock.imageUrl : null) ??
+    hero.experienceImageUrl ??
+    getDedicatedExperienceImageUrl() ??
+    imagePool[1] ??
+    heroImageSrc ??
+    null;
+  const visiblePackages = packages.slice(0, 3);
   const heroReview = testimonials[0] ?? null;
-  const ratingValue = heroReview?.rating ?? 5;
-  const visibleServices =
-    serviceCards.length > 0
-      ? serviceCards
-      : serviceFallbackNames.map((name, index) => ({
-          id: `fallback-service-${name}`,
-          categoryId: "fallback",
-          name,
-          description: null,
-          imageUrl: imagePool[index % imagePool.length],
-          priceDisplayType: "CONTACT" as const,
-          basePrice: null,
-          basePriceMax: null,
-          durationMinutes: null,
-          currency: "EGP" as const,
-        }));
-
-  const visiblePackages =
-    packageCards.length > 0
-      ? packageCards
-      : packageFallback.map((pkg, index) => ({
-          id: `fallback-package-${pkg.name}`,
-          name: pkg.name,
-          packagePrice: pkg.price,
-          originalPrice: null,
-          description: null,
-          shortDescription: null,
-          imageUrl: imagePool[index % imagePool.length],
-          durationMinutes: null,
-          currency: "EGP" as const,
-          isFeatured: false,
-          badgeLabel: null,
-          features: [],
-        }));
-
-  const benefitItems: Array<{
-    title: string;
-    text: string;
-    icon: LucideIcon;
-  }> = [
-    { title: "Botanical Formulas", text: "High-grade natural actives.", icon: Leaf },
-    { title: "Master Therapists", text: "Certified experts in luxury care.", icon: Crown },
-    { title: "Private Sanctuaries", text: "Quiet treatment suites and calm rituals.", icon: ShieldCheck },
-    { title: "Consistent Excellence", text: "Loved by returning premium guests.", icon: Award },
-  ];
-
-  const microBenefits = [
-    { text: "Personalized rituals", icon: Sparkles },
-    { text: "Premium products", icon: Gem },
-    { text: "Flexible bookings", icon: Clock3 },
-  ];
 
   const serviceLuxurySubtitles = [
     "Tailored glow therapy",
@@ -248,8 +211,8 @@ export default async function HomePage() {
         <div className="mx-auto grid w-full max-w-[1280px] gap-10 px-4 py-16 sm:px-6 md:py-20 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14 lg:px-10 lg:py-24">
           <div className="flex flex-col justify-center">
             <p className="inline-flex w-fit items-center gap-2 rounded-full border border-[#dcc9a5] bg-[#f8efdd] px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#a4782f]">
-              <Sparkles className="h-3.5 w-3.5 text-[#b9974a]" />
-              Botanical Luxury House
+              <Sparkles className="h-3.5 w-3.5 text-[#b9974a]" aria-hidden />
+              {hero.eyebrow}
             </p>
             <h1 className="mt-6 max-w-xl font-heading text-4xl leading-[1.08] text-primary sm:text-5xl lg:text-6xl">
               {hero.heading}
@@ -259,14 +222,14 @@ export default async function HomePage() {
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
-                href="/booking"
+                href={hero.ctaHref}
                 className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-[0_12px_24px_rgba(23,53,31,0.24)] transition-transform hover:-translate-y-0.5"
               >
                 {hero.ctaLabel}
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
-                href="/services"
+                href={hero.secondaryCtaHref}
                 className="inline-flex items-center gap-2 rounded-full border border-[#dcc9a5] bg-[#fffaf0] px-6 py-3 text-sm font-semibold text-primary transition-colors hover:bg-[#f8efdd]"
               >
                 {hero.secondaryCtaLabel}
@@ -274,42 +237,60 @@ export default async function HomePage() {
               </Link>
             </div>
             <div className="mt-8 grid max-w-xl grid-cols-1 gap-3 text-sm text-[#4f5c52] sm:grid-cols-3">
-              {microBenefits.map((benefit) => (
-                <p
-                  key={benefit.text}
-                  className="inline-flex items-center gap-2 rounded-xl border border-[#e8dbc4] bg-[#fff9ef] px-3 py-2"
-                >
-                  <benefit.icon className="h-4 w-4 text-[#b9974a]" />
-                  <span>{benefit.text}</span>
-                </p>
-              ))}
+              {hero.microBenefits.map((benefit) => {
+                const MicIcon = HOME_ICONS[benefit.iconKey] ?? Sparkles;
+                return (
+                  <p
+                    key={benefit.text}
+                    className="inline-flex items-center gap-2 rounded-xl border border-[#e8dbc4] bg-[#fff9ef] px-3 py-2"
+                  >
+                    <MicIcon className="h-4 w-4 text-[#b9974a]" />
+                    <span>{benefit.text}</span>
+                  </p>
+                );
+              })}
             </div>
           </div>
           <div className="relative">
             <div className="overflow-hidden rounded-[2rem] border border-[#e8dbc4] bg-[#f3ebdd] shadow-[0_24px_40px_rgba(26,40,28,0.17)]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={heroImage}
-                alt="Spa treatment room ambiance"
-                className="h-full min-h-[380px] w-full object-cover lg:min-h-[520px]"
-              />
+              {heroImageSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={heroImageSrc}
+                  alt="Spa treatment room ambiance"
+                  className="h-full min-h-[380px] w-full object-cover lg:min-h-[520px]"
+                />
+              ) : (
+                <div
+                  className="flex min-h-[380px] w-full items-center justify-center bg-gradient-to-br from-[#e8dcc4] to-[#d4c4a8] lg:min-h-[520px]"
+                  aria-hidden
+                />
+              )}
             </div>
-            <article className="absolute -bottom-6 left-4 right-4 rounded-2xl border border-[#e7d8bf] bg-[#fffaf1]/95 p-5 shadow-[0_16px_30px_rgba(18,34,22,0.2)] backdrop-blur sm:left-8 sm:right-8">
-              <div className="flex items-center justify-between">
-                <p className="inline-flex items-center gap-1.5 text-sm text-[#a4782f]">
-                  {Array.from({ length: Math.max(1, Math.min(5, ratingValue)) }).map((_, idx) => (
-                    <Star key={`${heroReview?.id ?? "review"}-${idx}`} className="h-4 w-4 fill-[#c79d4a] text-[#c79d4a]" />
-                  ))}
+            {heroReview ? (
+              <article className="absolute -bottom-6 left-4 right-4 rounded-2xl border border-[#e7d8bf] bg-[#fffaf1]/95 p-5 shadow-[0_16px_30px_rgba(18,34,22,0.2)] backdrop-blur sm:left-8 sm:right-8">
+                <div className="flex items-center justify-between">
+                  <p className="inline-flex items-center gap-1.5 text-sm text-[#a4782f]">
+                    {Array.from({
+                      length: Math.max(1, Math.min(5, heroReview.rating)),
+                    }).map((_, idx) => (
+                      <Star
+                        key={`hero-star-${idx}`}
+                        className="h-4 w-4 fill-[#c79d4a] text-[#c79d4a]"
+                      />
+                    ))}
+                  </p>
+                  <Quote className="h-5 w-5 text-[#b9974a]" />
+                </div>
+                <p className="mt-2 text-sm font-medium text-[#314439]">
+                  {heroReview.quote || "A truly serene luxury experience with beautiful service quality."}
                 </p>
-                <Quote className="h-5 w-5 text-[#b9974a]" />
-              </div>
-              <p className="mt-2 text-sm font-medium text-[#314439]">
-                {heroReview?.comment ?? "A truly serene luxury experience with beautiful service quality."}
-              </p>
-              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.11em] text-[#5f6c61]">
-                {heroReview?.clientName ?? "Verified guest"}
-              </p>
-            </article>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.11em] text-[#5f6c61]">
+                  {heroReview.clientName}
+                  {heroReview.clientTitle ? ` · ${heroReview.clientTitle}` : ""}
+                </p>
+              </article>
+            ) : null}
           </div>
         </div>
       </section>
@@ -323,18 +304,47 @@ export default async function HomePage() {
             </p>
           </div>
           <div className="mt-7 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {visibleServices.map((service, index) => (
+            {visibleServices.length === 0 ? (
+              <p className="col-span-full rounded-2xl border border-[#e7d8bf] bg-[#fffdf8] px-6 py-10 text-center text-sm text-[#5f6c61]">
+                Featured services will appear here once they are published in the catalog.
+              </p>
+            ) : (
+              visibleServices.map((service, index) => {
+                const badgeText = service.badgeLabel?.trim() ?? "";
+                return (
               <article
                 key={service.id}
-                className="group overflow-hidden rounded-[1.4rem] border border-[#e7d8bf] bg-[#fff9ef] shadow-[0_14px_30px_rgba(42,62,46,0.12)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_22px_40px_rgba(42,62,46,0.2)]"
+                className={`group overflow-hidden rounded-[1.4rem] border border-[#e7d8bf] bg-[#fff9ef] shadow-[0_14px_30px_rgba(42,62,46,0.12)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_22px_40px_rgba(42,62,46,0.2)] ${
+                  service.isFeatured ? "ring-2 ring-[#d7b87a]/55" : ""
+                }`}
               >
-                <div className="relative aspect-[5/4] overflow-hidden">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={service.imageUrl ?? imagePool[(index + 1) % imagePool.length]}
-                    alt={service.name}
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
+                <div className="relative aspect-[5/4] overflow-hidden bg-gradient-to-br from-[#f3e8d4] to-[#e8dcc4]">
+                  {service.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={service.imageUrl}
+                      alt={
+                        "imageAlt" in service && service.imageAlt
+                          ? service.imageAlt
+                          : service.name
+                      }
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-1 px-4 text-center">
+                      <span className="font-heading text-3xl font-semibold text-primary/35">
+                        {service.name.trim().slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-[#8a6f3e]/90">
+                        Al Rouby
+                      </span>
+                    </div>
+                  )}
+                  {badgeText ? (
+                    <span className="absolute left-3 top-3 max-w-[calc(100%-5rem)] truncate rounded-full border border-[#e2cea9] bg-[#fff8eb]/95 px-3 py-1 text-xs font-semibold text-primary shadow-sm">
+                      {badgeText}
+                    </span>
+                  ) : null}
                   <span className="absolute right-3 top-3 rounded-full border border-[#e2cea9] bg-[#fff8eb]/95 px-3 py-1 text-xs font-semibold text-primary shadow-sm">
                     {formatServicePriceLabel(service.basePrice)}
                   </span>
@@ -346,7 +356,13 @@ export default async function HomePage() {
                       serviceLuxurySubtitles[index % serviceLuxurySubtitles.length]}
                   </p>
                   <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.09em] text-[#a4782f]">
-                    <span>Luxury Ritual</span>
+                    <span>
+                      {badgeText
+                        ? "Luxury Ritual"
+                        : service.isFeatured
+                          ? "Featured"
+                          : "Luxury Ritual"}
+                    </span>
                     {formatDurationLabel(service.durationMinutes) ? (
                       <span className="inline-flex items-center gap-1">
                         <Clock3 className="h-3.5 w-3.5" />
@@ -356,7 +372,9 @@ export default async function HomePage() {
                   </div>
                 </div>
               </article>
-            ))}
+              );
+              })
+            )}
           </div>
           <div className="mt-7 flex justify-center">
             <Link
@@ -376,18 +394,19 @@ export default async function HomePage() {
             </p>
           </div>
           <div className="mt-8 grid gap-5 md:grid-cols-3">
-            {visiblePackages.map((pkg) => {
+            {visiblePackages.length === 0 ? (
+              <p className="col-span-full rounded-2xl border border-[#e7d8bf] bg-[#fffdf8] px-6 py-10 text-center text-sm text-[#5f6c61]">
+                Packages will appear here when they are published in the catalog.
+              </p>
+            ) : (
+              visiblePackages.map((pkg) => {
               const isFeaturedCard = pkg.isFeatured;
               const ribbonLabel = pkg.badgeLabel ?? (isFeaturedCard ? "Featured" : null);
               const trimmedDesc = pkg.description?.trim();
               const blurb =
                 pkg.shortDescription?.trim() ||
-                (trimmedDesc && trimmedDesc.length > 0 ? trimmedDesc.slice(0, 120) : null) ||
-                (pkg.id.startsWith("fallback-package-")
-                  ? "Curated wellness journeys appear here when packages are published."
-                  : null);
+                (trimmedDesc && trimmedDesc.length > 0 ? trimmedDesc.slice(0, 120) : null);
               const durationLabel = formatDurationLabel(pkg.durationMinutes);
-              const isFallback = pkg.id.startsWith("fallback-package-");
               const featureList = pkg.features ?? [];
               return (
                 <article
@@ -428,19 +447,20 @@ export default async function HomePage() {
                     </ul>
                   ) : null}
                   <Link
-                    href={isFallback ? "/packages" : `/booking?packageId=${pkg.id}`}
+                    href={`/booking?packageId=${pkg.id}`}
                     className={`mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition ${
                       isFeaturedCard
                         ? "bg-primary text-primary-foreground hover:opacity-90"
                         : "border border-[#d7c39c] bg-[#fff8eb] text-primary hover:bg-[#f8efdd]"
                     }`}
                   >
-                    {isFallback ? "Explore packages" : "Book Your Escape"}
+                    Book Your Escape
                     <ArrowRight className="h-4 w-4" />
                   </Link>
                 </article>
               );
-            })}
+              })
+            )}
           </div>
           <div className="mt-7 flex justify-center">
             <Link
@@ -452,77 +472,91 @@ export default async function HomePage() {
           </div>
         </section>
 
+        {whyChoose.visible ? (
         <section>
           <div className="text-center">
-            <h2 className="font-heading text-3xl text-primary sm:text-4xl">Why Choose Alrouby</h2>
+            <h2 className="font-heading text-3xl text-primary sm:text-4xl">{whyChoose.title}</h2>
             <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-[#5f6c61] sm:text-base">
-              Boutique standards with a warm, restorative atmosphere.
+              {whyChoose.subtitle}
             </p>
           </div>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {benefitItems.map((benefit) => (
+            {whyChoose.items.map((benefit) => {
+              const BIcon = HOME_ICONS[benefit.iconKey] ?? Leaf;
+              return (
               <article
                 key={benefit.title}
                 className="rounded-2xl border border-[#e7d8bf] bg-[#fff9ef] p-5 shadow-[0_12px_24px_rgba(42,62,46,0.1)]"
               >
                 <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#b9974a] text-[#fffaf1] shadow-[0_8px_14px_rgba(161,122,45,0.28)]">
-                  <benefit.icon className="h-5 w-5" />
+                  <BIcon className="h-5 w-5" />
                 </span>
                 <h3 className="mt-4 font-heading text-xl text-primary">{benefit.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-[#5f6c61]">{benefit.text}</p>
               </article>
-            ))}
+              );
+            })}
           </div>
         </section>
+        ) : null}
 
+        {experienceBlock.visible ? (
         <section className="grid gap-6 rounded-[2rem] border border-[#e6d6ba] bg-[#fff8ec] p-5 shadow-[0_20px_34px_rgba(40,59,44,0.09)] sm:p-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div className="order-2 space-y-4 lg:order-1">
             <p className="inline-flex w-fit rounded-full border border-[#dcc9a5] bg-[#f8efdd] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#a4782f]">
-              The Alrouby Experience
+              {experienceBlock.eyebrow}
             </p>
             <h2 className="font-heading text-3xl leading-tight text-primary sm:text-4xl">
-              Signature Wellness Rituals Crafted Around You
+              {experienceBlock.title}
             </h2>
             <p className="max-w-xl text-sm leading-relaxed text-[#5f6c61] sm:text-base">
-              From your first welcome tea to the final glow reveal, every moment is composed to slow time,
-              restore energy, and elevate your confidence.
+              {experienceBlock.subtitle}
             </p>
             <Link
-              href="/packages"
+              href={experienceBlock.ctaHref}
               className="inline-flex items-center gap-2 rounded-full border border-[#d7c39c] bg-[#fffaf0] px-6 py-3 text-sm font-semibold text-primary transition-colors hover:bg-[#f4ead6]"
             >
-              Discover Signature Rituals
+              {experienceBlock.ctaLabel}
               <ArrowRight className="h-4 w-4 text-[#b9974a]" />
             </Link>
           </div>
           <div className="order-1 overflow-hidden rounded-[1.6rem] border border-[#e8dbc4] shadow-[0_18px_30px_rgba(26,40,28,0.16)] lg:order-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={experienceSectionImage}
-              alt="The Alrouby signature wellness ritual"
-              className="h-[280px] w-full object-cover sm:h-[340px] lg:h-[400px]"
-            />
+            {experienceSectionImageSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={experienceSectionImageSrc}
+                alt="The Alrouby signature wellness ritual"
+                className="h-[280px] w-full object-cover sm:h-[340px] lg:h-[400px]"
+              />
+            ) : (
+              <div
+                className="h-[280px] w-full bg-gradient-to-br from-[#e8dcc4] to-[#d4c4a8] sm:h-[340px] lg:h-[400px]"
+                aria-hidden
+              />
+            )}
           </div>
         </section>
+        ) : null}
 
+        {wellnessCta.visible ? (
         <section className="rounded-[2rem] bg-gradient-to-r from-[#13311d] to-[#1e4728] px-5 py-12 text-center text-[#f9f2e5] shadow-[0_24px_38px_rgba(14,31,20,0.3)] sm:px-10">
-          <h2 className="font-heading text-3xl sm:text-4xl">Ready to Begin Your Wellness Journey?</h2>
+          <h2 className="font-heading text-3xl sm:text-4xl">{wellnessCta.title}</h2>
           <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-[#d5dbc8] sm:text-base">
-            Book your appointment today and experience elevated beauty, calm, and care at Alrouby.
+            {wellnessCta.subtitle}
           </p>
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
             <Link
-              href="/booking"
+              href={wellnessCta.ctaHref}
               className="inline-flex items-center gap-2 rounded-full bg-[#b9974a] px-6 py-3 text-sm font-semibold text-[#fffaf1] transition-opacity hover:opacity-90"
             >
-              Book Appointment
+              {wellnessCta.ctaLabel}
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
-              href="/contact"
+              href={wellnessCta.secondaryCtaHref}
               className="rounded-full border border-[#d8c79f] px-6 py-3 text-sm font-semibold text-[#f9f2e5] transition-colors hover:bg-[#f9f2e5] hover:text-[#17351f]"
             >
-              Contact Us
+              {wellnessCta.secondaryCtaLabel}
             </Link>
           </div>
           {(social.instagram ?? social.facebook) ? (
@@ -540,9 +574,10 @@ export default async function HomePage() {
             </div>
           ) : null}
         </section>
+        ) : null}
         <footer className="rounded-[1.6rem] border border-[#e6d6ba] bg-[#fffaf1] px-5 py-6 text-sm text-[#5f6c61] sm:px-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="font-medium text-[#3f5145]">Alrouby Salon & Spa - Luxury beauty and wellness in Egypt.</p>
+            <p className="font-medium text-[#3f5145]">{homeFooterLine}</p>
             <div className="flex items-center gap-3">
               {social.instagram ? (
                 <a

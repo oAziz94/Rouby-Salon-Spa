@@ -324,7 +324,7 @@ Base path: `/dashboard/bookings`. **Auth:** `Dashboard`. Branch filter automatic
 | Method | Path | Auth | Required permission | Notes |
 |--------|------|------|---------------------|-------|
 | `GET` | `/dashboard/bookings` | Dashboard | `bookings.read` | Query: `branchId`, `status`, `dateFrom`, `dateTo`, `clientId`, `slotId`, pagination. |
-| `GET` | `/dashboard/bookings/{bookingId}` | Dashboard | `bookings.read` | Full detail + items + payments summary per RBAC. |
+| `GET` | `/dashboard/bookings/{bookingId}` | Dashboard | `bookings.read` | Full detail + items + payments summary per RBAC. Includes `activeQueueEntryId` when a `QueueEntry` is **WAITING** or **IN_SERVICE** for this booking. |
 | `POST` | `/dashboard/bookings` | Dashboard | `bookings.create` | Manual booking; body includes `source` (non-WEBSITE), `clientId`, `slotId`, `items[]`. May create **CONFIRMED** or **PENDING** per `/docs/BOOKING_ENGINE_RULES.md` §9; apply `bookedCount` when status counts. |
 | `POST` | `/dashboard/bookings/{bookingId}/confirm` | Dashboard | `bookings.confirm` | PENDING → CONFIRMED; capacity check + optional override per booking engine. |
 | `POST` | `/dashboard/bookings/{bookingId}/reject` | Dashboard | `bookings.reject` | PENDING → REJECTED. |
@@ -338,6 +338,7 @@ Base path: `/dashboard/bookings`. **Auth:** `Dashboard`. Branch filter automatic
 | `POST` | `/dashboard/bookings/{bookingId}/mark-no-show` | Dashboard | `bookings.status.progress` | |
 | `POST` | `/dashboard/bookings/{bookingId}/recalculate-pricing` | Dashboard | `bookings.update` | **Pending only**; refreshes snapshots from catalog; audit `booking.price_recalculated`. |
 | `POST` | `/dashboard/bookings/{bookingId}/discount` | Dashboard | `bookings.discount.apply` | Body: `{ "discountAmount": 50, "reason": "..." }`; audited. |
+| `POST` | `/dashboard/bookings/{bookingId}/check-in` | Dashboard | `queue.manage` **and** `bookings.status.progress` | Eligible booking statuses: **CONFIRMED**, **RESCHEDULED**, **ARRIVED**. Creates `QueueEntry` (**WAITING**, `source=BOOKING`); **CONFIRMED**/**RESCHEDULED** → **ARRIVED** via existing lifecycle. **409** `QUEUE_ACTIVE_FOR_BOOKING` when an active queue row exists. Audit `queue.checked_in_from_booking`. |
 
 **PATCH** `/dashboard/bookings/{bookingId}` — `bookings.update`: non-status fields, `adminNotes`, slot reassignment only if product allows without going through reschedule workflow (default: use reschedule endpoint for slot changes).
 
@@ -354,6 +355,21 @@ Base: `/dashboard/booking-change-requests`. **Auth:** `Dashboard`. List/detail f
 | `POST` | `/dashboard/booking-change-requests/{requestId}/cancel` | Dashboard | `bookings.read` | Sets request `status=CANCELLED` (void/supersede **request** row only; **does not** cancel the booking). `handledByUserId`, `handledAt`. **Audit-log**. |
 
 **Rules:** Approving cancellation executes the same domain outcome as `POST /dashboard/bookings/{bookingId}/cancel` (capacity + status). Approving reschedule executes the same domain outcome as `POST /dashboard/bookings/{bookingId}/reschedule` (including **RESCHEDULED** + `bookedCount` per booking engine). Rejecting leaves the **booking** unchanged. All actions emit **`AuditLog`** rows.
+
+### 5.2 Operational queue (dashboard MVP)
+
+Base path: `/dashboard/queue`. **Branch-scoped.** Multi-branch users must pass **`branchId`**. Same-day operational board: **`Booking`** remains the scheduled appointment; **`QueueEntry`** is the front-desk visit row (see `/docs/DATABASE_SCHEMA.md`). **No** invoice/payment side effects from queue endpoints in this MVP.
+
+| Method | Path | Auth | Required permission | Notes |
+|--------|------|------|---------------------|-------|
+| `GET` | `/dashboard/queue` | Dashboard | `queue.read` | Query: **`date`** (`YYYY-MM-DD`, UTC day boundary; default today), **`branchId`** (when needed), optional **`status`**. Default result set: **WAITING** / **IN_SERVICE** (open visits for the branch) plus **COMPLETED** rows whose **`completedAt`** falls on **`date`**. |
+| `POST` | `/dashboard/queue/walk-ins` | Dashboard | `queue.manage` | Body: `branchId`, optional **`clientId`** (existing CRM row; snapshots taken from client record; visibility rules apply), **or** `clientName` with optional `phone` / `notes` / `items[]` when **`clientId`** omitted (same booking-line shape for `items[]`). Phone normalization + link/create behavior unchanged when not using **`clientId`**. Audit **`queue.created`**. |
+| `PATCH` | `/dashboard/queue/{queueEntryId}` | Dashboard | `queue.manage` | Notes only (`notes`). |
+| `POST` | `/dashboard/queue/{queueEntryId}/start` | Dashboard | `queue.manage` | **WAITING** → **IN_SERVICE**. If **`bookingId`** set: also **`bookings.status.progress`** required; delegates **`mark-in-progress`**. Audit **`queue.started`**. |
+| `POST` | `/dashboard/queue/{queueEntryId}/complete` | Dashboard | `queue.manage` | **WAITING** / **IN_SERVICE** → **COMPLETED**. If **`bookingId`** set: also **`bookings.status.progress`** required; delegates **`mark-completed`**. Audit **`queue.completed`**. |
+| `POST` | `/dashboard/queue/{queueEntryId}/cancel` | Dashboard | `queue.manage` | **WAITING** / **IN_SERVICE** → **CANCELLED**; booking unchanged. Audit **`queue.cancelled`**. |
+
+**Duplicate guard:** at most one active (**WAITING** or **IN_SERVICE**) **`QueueEntry`** per **`bookingId`**; **`409`** `QUEUE_ACTIVE_FOR_BOOKING` on check-in when violated (application check).
 
 ---
 
@@ -415,7 +431,7 @@ Base: `/dashboard/clients`.
 
 | Method | Path | Auth | Required permission | Notes |
 |--------|------|------|---------------------|-------|
-| `GET` | `/dashboard/clients` | Dashboard | `clients.read` | Pagination + search (phone, name). Branch-scoped visibility per matrix. |
+| `GET` | `/dashboard/clients` | Dashboard | **`clients.read` OR `queue.manage`** | Pagination + search (name, phone, email). Branch-scoped visibility per matrix. **`queue.manage`** enables search for walk-in client picker without CRM-only permission. |
 | `GET` | `/dashboard/clients/{clientId}` | Dashboard | `clients.read` | Without `clients.contact.view`: **omit** phone/email or mask. Without `clients.notes.sensitive`: **omit** `notes`, `allergiesOrWarnings`. |
 | `POST` | `/dashboard/clients` | Dashboard | `clients.create` | |
 | `PATCH` | `/dashboard/clients/{clientId}` | Dashboard | `clients.update` | Sensitive fields require `clients.notes.sensitive` for allergies/notes edits. |
@@ -504,10 +520,10 @@ MVP: **deep link generation** only (`/docs/ARCHITECTURE.md` §14).
 
 | Method | Path | Auth | Required permission | Notes |
 |--------|------|------|---------------------|-------|
-| `GET` | `/dashboard/whatsapp-templates` | Dashboard | `whatsapp.templates.manage` or `whatsapp.send` | List templates (`templateKey`, `name`, `isActive`). |
+| `GET` | `/dashboard/whatsapp-templates` | Dashboard | `whatsapp.templates.read` / `manage` / `send` | Query: `search`, `category`, `language` (`ar` \| `en` \| `all`), `isActive`, `page`, `limit`. Each row has `language` and suffixed `templateKey` (e.g. `BOOKING_CONFIRMED_EN`). |
 | `POST` | `/dashboard/whatsapp-templates` | Dashboard | `whatsapp.templates.manage` | |
 | `PATCH` | `/dashboard/whatsapp-templates/{id}` | Dashboard | `whatsapp.templates.manage` | |
-| `POST` | `/dashboard/whatsapp/deep-link` | Dashboard | `whatsapp.send` | Body: `{ "templateKey": "BOOKING_CONFIRMED", "context": { "bookingId": "uuid" } }`. Returns `{ "url": "https://wa.me/...", "displayText": "..." }`. Server substitutes variables from template + DB (anti-tamper). |
+| `POST` | `/dashboard/whatsapp/deep-link` | Dashboard | `whatsapp.send` | Body: `{ "templateKey": "BOOKING_CONFIRMED", "bookingId": "uuid", "language": "ar" \| "en" }`. If `templateKey` has no `_EN`/`_AR` suffix, `language` selects the matching row (`_AR` / `_EN`). Returns `{ "url": "https://wa.me/...", "displayText": "..." }`. |
 
 **Public site** may use static `wa.me` links from branch config without this endpoint.
 

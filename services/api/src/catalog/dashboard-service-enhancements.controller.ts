@@ -14,7 +14,7 @@ import { RequirePermissions } from '../auth/decorators/require-permissions.decor
 import { DashboardJwtAuthGuard } from '../auth/guards/dashboard-jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { CatalogDashboardService } from './catalog-dashboard.service';
-import { DashboardCatalogListQueryDto } from './dto/dashboard-catalog-list-query.dto';
+import { DashboardServiceEnhancementsListQueryDto } from './dto/dashboard-service-enhancements-list-query.dto';
 import {
   CreateServiceEnhancementDto,
   PatchServiceEnhancementDto,
@@ -31,11 +31,16 @@ export class DashboardServiceEnhancementsController {
   @Get()
   @RequirePermissions('service_enhancements.read')
   @ApiOperation({ summary: 'List service enhancements' })
-  list(@Query() query: DashboardCatalogListQueryDto) {
+  list(@Query() query: DashboardServiceEnhancementsListQueryDto) {
     return this.catalog.listServiceEnhancements({
       page: query.page,
       pageSize: query.pageSize,
       isActive: query.isActive,
+      search: query.search,
+      priceMin: query.priceMin,
+      priceMax: query.priceMax,
+      durationMin: query.durationMin,
+      durationMax: query.durationMax,
     });
   }
 

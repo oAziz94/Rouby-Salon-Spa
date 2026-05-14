@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { BookingSlotStatus, BookingStatus, Prisma } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
+import { assertDashboardBranchAccess } from '../billing/dashboard-branch-scope';
 import { buildListMeta } from '../catalog/catalog.utils';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -37,6 +38,10 @@ import {
 } from '../common/cairo-slot-time';
 import { SYSTEM_SETTINGS_ID } from '../settings/settings.constants';
 
+/** Sentinel window for internal walk-in capacity buckets (UTC time-of-day only). */
+const WALK_IN_BUCKET_START = '23:30:00';
+const WALK_IN_BUCKET_END = '23:45:00';
+
 /** Bookings excluded from dashboard “live” occupancy on a slot (historical / voided). */
 const SLOT_LIVE_BOOKING_COUNT_EXCLUDED: BookingStatus[] = [
   BookingStatus.CANCELLED,
@@ -51,18 +56,6 @@ export class SlotsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
-
-  private assertBranchScope(user: DashboardJwtUser, branchId: string): void {
-    if (
-      user.permissions.includes('branches.manage') ||
-      user.branchId === null
-    ) {
-      return;
-    }
-    if (user.branchId !== branchId) {
-      throw new ForbiddenException('Insufficient permissions');
-    }
-  }
 
   private assertTimeRange(startTime: string, endTime: string): void {
     const startSeconds = this.timeToSeconds(startTime);
@@ -116,9 +109,7 @@ export class SlotsService {
       endTime: toTimeOnlyUtc(row.endTime),
       capacity: row.capacity,
       bookedCount: row.bookedCount,
-      ...(liveBookingsCount !== undefined
-        ? { liveBookingsCount }
-        : {}),
+      ...(liveBookingsCount !== undefined ? { liveBookingsCount } : {}),
       status: row.status,
       isOnlineBookable: row.isOnlineBookable,
       notes: row.notes,
@@ -230,13 +221,14 @@ export class SlotsService {
     branchId: string,
     query: DashboardSlotListQueryDto,
   ) {
-    this.assertBranchScope(user, branchId);
+    assertDashboardBranchAccess(user, branchId);
     await this.getBranchOrFail(branchId);
 
-    const where: Prisma.BookingSlotWhereInput = {
+    const where = {
       branchId,
       deletedAt: null,
-    };
+      isWalkInBucket: false,
+    } as Prisma.BookingSlotWhereInput;
     if (query.status) {
       where.status = query.status;
     }
@@ -261,12 +253,12 @@ export class SlotsService {
       }),
     ]);
 
-    const liveBySlot = await this.liveBookingsCountBySlotIds(rows.map((r) => r.id));
+    const liveBySlot = await this.liveBookingsCountBySlotIds(
+      rows.map((r) => r.id),
+    );
 
     return {
-      data: rows.map((row) =>
-        this.mapSlot(row, liveBySlot.get(row.id) ?? 0),
-      ),
+      data: rows.map((row) => this.mapSlot(row, liveBySlot.get(row.id) ?? 0)),
       meta: buildListMeta({
         page: query.page,
         pageSize: query.pageSize,
@@ -280,7 +272,7 @@ export class SlotsService {
     branchId: string,
     slotId: string,
   ) {
-    this.assertBranchScope(user, branchId);
+    assertDashboardBranchAccess(user, branchId);
     await this.getBranchOrFail(branchId);
 
     const row = await this.prisma.bookingSlot.findFirst({
@@ -288,6 +280,7 @@ export class SlotsService {
         id: slotId,
         branchId,
         deletedAt: null,
+        isWalkInBucket: false,
       },
     });
     if (!row) {
@@ -302,7 +295,7 @@ export class SlotsService {
     branchId: string,
     dto: CreateSlotDto,
   ) {
-    this.assertBranchScope(user, branchId);
+    assertDashboardBranchAccess(user, branchId);
     await this.getBranchOrFail(branchId);
     this.assertTimeRange(dto.startTime, dto.endTime);
 
@@ -343,7 +336,7 @@ export class SlotsService {
     slotId: string,
     dto: PatchSlotDto,
   ) {
-    this.assertBranchScope(user, branchId);
+    assertDashboardBranchAccess(user, branchId);
     await this.getBranchOrFail(branchId);
 
     const existing = await this.prisma.bookingSlot.findUnique({
@@ -402,7 +395,7 @@ export class SlotsService {
     slotId: string,
     dto: PatchSlotCapacityDto,
   ) {
-    this.assertBranchScope(user, branchId);
+    assertDashboardBranchAccess(user, branchId);
     await this.getBranchOrFail(branchId);
     const slot = await this.getDashboardSlotOrFail(slotId);
     if (slot.branchId !== branchId) {
@@ -440,7 +433,7 @@ export class SlotsService {
     slotId: string,
     dto: PatchSlotOnlineBookableDto,
   ) {
-    this.assertBranchScope(user, branchId);
+    assertDashboardBranchAccess(user, branchId);
     await this.getBranchOrFail(branchId);
     const slot = await this.getDashboardSlotOrFail(slotId);
     if (slot.branchId !== branchId) {
@@ -472,7 +465,7 @@ export class SlotsService {
     slotId: string,
     dto: PatchSlotStatusDto,
   ) {
-    this.assertBranchScope(user, branchId);
+    assertDashboardBranchAccess(user, branchId);
     await this.getBranchOrFail(branchId);
     const slot = await this.getDashboardSlotOrFail(slotId);
     if (slot.branchId !== branchId) {
@@ -507,7 +500,7 @@ export class SlotsService {
     branchId: string,
     slotId: string,
   ) {
-    this.assertBranchScope(user, branchId);
+    assertDashboardBranchAccess(user, branchId);
     await this.getBranchOrFail(branchId);
     const slot = await this.getDashboardSlotOrFail(slotId);
     if (slot.branchId !== branchId) {
@@ -526,16 +519,29 @@ export class SlotsService {
     branchId: string,
     dto: GenerateWeekSlotsDto,
   ) {
-    this.assertBranchScope(user, branchId);
-    await this.getBranchOrFail(branchId);
+    assertDashboardBranchAccess(user, branchId);
 
-    const settingsRow = await this.prisma.systemSettings.findUnique({
-      where: { id: SYSTEM_SETTINGS_ID },
-      select: { slotGenerationDefaults: true },
-    });
-    const stored = parseStoredSlotGeneration(
+    const [branch, settingsRow] = await Promise.all([
+      this.prisma.branch.findUnique({
+        where: { id: branchId },
+        select: { id: true, slotGenerationDefaults: true },
+      }),
+      this.prisma.systemSettings.findUnique({
+        where: { id: SYSTEM_SETTINGS_ID },
+        select: { slotGenerationDefaults: true },
+      }),
+    ]);
+    if (!branch) {
+      throw new NotFoundException('Branch not found');
+    }
+
+    const systemParsed = parseStoredSlotGeneration(
       settingsRow?.slotGenerationDefaults,
     );
+    const stored =
+      branch.slotGenerationDefaults != null
+        ? parseStoredSlotGeneration(branch.slotGenerationDefaults)
+        : systemParsed;
     const overrides = pickOverridesFromSlotDto(dto);
     const effective = mergeSlotGeneration(stored, overrides);
     assertValidSlotGeneration(effective);
@@ -711,6 +717,7 @@ export class SlotsService {
           in: [BookingSlotStatus.AVAILABLE, BookingSlotStatus.FILLED],
         },
         isOnlineBookable: true,
+        isWalkInBucket: false,
         branch: { isActive: true },
         capacity: { gt: 0 },
       },
@@ -776,6 +783,18 @@ export class SlotsService {
     }
 
     if (!slot.isOnlineBookable) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is not available for online booking',
+          error: 'Bad Request',
+          code: 'SLOT_NOT_ONLINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if ((slot as { isWalkInBucket?: boolean }).isWalkInBucket) {
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_REQUEST,
@@ -878,6 +897,18 @@ export class SlotsService {
       );
     }
 
+    if ((slot as { isWalkInBucket?: boolean }).isWalkInBucket) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Slot is not available for online booking',
+          error: 'Bad Request',
+          code: 'SLOT_NOT_ONLINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     if (slot.status !== BookingSlotStatus.AVAILABLE) {
       throw new HttpException(
         {
@@ -912,6 +943,66 @@ export class SlotsService {
         },
         HttpStatus.BAD_REQUEST,
       );
+    }
+  }
+
+  /**
+   * Ensures a single high-capacity internal slot exists for walk-in queue bookings for a branch/day.
+   * Safe under `Serializable` isolation: concurrent creates contend on a partial unique index and fall back to find.
+   */
+  async ensureWalkInBucketSlotTx(
+    tx: Prisma.TransactionClient,
+    params: { branchId: string; date: Date },
+  ): Promise<{ id: string }> {
+    const { branchId, date } = params;
+    const existing = await tx.bookingSlot.findFirst({
+      where: {
+        branchId,
+        date,
+        isWalkInBucket: true,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return existing;
+    }
+    try {
+      return await tx.bookingSlot.create({
+        data: {
+          branchId,
+          date,
+          startTime: this.parseTimeOnly(WALK_IN_BUCKET_START),
+          endTime: this.parseTimeOnly(WALK_IN_BUCKET_END),
+          capacity: 1000,
+          bookedCount: 0,
+          status: BookingSlotStatus.AVAILABLE,
+          isOnlineBookable: false,
+          isWalkInBucket: true,
+          notes: 'Internal walk-in capacity bucket',
+          createdByUserId: null,
+        },
+        select: { id: true },
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const again = await tx.bookingSlot.findFirst({
+          where: {
+            branchId,
+            date,
+            isWalkInBucket: true,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        if (again) {
+          return again;
+        }
+      }
+      throw err;
     }
   }
 

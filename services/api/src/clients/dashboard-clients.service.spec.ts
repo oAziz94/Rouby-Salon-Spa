@@ -8,6 +8,7 @@ describe('DashboardClientsService', () => {
     email: 'manager@example.com',
     roleId: 'role-1',
     branchId: null,
+    allowedBranchIds: [],
     permissions: ['clients.read'],
   };
 
@@ -20,6 +21,7 @@ describe('DashboardClientsService', () => {
     gender: null,
     birthDate: null,
     preferredBranchId: null,
+    preferredBranch: null as { name: string } | null,
     notes: 'private note',
     allergiesOrWarnings: 'allergy',
     tags: ['vip'],
@@ -33,6 +35,16 @@ describe('DashboardClientsService', () => {
         count: jest.fn().mockResolvedValue(1),
         findMany: jest.fn().mockResolvedValue([clientRow]),
       },
+      $queryRaw: jest.fn().mockResolvedValue([
+        {
+          client_id: clientRow.id,
+          booking_count: 0n,
+          completed_count: 0n,
+          total_spent: 0,
+          last_slot_date: null,
+          last_slot_start: null,
+        },
+      ]),
     };
     const service = new DashboardClientsService(prisma as never);
 

@@ -9,6 +9,7 @@ import {
 import {
   BookingChangeRequestStatus,
   BookingChangeRequestType,
+  BookingItemLineStatus,
   BookingItemType,
   BookingSource,
   BookingStatus,
@@ -18,13 +19,20 @@ import {
   PaymentMethod,
   PaymentStatus,
   Prisma,
+  QueueEntryStatus,
 } from '@prisma/client';
 import type { ClientJwtUser } from '../auth/client-jwt-user';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
+import {
+  assertDashboardBranchAccess,
+  buildDashboardBookingBranchWhere,
+} from '../billing/dashboard-branch-scope';
 import { isAtLeast24HoursBeforeSlotStartCairo } from '../common/cairo-slot-time';
 import { PrismaService } from '../prisma/prisma.service';
 import { SlotsService } from '../slots/slots.service';
 import { AuditService } from '../audit/audit.service';
+import { InvoicesService } from '../billing/invoices.service';
+import { StaffAvailabilityService } from '../staff/staff-availability.service';
 import {
   BookingPricingService,
   type ResolvedBookingLine,
@@ -35,6 +43,7 @@ import type { ClientBookingListQueryDto } from './dto/client-booking-list-query.
 import type { ClientRescheduleRequestDto } from './dto/client-reschedule-request.dto';
 import type { DashboardBookingListQueryDto } from './dto/dashboard-booking-list-query.dto';
 import type { DashboardCreateBookingDto } from './dto/dashboard-create-booking.dto';
+import type { DashboardCreateChangeRequestDto } from './dto/dashboard-create-change-request.dto';
 import type { DiscountBodyDto } from './dto/discount-body.dto';
 import type {
   PublicBookingCreateBodyDto,
@@ -90,12 +99,12 @@ function extractBookingIdSearchCompact(raw: string): string | null {
 
 type PromoComputationResult =
   | {
-      ok: true;
-      offerId: string;
-      appliedPromoCode: string;
-      discountAmount: number;
-      promoSnapshot: Record<string, unknown>;
-    }
+    ok: true;
+    offerId: string;
+    appliedPromoCode: string;
+    discountAmount: number;
+    promoSnapshot: Record<string, unknown>;
+  }
   | { ok: false; message: string };
 
 @Injectable()
@@ -105,35 +114,9 @@ export class BookingsService {
     private readonly pricing: BookingPricingService,
     private readonly slots: SlotsService,
     private readonly audit: AuditService,
-  ) {}
-
-  private canAccessAllBranches(user: DashboardJwtUser): boolean {
-    return (
-      user.branchId === null || user.permissions.includes('branches.manage')
-    );
-  }
-
-  private assertDashboardBranchAccess(
-    user: DashboardJwtUser,
-    branchId: string,
-  ): void {
-    if (this.canAccessAllBranches(user)) {
-      return;
-    }
-    if (user.branchId !== branchId) {
-      throw new ForbiddenException('Insufficient permissions');
-    }
-  }
-
-  private resolveDashboardBranchFilter(
-    user: DashboardJwtUser,
-    queryBranchId?: string,
-  ): string | undefined {
-    if (this.canAccessAllBranches(user)) {
-      return queryBranchId;
-    }
-    return user.branchId ?? undefined;
-  }
+    private readonly invoices: InvoicesService,
+    private readonly staffAvailability: StaffAvailabilityService,
+  ) { }
 
   async estimatePublic(body: PublicBookingEstimateBodyDto) {
     const settings = await this.pricing.getSystemSettings();
@@ -275,6 +258,7 @@ export class BookingsService {
                 serviceVariantId: l.serviceVariantId,
                 packageId: l.packageId,
                 bundleId: l.bundleId,
+                serviceEnhancementId: l.serviceEnhancementId,
                 nameSnapshot: l.nameSnapshot,
                 priceSnapshot: l.priceSnapshot,
                 durationMinutesSnapshot: l.durationMinutesSnapshot,
@@ -377,23 +361,23 @@ export class BookingsService {
 
     const rules =
       offer.eligibilityRules &&
-      typeof offer.eligibilityRules === 'object' &&
-      !Array.isArray(offer.eligibilityRules)
+        typeof offer.eligibilityRules === 'object' &&
+        !Array.isArray(offer.eligibilityRules)
         ? (offer.eligibilityRules as Record<string, unknown>)
         : {};
     const ruleServiceIds = Array.isArray(rules.serviceIds)
       ? new Set(
-          rules.serviceIds
-            .filter((v): v is string => typeof v === 'string')
-            .map((v) => v.trim()),
-        )
+        rules.serviceIds
+          .filter((v): v is string => typeof v === 'string')
+          .map((v) => v.trim()),
+      )
       : null;
     const rulePackageIds = Array.isArray(rules.packageIds)
       ? new Set(
-          rules.packageIds
-            .filter((v): v is string => typeof v === 'string')
-            .map((v) => v.trim()),
-        )
+        rules.packageIds
+          .filter((v): v is string => typeof v === 'string')
+          .map((v) => v.trim()),
+      )
       : null;
 
     const eligibleLines = lines.filter((line) => {
@@ -411,13 +395,13 @@ export class BookingsService {
         return Boolean(line.serviceId && ruleServiceIds.has(line.serviceId));
       }
       if (offer.appliesTo === OfferAppliesTo.PACKAGES) {
-        if (line.itemType !== BookingItemType.PACKAGE) {
+        if (!line.packageId) {
           return false;
         }
         if (!rulePackageIds || rulePackageIds.size === 0) {
           return true;
         }
-        return Boolean(line.packageId && rulePackageIds.has(line.packageId));
+        return rulePackageIds.has(line.packageId);
       }
 
       if (
@@ -430,9 +414,18 @@ export class BookingsService {
         }
         return true;
       }
-      if (line.itemType === BookingItemType.PACKAGE) {
+      if (line.packageId) {
         if (rulePackageIds && rulePackageIds.size > 0) {
-          return Boolean(line.packageId && rulePackageIds.has(line.packageId));
+          return rulePackageIds.has(line.packageId);
+        }
+        return true;
+      }
+      if (line.itemType === BookingItemType.SERVICE_ENHANCEMENT) {
+        if (ruleServiceIds && ruleServiceIds.size > 0) {
+          return false;
+        }
+        if (rulePackageIds && rulePackageIds.size > 0) {
+          return false;
         }
         return true;
       }
@@ -648,7 +641,7 @@ export class BookingsService {
   private async findBookingIdsMatchingCompactId(
     compactHex: string,
     scope: {
-      branchId?: string;
+      branchIds?: string[];
       status?: BookingStatus;
       clientId?: string;
       slotId?: string;
@@ -660,8 +653,11 @@ export class BookingsService {
     const checks: Prisma.Sql[] = [
       Prisma.sql`replace(lower(b.id::text), '-', '') LIKE ${pattern}`,
     ];
-    if (scope.branchId) {
-      checks.push(Prisma.sql`b.branch_id = ${scope.branchId}::uuid`);
+    if (scope.branchIds?.length === 1) {
+      checks.push(Prisma.sql`b.branch_id = ${scope.branchIds[0]}::uuid`);
+    } else if (scope.branchIds && scope.branchIds.length > 1) {
+      const parts = scope.branchIds.map((id) => Prisma.sql`${id}::uuid`);
+      checks.push(Prisma.sql`b.branch_id IN (${Prisma.join(parts)})`);
     }
     if (scope.status) {
       checks.push(Prisma.sql`b.status = ${scope.status}::"BookingStatus"`);
@@ -693,17 +689,20 @@ export class BookingsService {
     query: DashboardBookingListQueryDto,
   ) {
     // TODO(Sprint 5): Specialist "Own" scope — filter via assigned staff lines when Staff/User linkage exists (RBAC_MATRIX §3.2).
-    const branchFilter = this.resolveDashboardBranchFilter(
-      user,
-      query.branchId,
-    );
-    if (!this.canAccessAllBranches(user) && !branchFilter) {
-      throw new ForbiddenException('Insufficient permissions');
-    }
+    const branchWhere = buildDashboardBookingBranchWhere(user, query.branchId);
+    const branchIdsForSearch =
+      typeof branchWhere.branchId === 'string'
+        ? [branchWhere.branchId]
+        : branchWhere.branchId &&
+          typeof branchWhere.branchId === 'object' &&
+          'in' in branchWhere.branchId &&
+          Array.isArray((branchWhere.branchId as { in: string[] }).in)
+          ? (branchWhere.branchId as { in: string[] }).in
+          : undefined;
 
     const filters: Prisma.BookingWhereInput[] = [];
-    if (branchFilter) {
-      filters.push({ branchId: branchFilter });
+    if (Object.keys(branchWhere).length) {
+      filters.push(branchWhere);
     }
     if (query.status) {
       filters.push({ status: query.status });
@@ -759,7 +758,7 @@ export class BookingsService {
         const idMatches = await this.findBookingIdsMatchingCompactId(
           compactId,
           {
-            branchId: branchFilter,
+            branchIds: branchIdsForSearch,
             status: query.status,
             clientId: query.clientId,
             slotId: query.slotId,
@@ -832,10 +831,10 @@ export class BookingsService {
       data: rows.map((b) => {
         const slot = b.slot
           ? {
-              date: b.slot.date.toISOString().slice(0, 10),
-              startTime: b.slot.startTime.toISOString().slice(11, 19),
-              endTime: b.slot.endTime.toISOString().slice(11, 19),
-            }
+            date: b.slot.date.toISOString().slice(0, 10),
+            startTime: b.slot.startTime.toISOString().slice(11, 19),
+            endTime: b.slot.endTime.toISOString().slice(11, 19),
+          }
           : null;
         const itemsPreview =
           b.items?.map((it) => ({
@@ -860,11 +859,11 @@ export class BookingsService {
           clientId: b.clientId,
           client: b.client
             ? {
-                id: b.client.id,
-                fullName: b.client.fullName,
-                phone: b.client.phone,
-                email: b.client.email,
-              }
+              id: b.client.id,
+              fullName: b.client.fullName,
+              phone: b.client.phone,
+              email: b.client.email,
+            }
             : null,
           source: b.source,
           totalAmount: Number(b.totalAmount.toString()),
@@ -886,7 +885,11 @@ export class BookingsService {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
-        items: true,
+        items: {
+          include: {
+            staffProfile: { select: { id: true, displayName: true } },
+          },
+        },
         slot: true,
         client: true,
         payments: { orderBy: { createdAt: 'desc' } },
@@ -896,6 +899,7 @@ export class BookingsService {
           select: {
             id: true,
             invoiceNumber: true,
+            totalAmount: true,
             paidAmount: true,
             remainingAmount: true,
             status: true,
@@ -906,15 +910,50 @@ export class BookingsService {
     if (!booking) {
       throw new NotFoundException('Booking not found');
     }
-    this.assertDashboardBranchAccess(user, booking.branchId);
-    return this.mapBookingDetail(booking);
+    assertDashboardBranchAccess(user, booking.branchId);
+    const mapped = this.mapBookingDetail(booking);
+    const items = await Promise.all(
+      mapped.items.map(async (it) => {
+        const catalogServiceId =
+          await this.staffAvailability.resolveCatalogServiceIdForBookingItem({
+            itemType: it.itemType,
+            serviceId: it.serviceId,
+            serviceVariantId: it.serviceVariantId,
+          });
+        return { ...it, catalogServiceId };
+      }),
+    );
+    const latestQueueEntry = await this.prisma.queueEntry.findFirst({
+      where: {
+        bookingId,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true, source: true },
+    });
+    return {
+      ...mapped,
+      items,
+      activeQueueEntryId:
+        latestQueueEntry &&
+          (latestQueueEntry.status === QueueEntryStatus.WAITING ||
+            latestQueueEntry.status === QueueEntryStatus.IN_SERVICE)
+          ? latestQueueEntry.id
+          : null,
+      linkedQueueEntry: latestQueueEntry
+        ? {
+          id: latestQueueEntry.id,
+          status: latestQueueEntry.status,
+          source: latestQueueEntry.source,
+        }
+        : null,
+    };
   }
 
   async dashboardCreateBooking(
     user: DashboardJwtUser,
     dto: DashboardCreateBookingDto,
   ) {
-    this.assertDashboardBranchAccess(user, dto.branchId);
+    assertDashboardBranchAccess(user, dto.branchId);
     if (dto.source === BookingSource.WEBSITE) {
       throw new HttpException(
         {
@@ -932,7 +971,10 @@ export class BookingsService {
     await this.assertDashboardSlotAssignable(dto.branchId, dto.slotId);
 
     const settings = await this.pricing.getSystemSettings();
-    const lines = await this.pricing.resolveLines(dto.branchId, dto.items);
+    const lines = await this.pricing.resolveLines(dto.branchId, dto.items, {
+      enforceOnlineCatalogRules: false,
+      allowStaffPriceOverrides: true,
+    });
     const totals = this.pricing.computeTotals(lines, settings, 0);
 
     const booking = await this.prisma.$transaction(
@@ -978,6 +1020,7 @@ export class BookingsService {
                 serviceVariantId: l.serviceVariantId,
                 packageId: l.packageId,
                 bundleId: l.bundleId,
+                serviceEnhancementId: l.serviceEnhancementId,
                 nameSnapshot: l.nameSnapshot,
                 priceSnapshot: l.priceSnapshot,
                 durationMinutesSnapshot: l.durationMinutesSnapshot,
@@ -1010,6 +1053,58 @@ export class BookingsService {
     });
 
     return this.mapBookingDetail(booking);
+  }
+
+  async createWalkInArrivedBookingTx(
+    tx: Prisma.TransactionClient,
+    params: {
+      clientId: string;
+      branchId: string;
+      slotId: string;
+      createdByUserId: string;
+      lines: ResolvedBookingLine[];
+      totals: {
+        subtotal: Prisma.Decimal;
+        discountAmount: Prisma.Decimal;
+        vatRate: Prisma.Decimal;
+        vatAmount: Prisma.Decimal;
+        totalAmount: Prisma.Decimal;
+      };
+    },
+  ) {
+    return tx.booking.create({
+      data: {
+        clientId: params.clientId,
+        branchId: params.branchId,
+        slotId: params.slotId,
+        status: BookingStatus.ARRIVED,
+        source: BookingSource.WALK_IN,
+        subtotal: params.totals.subtotal,
+        discountAmount: params.totals.discountAmount,
+        vatRate: params.totals.vatRate,
+        vatAmount: params.totals.vatAmount,
+        totalAmount: params.totals.totalAmount,
+        clientNotes: null,
+        adminNotes: null,
+        createdByUserId: params.createdByUserId,
+        items: {
+          create: params.lines.map((l) => ({
+            itemType: l.itemType,
+            serviceId: l.serviceId,
+            serviceVariantId: l.serviceVariantId,
+            packageId: l.packageId,
+            bundleId: l.bundleId,
+            serviceEnhancementId: l.serviceEnhancementId,
+            nameSnapshot: l.nameSnapshot,
+            priceSnapshot: l.priceSnapshot,
+            durationMinutesSnapshot: l.durationMinutesSnapshot,
+            quantity: l.quantity,
+            lineMetadata: l.lineMetadata ?? Prisma.JsonNull,
+          })),
+        },
+      },
+      include: { items: true },
+    });
   }
 
   async confirmBooking(user: DashboardJwtUser, bookingId: string) {
@@ -1068,6 +1163,8 @@ export class BookingsService {
       entityId: bookingId,
       newValue: { status: updated.status },
     });
+    // TODO(alrouby-whatsapp): When automated sending exists, resolve by client locale
+    // (logical key BOOKING_CONFIRMED + language → BOOKING_CONFIRMED_AR / _EN) and notify.
     return updated;
   }
 
@@ -1180,6 +1277,10 @@ export class BookingsService {
   }
 
   async markInProgress(user: DashboardJwtUser, bookingId: string) {
+    const before = await this.requireDashboardBooking(user, bookingId);
+    if (before.status === BookingStatus.IN_PROGRESS) {
+      return this.getDashboardBooking(user, bookingId);
+    }
     await this.transitionProgress(user, bookingId, {
       from: new Set([BookingStatus.ARRIVED]),
       to: BookingStatus.IN_PROGRESS,
@@ -1197,6 +1298,59 @@ export class BookingsService {
   }
 
   async markCompleted(user: DashboardJwtUser, bookingId: string) {
+    await this.requireDashboardBooking(user, bookingId);
+
+    /** Lines staff starts/completes in the dashboard are catalog services only (see queue + bookings UI). */
+    const staffTrackedItemTypes: BookingItemType[] = [
+      BookingItemType.SERVICE,
+      BookingItemType.SERVICE_VARIANT,
+    ];
+    const autoCloseItemTypes: BookingItemType[] = [
+      BookingItemType.SERVICE_ENHANCEMENT,
+      BookingItemType.PACKAGE,
+      BookingItemType.BUNDLE,
+      BookingItemType.ADD_ON,
+    ];
+
+    const now = new Date();
+    await this.prisma.bookingItem.updateMany({
+      where: {
+        bookingId,
+        itemType: { in: autoCloseItemTypes },
+        lineStatus: {
+          in: [
+            BookingItemLineStatus.PENDING,
+            BookingItemLineStatus.IN_PROGRESS,
+          ],
+        },
+      },
+      data: {
+        lineStatus: BookingItemLineStatus.COMPLETED,
+        completedAt: now,
+      },
+    });
+
+    const pending = await this.prisma.bookingItem.count({
+      where: {
+        bookingId,
+        itemType: { in: staffTrackedItemTypes },
+        lineStatus: {
+          in: [BookingItemLineStatus.PENDING, BookingItemLineStatus.IN_PROGRESS],
+        },
+      },
+    });
+    if (pending > 0) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message:
+            'All catalog service lines must be completed or cancelled before the visit can be marked completed',
+          error: 'Bad Request',
+          code: 'BOOKING_ITEMS_NOT_COMPLETE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     await this.transitionProgress(user, bookingId, {
       from: new Set([BookingStatus.IN_PROGRESS, BookingStatus.ARRIVED]),
       to: BookingStatus.COMPLETED,
@@ -1247,7 +1401,10 @@ export class BookingsService {
     const dtoItems = await this.bookingItemsToDtoInputs(bookingId);
 
     const settings = await this.pricing.getSystemSettings();
-    const lines = await this.pricing.resolveLines(booking.branchId, dtoItems);
+    const lines = await this.pricing.resolveLines(booking.branchId, dtoItems, {
+      enforceOnlineCatalogRules: false,
+      allowStaffPriceOverrides: true,
+    });
     const totals = this.pricing.computeTotals(
       lines,
       settings,
@@ -1264,6 +1421,7 @@ export class BookingsService {
           serviceVariantId: l.serviceVariantId,
           packageId: l.packageId,
           bundleId: l.bundleId,
+          serviceEnhancementId: l.serviceEnhancementId,
           nameSnapshot: l.nameSnapshot,
           priceSnapshot: l.priceSnapshot,
           durationMinutesSnapshot: l.durationMinutesSnapshot,
@@ -1294,6 +1452,591 @@ export class BookingsService {
         discountAmount: updated.discountAmount,
         vatAmount: updated.vatAmount,
         totalAmount: updated.totalAmount,
+      },
+    });
+    return updated;
+  }
+
+  async appendItemsAndReprice(
+    user: DashboardJwtUser,
+    bookingId: string,
+    items: BookingItemInputDto[],
+  ) {
+    if (items.length === 0) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'At least one line item is required',
+          error: 'Bad Request',
+          code: 'BOOKING_APPEND_ITEMS_REQUIRED',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        invoices: {
+          where: { status: InvoiceStatus.FINALIZED },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    });
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    assertDashboardBranchAccess(user, booking.branchId);
+
+    const activeQueue = await this.prisma.queueEntry.findFirst({
+      where: {
+        bookingId,
+        status: {
+          in: [QueueEntryStatus.WAITING, QueueEntryStatus.IN_SERVICE],
+        },
+      },
+      select: { id: true },
+    });
+    if (!activeQueue) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message:
+            'Booking must be linked to an active queue entry in WAITING or IN_SERVICE status',
+          error: 'Bad Request',
+          code: 'BOOKING_NOT_IN_ACTIVE_QUEUE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const settings = await this.pricing.getSystemSettings();
+    const existingResolved =
+      await this.buildResolvedLinesFromPersistedItems(bookingId);
+    const newLines = await this.pricing.resolveLines(booking.branchId, items, {
+      enforceOnlineCatalogRules: false,
+      allowStaffPriceOverrides: true,
+    });
+    const allLines = [...existingResolved, ...newLines];
+    const totals = this.pricing.computeTotals(
+      allLines,
+      settings,
+      Number(booking.discountAmount.toString()),
+    );
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.bookingItem.createMany({
+          data: newLines.map((l) => ({
+            bookingId,
+            itemType: l.itemType,
+            serviceId: l.serviceId,
+            serviceVariantId: l.serviceVariantId,
+            packageId: l.packageId,
+            bundleId: l.bundleId,
+            serviceEnhancementId: l.serviceEnhancementId,
+            nameSnapshot: l.nameSnapshot,
+            priceSnapshot: l.priceSnapshot,
+            durationMinutesSnapshot: l.durationMinutesSnapshot,
+            quantity: l.quantity,
+            lineMetadata: l.lineMetadata ?? Prisma.JsonNull,
+          })),
+        });
+        await tx.booking.update({
+          where: { id: bookingId },
+          data: {
+            subtotal: totals.subtotal,
+            discountAmount: totals.discountAmount,
+            vatRate: totals.vatRate,
+            vatAmount: totals.vatAmount,
+            totalAmount: totals.totalAmount,
+          },
+        });
+
+        const allItems = await tx.bookingItem.findMany({
+          where: { bookingId },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            itemType: true,
+            nameSnapshot: true,
+            quantity: true,
+          },
+        });
+        const itemsSnapshot = allItems.map((it) => ({
+          itemType: it.itemType,
+          nameSnapshot: it.nameSnapshot,
+          quantity: it.quantity,
+        }));
+        const serviceSummarySnapshot =
+          allItems.length === 0
+            ? '—'
+            : allItems.length === 1
+              ? allItems[0].nameSnapshot
+              : `${allItems[0].nameSnapshot} +${allItems.length - 1} more`;
+
+        await tx.queueEntry.update({
+          where: { id: activeQueue.id },
+          data: {
+            itemsSnapshot,
+            serviceSummarySnapshot,
+          },
+        });
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        maxWait: 5000,
+        timeout: 10_000,
+      },
+    );
+
+    const updated = await this.getDashboardBooking(user, bookingId);
+    if (booking.invoices.length > 0) {
+      await this.invoices.syncFinalizedInvoiceWithBooking(user, bookingId);
+    }
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.items_appended_from_queue',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: {
+        addedLines: newLines.length,
+        totalAmount: updated.totalAmount,
+        queueEntryId: activeQueue.id,
+      },
+    });
+    return updated;
+  }
+
+  async startBookingServiceItem(
+    user: DashboardJwtUser,
+    bookingId: string,
+    itemId: string,
+    staffProfileId: string,
+  ) {
+    if (!user.permissions.includes('bookingServiceItems.start')) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+    const item = await this.prisma.bookingItem.findFirst({
+      where: { id: itemId, bookingId },
+      include: { booking: { select: { id: true, branchId: true, status: true } } },
+    });
+    if (!item?.booking) {
+      throw new NotFoundException('Booking item not found');
+    }
+    assertDashboardBranchAccess(user, item.booking.branchId);
+    if (item.lineStatus !== BookingItemLineStatus.PENDING) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Only PENDING service lines can be started',
+          error: 'Bad Request',
+          code: 'BOOKING_ITEM_NOT_PENDING',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const otherInProgress = await this.prisma.bookingItem.count({
+      where: {
+        bookingId,
+        id: { not: itemId },
+        itemType: {
+          in: [BookingItemType.SERVICE, BookingItemType.SERVICE_VARIANT],
+        },
+        lineStatus: BookingItemLineStatus.IN_PROGRESS,
+      },
+    });
+    if (otherInProgress > 0) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message:
+            'Another service on this booking is already in progress — complete it before starting the next',
+          error: 'Bad Request',
+          code: 'BOOKING_SERVICE_ALREADY_IN_PROGRESS',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const catalogServiceId =
+      await this.staffAvailability.resolveCatalogServiceIdForBookingItem(item);
+    if (!catalogServiceId) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message:
+            'Staff assignment is only supported for catalog service / variant lines',
+          error: 'Bad Request',
+          code: 'BOOKING_ITEM_NOT_SERVICE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const profile = await this.prisma.staffProfile.findFirst({
+      where: {
+        id: staffProfileId,
+        branchId: item.booking.branchId,
+        isActive: true,
+        isBookable: true,
+      },
+    });
+    if (!profile) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Staff profile is not valid for this branch',
+          error: 'Bad Request',
+          code: 'STAFF_PROFILE_INVALID',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const capable = await this.staffAvailability.hasCapability(
+      staffProfileId,
+      catalogServiceId,
+    );
+    if (!capable) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Staff member is not qualified for this service',
+          error: 'Bad Request',
+          code: 'STAFF_NOT_QUALIFIED',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const whenKey = this.staffAvailability.cairoNowKey();
+    const ok = await this.staffAvailability.evaluateStaffForInstant(
+      staffProfileId,
+      item.booking.branchId,
+      whenKey,
+    );
+    if (!ok.ok) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: ok.reason,
+          error: 'Bad Request',
+          code: 'STAFF_NOT_AVAILABLE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const now = new Date();
+    await this.prisma.bookingItem.update({
+      where: { id: itemId },
+      data: {
+        staffProfileId,
+        lineStatus: BookingItemLineStatus.IN_PROGRESS,
+        startedAt: now,
+      },
+    });
+
+    await this.prisma.queueEntry.updateMany({
+      where: {
+        bookingId,
+        status: QueueEntryStatus.WAITING,
+      },
+      data: {
+        status: QueueEntryStatus.IN_SERVICE,
+        startedAt: now,
+        updatedByUserId: user.userId,
+      },
+    });
+
+    if (item.booking.status === BookingStatus.ARRIVED) {
+      await this.markInProgress(user, bookingId);
+    }
+
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.service_item.started',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: {
+        bookingItemId: itemId,
+        staffProfileId,
+      },
+    });
+    return updated;
+  }
+
+  async completeBookingServiceItem(
+    user: DashboardJwtUser,
+    bookingId: string,
+    itemId: string,
+  ) {
+    if (!user.permissions.includes('bookingServiceItems.complete')) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+    const item = await this.prisma.bookingItem.findFirst({
+      where: { id: itemId, bookingId },
+      include: { booking: { select: { branchId: true } } },
+    });
+    if (!item?.booking) {
+      throw new NotFoundException('Booking item not found');
+    }
+    assertDashboardBranchAccess(user, item.booking.branchId);
+    if (item.lineStatus !== BookingItemLineStatus.IN_PROGRESS) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Only IN_PROGRESS lines can be completed',
+          error: 'Bad Request',
+          code: 'BOOKING_ITEM_NOT_IN_PROGRESS',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    await this.prisma.bookingItem.update({
+      where: { id: itemId },
+      data: {
+        lineStatus: BookingItemLineStatus.COMPLETED,
+        completedAt: new Date(),
+      },
+    });
+
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.service_item.completed',
+      module: 'bookings',
+      entityId: bookingId,
+      newValue: { bookingItemId: itemId },
+    });
+    return updated;
+  }
+
+  async appendServiceItemsForActiveQueue(
+    user: DashboardJwtUser,
+    bookingId: string,
+    items: BookingItemInputDto[],
+  ) {
+    if (!user.permissions.includes('bookingServiceItems.create')) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+    return this.appendItemsAndReprice(user, bookingId, items);
+  }
+
+  async removeBookingItem(
+    user: DashboardJwtUser,
+    bookingId: string,
+    itemId: string,
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        invoices: {
+          where: { status: InvoiceStatus.FINALIZED },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    });
+    if (!booking) {
+      throw new NotFoundException('Booking not found');
+    }
+    assertDashboardBranchAccess(user, booking.branchId);
+
+    if (
+      booking.status === BookingStatus.CANCELLED ||
+      booking.status === BookingStatus.REJECTED ||
+      booking.status === BookingStatus.COMPLETED ||
+      booking.status === BookingStatus.NO_SHOW
+    ) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message:
+            'Items can only be removed from active bookings (not cancelled, rejected, completed, or no-show)',
+          error: 'Bad Request',
+          code: 'INVALID_BOOKING_STATE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (booking.invoices.length > 0) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message:
+            'Cannot remove items after a finalized invoice exists for this booking',
+          error: 'Bad Request',
+          code: 'INVOICE_FINALIZED_BLOCKS_ITEMS',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const target = await this.prisma.bookingItem.findFirst({
+      where: { id: itemId, bookingId },
+      select: {
+        id: true,
+        nameSnapshot: true,
+        itemType: true,
+        priceSnapshot: true,
+        quantity: true,
+      },
+    });
+    if (!target) {
+      throw new NotFoundException('Booking item not found on this booking');
+    }
+
+    const totalItemCount = await this.prisma.bookingItem.count({
+      where: { bookingId },
+    });
+    if (totalItemCount <= 1) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message:
+            'A booking must keep at least one item — cancel the booking instead of removing the last item',
+          error: 'Bad Request',
+          code: 'BOOKING_LAST_ITEM',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const activeQueue = await this.prisma.queueEntry.findFirst({
+      where: {
+        bookingId,
+        status: {
+          in: [QueueEntryStatus.WAITING, QueueEntryStatus.IN_SERVICE],
+        },
+      },
+      select: { id: true },
+    });
+
+    const settings = await this.pricing.getSystemSettings();
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.bookingItem.delete({ where: { id: target.id } });
+
+        const remainingItems = await tx.bookingItem.findMany({
+          where: { bookingId },
+          include: {
+            service: true,
+            serviceVariant: { include: { service: true } },
+            package: true,
+            bundle: { include: { services: { include: { service: true } } } },
+            serviceEnhancement: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+
+        const remainingLines: ResolvedBookingLine[] = remainingItems.map(
+          (it) => {
+            const meta = it.lineMetadata as {
+              selectedServiceIds?: string[];
+            } | null;
+            let isTaxable = true;
+            if (it.packageId && it.package) {
+              isTaxable = it.package.isTaxable;
+            } else if (it.service) {
+              isTaxable = it.service.isTaxable;
+            } else if (it.serviceVariant?.service) {
+              isTaxable = it.serviceVariant.service.isTaxable;
+            } else if (it.bundle) {
+              isTaxable = it.bundle.services.some((s) => s.service.isTaxable);
+            } else if (it.serviceEnhancement) {
+              isTaxable = true;
+            }
+            return {
+              itemType: it.itemType,
+              serviceId: it.serviceId,
+              serviceVariantId: it.serviceVariantId,
+              packageId: it.packageId,
+              bundleId: it.bundleId,
+              serviceEnhancementId: it.serviceEnhancementId,
+              nameSnapshot: it.nameSnapshot,
+              priceSnapshot: it.priceSnapshot,
+              durationMinutesSnapshot: it.durationMinutesSnapshot,
+              quantity: it.quantity,
+              isTaxable,
+              lineMetadata: meta?.selectedServiceIds
+                ? { selectedServiceIds: meta.selectedServiceIds }
+                : null,
+            };
+          },
+        );
+
+        const totals = this.pricing.computeTotals(
+          remainingLines,
+          settings,
+          Number(booking.discountAmount.toString()),
+        );
+
+        await tx.booking.update({
+          where: { id: bookingId },
+          data: {
+            subtotal: totals.subtotal,
+            discountAmount: totals.discountAmount,
+            vatRate: totals.vatRate,
+            vatAmount: totals.vatAmount,
+            totalAmount: totals.totalAmount,
+          },
+        });
+
+        if (activeQueue) {
+          const itemsSnapshot = remainingItems.map((it) => ({
+            itemType: it.itemType,
+            nameSnapshot: it.nameSnapshot,
+            quantity: it.quantity,
+          }));
+          const serviceSummarySnapshot =
+            remainingItems.length === 0
+              ? '—'
+              : remainingItems.length === 1
+                ? remainingItems[0].nameSnapshot
+                : `${remainingItems[0].nameSnapshot} +${remainingItems.length - 1} more`;
+          await tx.queueEntry.update({
+            where: { id: activeQueue.id },
+            data: {
+              itemsSnapshot,
+              serviceSummarySnapshot,
+            },
+          });
+        }
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        maxWait: 5000,
+        timeout: 10_000,
+      },
+    );
+
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.item_removed',
+      module: 'bookings',
+      entityId: bookingId,
+      oldValue: {
+        itemId: target.id,
+        itemType: target.itemType,
+        nameSnapshot: target.nameSnapshot,
+        priceSnapshot: Number(target.priceSnapshot.toString()),
+        quantity: target.quantity,
+      },
+      newValue: {
+        subtotal: updated.subtotal,
+        discountAmount: updated.discountAmount,
+        vatAmount: updated.vatAmount,
+        totalAmount: updated.totalAmount,
+        remainingItemCount: updated.items.length,
+        queueEntryId: activeQueue?.id ?? null,
       },
     });
     return updated;
@@ -1361,13 +2104,7 @@ export class BookingsService {
     user: DashboardJwtUser,
     query: ChangeRequestListQueryDto,
   ) {
-    const branchFilter = this.resolveDashboardBranchFilter(
-      user,
-      query.branchId,
-    );
-    if (!this.canAccessAllBranches(user) && !branchFilter) {
-      throw new ForbiddenException('Insufficient permissions');
-    }
+    const branchWhere = buildDashboardBookingBranchWhere(user, query.branchId);
 
     const where: Prisma.BookingChangeRequestWhereInput = {};
     if (query.status) {
@@ -1376,8 +2113,8 @@ export class BookingsService {
     if (query.bookingId) {
       where.bookingId = query.bookingId;
     }
-    if (branchFilter) {
-      where.booking = { branchId: branchFilter };
+    if (Object.keys(branchWhere).length) {
+      where.booking = { is: branchWhere };
     }
 
     const skip = (query.page - 1) * query.pageSize;
@@ -1427,7 +2164,7 @@ export class BookingsService {
     if (!row) {
       throw new NotFoundException('Change request not found');
     }
-    this.assertDashboardBranchAccess(user, row.booking.branchId);
+    assertDashboardBranchAccess(user, row.booking.branchId);
     return row;
   }
 
@@ -1441,7 +2178,7 @@ export class BookingsService {
         if (!row) {
           throw new NotFoundException('Change request not found');
         }
-        this.assertDashboardBranchAccess(user, row.booking.branchId);
+        assertDashboardBranchAccess(user, row.booking.branchId);
 
         if (row.status !== BookingChangeRequestStatus.PENDING) {
           throw new HttpException(
@@ -1549,6 +2286,127 @@ export class BookingsService {
     return this.getChangeRequest(user, requestId);
   }
 
+  async dashboardCreateChangeRequest(
+    user: DashboardJwtUser,
+    bookingId: string,
+    dto: DashboardCreateChangeRequestDto,
+  ) {
+    const booking = await this.requireDashboardBooking(user, bookingId);
+    if (
+      booking.status === BookingStatus.CANCELLED ||
+      booking.status === BookingStatus.REJECTED ||
+      booking.status === BookingStatus.COMPLETED ||
+      booking.status === BookingStatus.NO_SHOW
+    ) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message:
+            'Cannot create a change request for a cancelled, rejected, completed, or no-show booking',
+          error: 'Bad Request',
+          code: 'INVALID_BOOKING_STATE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (dto.requestType === BookingChangeRequestType.RESCHEDULE) {
+      if (!dto.requestedSlotId) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: 'requestedSlotId is required for RESCHEDULE',
+            error: 'Bad Request',
+            code: 'INVALID_REQUESTED_SLOT',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      if (dto.requestedSlotId === booking.slotId) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: 'New slot must differ from the current booking slot',
+            error: 'Bad Request',
+            code: 'SAME_SLOT',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+
+    const dup = await this.prisma.bookingChangeRequest.findFirst({
+      where: {
+        bookingId,
+        requestType: dto.requestType,
+        status: BookingChangeRequestStatus.PENDING,
+      },
+    });
+    if (dup) {
+      throw new ConflictException(
+        `A pending ${dto.requestType.toLowerCase()} request already exists for this booking`,
+      );
+    }
+
+    let requestedSlotId: string | null = null;
+    if (dto.requestType === BookingChangeRequestType.RESCHEDULE) {
+      const slot = await this.prisma.bookingSlot.findFirst({
+        where: {
+          id: dto.requestedSlotId!,
+          branchId: booking.branchId,
+          deletedAt: null,
+        },
+      });
+      if (!slot) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: 'Requested slot is not valid for this branch',
+            error: 'Bad Request',
+            code: 'INVALID_REQUESTED_SLOT',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      requestedSlotId = slot.id;
+    }
+
+    const row = await this.prisma.bookingChangeRequest.create({
+      data: {
+        bookingId,
+        clientId: booking.clientId,
+        requestType: dto.requestType,
+        requestedSlotId,
+        reason: dto.reason ?? null,
+        status: BookingChangeRequestStatus.PENDING,
+      },
+      select: {
+        id: true,
+        bookingId: true,
+        clientId: true,
+        requestType: true,
+        requestedSlotId: true,
+        reason: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking_change_request.created',
+      module: 'bookings',
+      entityId: row.id,
+      newValue: {
+        bookingId,
+        requestType: dto.requestType,
+        requestedSlotId,
+      },
+    });
+
+    return row;
+  }
+
   private async bookingItemsToDtoInputs(
     bookingId: string,
   ): Promise<BookingItemInputDto[]> {
@@ -1557,15 +2415,25 @@ export class BookingsService {
       orderBy: { createdAt: 'asc' },
     });
     return items.map((it) => {
-      const meta = it.lineMetadata as { selectedServiceIds?: string[] } | null;
+      const meta = it.lineMetadata as {
+        selectedServiceIds?: string[];
+        staffCatalogOverride?: {
+          unitPrice: number;
+          durationMinutes?: number;
+        };
+      } | null;
+      const staff = meta?.staffCatalogOverride;
       return {
         itemType: it.itemType,
         serviceId: it.serviceId ?? undefined,
         serviceVariantId: it.serviceVariantId ?? undefined,
         packageId: it.packageId ?? undefined,
         bundleId: it.bundleId ?? undefined,
+        serviceEnhancementId: it.serviceEnhancementId ?? undefined,
         quantity: it.quantity,
         selectedServiceIds: meta?.selectedServiceIds,
+        staffOverrideUnitPrice: staff?.unitPrice,
+        staffOverrideDurationMinutes: staff?.durationMinutes,
       };
     });
   }
@@ -1584,6 +2452,7 @@ export class BookingsService {
         serviceVariant: { include: { service: true } },
         package: true,
         bundle: { include: { services: { include: { service: true } } } },
+        serviceEnhancement: true,
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -1591,14 +2460,16 @@ export class BookingsService {
     return items.map((it) => {
       const meta = it.lineMetadata as { selectedServiceIds?: string[] } | null;
       let isTaxable = true;
-      if (it.service) {
+      if (it.packageId && it.package) {
+        isTaxable = it.package.isTaxable;
+      } else if (it.service) {
         isTaxable = it.service.isTaxable;
       } else if (it.serviceVariant?.service) {
         isTaxable = it.serviceVariant.service.isTaxable;
-      } else if (it.package) {
-        isTaxable = it.package.isTaxable;
       } else if (it.bundle) {
         isTaxable = it.bundle.services.some((s) => s.service.isTaxable);
+      } else if (it.serviceEnhancement) {
+        isTaxable = true;
       }
 
       return {
@@ -1607,6 +2478,7 @@ export class BookingsService {
         serviceVariantId: it.serviceVariantId,
         packageId: it.packageId,
         bundleId: it.bundleId,
+        serviceEnhancementId: it.serviceEnhancementId,
         nameSnapshot: it.nameSnapshot,
         priceSnapshot: it.priceSnapshot,
         durationMinutesSnapshot: it.durationMinutesSnapshot,
@@ -1614,8 +2486,8 @@ export class BookingsService {
         isTaxable,
         lineMetadata: meta?.selectedServiceIds
           ? {
-              selectedServiceIds: meta.selectedServiceIds,
-            }
+            selectedServiceIds: meta.selectedServiceIds,
+          }
           : null,
       };
     });
@@ -1734,7 +2606,7 @@ export class BookingsService {
     if (!booking) {
       throw new NotFoundException('Booking not found');
     }
-    this.assertDashboardBranchAccess(user, booking.branchId);
+    assertDashboardBranchAccess(user, booking.branchId);
     return booking;
   }
 
@@ -1760,7 +2632,7 @@ export class BookingsService {
         if (!booking) {
           throw new NotFoundException('Booking not found');
         }
-        this.assertDashboardBranchAccess(user, booking.branchId);
+        assertDashboardBranchAccess(user, booking.branchId);
         await fn(tx, booking);
       },
       {
@@ -1799,7 +2671,10 @@ export class BookingsService {
           where: { id: booking.slotId },
           data: { bookedCount: { decrement: 1 } },
         });
-        await this.slots.syncBookingSlotFilledFromCapacityTx(tx, booking.slotId);
+        await this.slots.syncBookingSlotFilledFromCapacityTx(
+          tx,
+          booking.slotId,
+        );
       }
       await tx.booking.update({
         where: { id: booking.id },
@@ -1813,7 +2688,12 @@ export class BookingsService {
     slotId: string,
   ): Promise<void> {
     const slot = await this.prisma.bookingSlot.findFirst({
-      where: { id: slotId, branchId, deletedAt: null },
+      where: {
+        id: slotId,
+        branchId,
+        deletedAt: null,
+        isWalkInBucket: false,
+      },
     });
     if (!slot) {
       throw new HttpException(
@@ -1879,11 +2759,17 @@ export class BookingsService {
       serviceVariantId: string | null;
       packageId: string | null;
       bundleId: string | null;
+      serviceEnhancementId: string | null;
       nameSnapshot: string;
       priceSnapshot: Prisma.Decimal;
       durationMinutesSnapshot: number;
       quantity: number;
       lineMetadata: Prisma.JsonValue | null;
+      lineStatus: BookingItemLineStatus;
+      staffProfileId: string | null;
+      startedAt: Date | null;
+      completedAt: Date | null;
+      staffProfile?: { id: string; displayName: string } | null;
     }>;
     payments?: Array<{
       id: string;
@@ -1901,6 +2787,7 @@ export class BookingsService {
     invoices?: Array<{
       id: string;
       invoiceNumber: string;
+      totalAmount: Prisma.Decimal;
       paidAmount: Prisma.Decimal;
       remainingAmount: Prisma.Decimal;
       status: InvoiceStatus;
@@ -1941,10 +2828,10 @@ export class BookingsService {
       updatedAt: booking.updatedAt,
       slot: booking.slot
         ? {
-            date: booking.slot.date.toISOString().slice(0, 10),
-            startTime: booking.slot.startTime.toISOString().slice(11, 19),
-            endTime: booking.slot.endTime.toISOString().slice(11, 19),
-          }
+          date: booking.slot.date.toISOString().slice(0, 10),
+          startTime: booking.slot.startTime.toISOString().slice(11, 19),
+          endTime: booking.slot.endTime.toISOString().slice(11, 19),
+        }
         : undefined,
       client: booking.client,
       items:
@@ -1955,11 +2842,17 @@ export class BookingsService {
           serviceVariantId: it.serviceVariantId,
           packageId: it.packageId,
           bundleId: it.bundleId,
+          serviceEnhancementId: it.serviceEnhancementId,
           nameSnapshot: it.nameSnapshot,
           priceSnapshot: Number(it.priceSnapshot.toString()),
           durationMinutesSnapshot: it.durationMinutesSnapshot,
           quantity: it.quantity,
           lineMetadata: it.lineMetadata,
+          lineStatus: it.lineStatus,
+          staffProfileId: it.staffProfileId,
+          startedAt: it.startedAt?.toISOString() ?? null,
+          completedAt: it.completedAt?.toISOString() ?? null,
+          staffDisplayName: it.staffProfile?.displayName ?? null,
         })) ?? [],
       payments:
         booking.payments?.map((p) => ({
@@ -1977,12 +2870,18 @@ export class BookingsService {
         })) ?? [],
       finalizedInvoice: inv
         ? {
-            id: inv.id,
-            invoiceNumber: inv.invoiceNumber,
-            paidAmount: Number(inv.paidAmount.toString()),
-            remainingAmount: Number(inv.remainingAmount.toString()),
-            status: inv.status,
-          }
+          id: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          totalAmount: Number(inv.totalAmount.toString()),
+          paidAmount: Number(inv.paidAmount.toString()),
+          remainingAmount: Number(inv.remainingAmount.toString()),
+          status: inv.status,
+          paymentStatus: inv.remainingAmount.lessThanOrEqualTo(0)
+            ? 'PAID'
+            : inv.paidAmount.greaterThan(0)
+              ? 'PARTIALLY_PAID'
+              : 'UNPAID',
+        }
         : null,
     };
   }
