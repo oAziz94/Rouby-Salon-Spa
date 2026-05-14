@@ -145,7 +145,8 @@ export const WEBSITE_CONTENT_SECTION_SEEDS: WebsiteContentSectionSeed[] = [
     isRequired: false,
     isVisible: true,
     title: 'Why Choose Alrouby',
-    subtitle: 'Experience the difference of botanical luxury and personalized care.',
+    subtitle:
+      'Experience the difference of botanical luxury and personalized care.',
     content: {
       items: [
         {
@@ -162,7 +163,8 @@ export const WEBSITE_CONTENT_SECTION_SEEDS: WebsiteContentSectionSeed[] = [
         },
         {
           title: 'Luxury Ambiance',
-          description: 'Calm suites, soft light, and refined details designed for deep unwinding.',
+          description:
+            'Calm suites, soft light, and refined details designed for deep unwinding.',
           iconKey: 'Sparkles',
         },
         {
@@ -188,15 +190,18 @@ export const WEBSITE_CONTENT_SECTION_SEEDS: WebsiteContentSectionSeed[] = [
       philosophyItems: [
         {
           title: 'Holistic Wellness',
-          description: 'Treatments that honor body, breath, and skin as one connected system.',
+          description:
+            'Treatments that honor body, breath, and skin as one connected system.',
         },
         {
           title: 'Sustainable Luxury',
-          description: 'Thoughtful sourcing and mindful rituals without compromising on results.',
+          description:
+            'Thoughtful sourcing and mindful rituals without compromising on results.',
         },
         {
           title: 'Personalized Care',
-          description: 'Plans shaped around your goals, sensitivities, and preferred pace.',
+          description:
+            'Plans shaped around your goals, sensitivities, and preferred pace.',
         },
       ],
     },
@@ -260,7 +265,8 @@ export const WEBSITE_CONTENT_SECTION_SEEDS: WebsiteContentSectionSeed[] = [
     content: {
       whatsappHelpText: 'Chat with us during business hours',
       whatsappButtonLabel: 'Chat on WhatsApp',
-      defaultChatText: 'Hello, I would like to get in touch with Alrouby Wellness & Spa.',
+      defaultChatText:
+        'Hello, I would like to get in touch with Alrouby Wellness & Spa.',
     },
   },
   {
@@ -273,7 +279,8 @@ export const WEBSITE_CONTENT_SECTION_SEEDS: WebsiteContentSectionSeed[] = [
     body: 'Premium botanical wellness with curated treatments in a calm, luxurious atmosphere.',
     content: {
       pricingNote: 'All prices are displayed in EGP.',
-      homepageStrip: 'Alrouby Salon & Spa - Luxury beauty and wellness in Egypt.',
+      homepageStrip:
+        'Alrouby Salon & Spa - Luxury beauty and wellness in Egypt.',
     },
   },
 ];

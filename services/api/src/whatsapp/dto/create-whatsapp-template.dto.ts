@@ -12,7 +12,10 @@ import {
 } from 'class-validator';
 import { WHATSAPP_TEMPLATE_CATEGORIES } from '../whatsapp-template-variables';
 
-const CATEGORY_ENUM = [...WHATSAPP_TEMPLATE_CATEGORIES] as [string, ...string[]];
+const CATEGORY_ENUM = [...WHATSAPP_TEMPLATE_CATEGORIES] as [
+  string,
+  ...string[],
+];
 
 export class CreateWhatsappTemplateDto {
   @ApiProperty({ example: 'Booking confirmation (Arabic)' })
@@ -29,7 +32,8 @@ export class CreateWhatsappTemplateDto {
   templateKey!: string;
 
   @ApiProperty({
-    description: 'Message body with {{clientName}} or {clientName} placeholders',
+    description:
+      'Message body with {{clientName}} or {clientName} placeholders',
   })
   @IsString()
   @IsNotEmpty()

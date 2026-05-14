@@ -243,14 +243,10 @@ export class InvoicesService {
       return;
     }
 
-    const linked = new Set(
-      invoice.lines
-        .map((l) => l.bookingItemId)
-        .filter((id): id is string => id !== null),
-    );
-
     let maxSort = invoice.lines.reduce((m, l) => Math.max(m, l.sortOrder), -1);
-    const sortedLines = [...invoice.lines].sort((a, b) => a.sortOrder - b.sortOrder);
+    const sortedLines = [...invoice.lines].sort(
+      (a, b) => a.sortOrder - b.sortOrder,
+    );
     const sortedItems = [...booking.items].sort(
       (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
     );
@@ -262,8 +258,8 @@ export class InvoicesService {
         sortedLines.length === sortedItems.length
       ) {
         for (let i = 0; i < sortedLines.length; i++) {
-          const line = sortedLines[i]!;
-          const item = sortedItems[i]!;
+          const line = sortedLines[i];
+          const item = sortedItems[i];
           await tx.invoiceLine.update({
             where: { id: line.id },
             data: { bookingItemId: item.id },

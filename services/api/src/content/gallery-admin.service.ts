@@ -235,14 +235,17 @@ export class GalleryAdminService {
       row._count.mediaUsages +
       (row._count.servicesAsPrimaryImage > 0 && !hasServiceUsage ? 1 : 0);
     const hasService =
-      row.mediaUsages.some((u) => u.usageType === GALLERY_USAGE.SERVICE_IMAGE) ||
-      row._count.servicesAsPrimaryImage > 0;
+      row.mediaUsages.some(
+        (u) => u.usageType === GALLERY_USAGE.SERVICE_IMAGE,
+      ) || row._count.servicesAsPrimaryImage > 0;
     const homepageTypes = new Set<string>([
       GALLERY_USAGE.HOMEPAGE_GALLERY,
       GALLERY_USAGE.HOMEPAGE_HERO,
       GALLERY_USAGE.HOMEPAGE_SECTION,
     ]);
-    const hasHomepage = row.mediaUsages.some((u) => homepageTypes.has(u.usageType));
+    const hasHomepage = row.mediaUsages.some((u) =>
+      homepageTypes.has(u.usageType),
+    );
     const summaryParts: string[] = [];
     if (hasService) summaryParts.push('SERVICE');
     if (hasHomepage) summaryParts.push('HOMEPAGE');
@@ -353,7 +356,11 @@ export class GalleryAdminService {
     });
     if (!row) throw new NotFoundException('Gallery item not found');
 
-    const usages = await this.buildUsageRows(row.id, row.mediaUsages, row.servicesAsPrimaryImage);
+    const usages = await this.buildUsageRows(
+      row.id,
+      row.mediaUsages,
+      row.servicesAsPrimaryImage,
+    );
     return {
       asset: this.toListRow({
         ...row,
@@ -372,7 +379,14 @@ export class GalleryAdminService {
 
   private async buildUsageRows(
     galleryItemId: string,
-    mediaUsages: { id: string; usageType: string; entityType: string | null; entityId: string | null; sectionKey: string | null; isPrimary: boolean }[],
+    mediaUsages: {
+      id: string;
+      usageType: string;
+      entityType: string | null;
+      entityId: string | null;
+      sectionKey: string | null;
+      isPrimary: boolean;
+    }[],
     servicesLinked: { id: string; name: string }[],
   ) {
     const out: Array<{
@@ -401,7 +415,9 @@ export class GalleryAdminService {
 
     const coveredServiceIds = new Set(
       mediaUsages
-        .filter((u) => u.usageType === GALLERY_USAGE.SERVICE_IMAGE && u.entityId)
+        .filter(
+          (u) => u.usageType === GALLERY_USAGE.SERVICE_IMAGE && u.entityId,
+        )
         .map((u) => u.entityId as string),
     );
     for (const s of servicesLinked) {
@@ -453,12 +469,14 @@ export class GalleryAdminService {
       return `Service: ${svc?.name ?? 'Service'}`;
     }
     if (u.usageType === GALLERY_USAGE.HOMEPAGE_HERO) return 'Homepage: Hero';
-    if (u.usageType === GALLERY_USAGE.HOMEPAGE_GALLERY) return 'Homepage: Gallery';
+    if (u.usageType === GALLERY_USAGE.HOMEPAGE_GALLERY)
+      return 'Homepage: Gallery';
     if (u.usageType === GALLERY_USAGE.HOMEPAGE_SECTION) {
       return `Homepage section: ${u.sectionKey ?? 'section'}`;
     }
     if (u.usageType === GALLERY_USAGE.ABOUT_SECTION) return 'Website: About';
-    if (u.usageType === GALLERY_USAGE.VISIT_US_SECTION) return 'Website: Visit Us';
+    if (u.usageType === GALLERY_USAGE.VISIT_US_SECTION)
+      return 'Website: Visit Us';
     if (u.usageType === GALLERY_USAGE.WEBSITE_SECTION && u.entityId) {
       const sec = await this.prisma.websiteContentSection.findUnique({
         where: { id: u.entityId },
@@ -482,9 +500,7 @@ export class GalleryAdminService {
       throw new BadRequestException('Missing file');
     }
     const saved = await this.mediaUpload.saveDashboardImage(file);
-    const tags = fields.tags?.length
-      ? fields.tags
-      : parseTags(fields.tagsRaw);
+    const tags = fields.tags?.length ? fields.tags : parseTags(fields.tagsRaw);
 
     const row = await this.prisma.galleryItem.create({
       data: {
@@ -541,14 +557,18 @@ export class GalleryAdminService {
       data: {
         ...(dto.title !== undefined ? { title: dto.title } : {}),
         ...(dto.altText !== undefined ? { altText: dto.altText } : {}),
-        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.description !== undefined
+          ? { description: dto.description }
+          : {}),
         ...(dto.category !== undefined ? { category: dto.category } : {}),
         ...(dto.tags !== undefined ? { tags: dto.tags } : {}),
         ...(dto.libraryStatus !== undefined
           ? { libraryStatus: dto.libraryStatus }
           : {}),
         ...(dto.isFeatured !== undefined ? { isFeatured: dto.isFeatured } : {}),
-        ...(dto.displayOrder !== undefined ? { displayOrder: dto.displayOrder } : {}),
+        ...(dto.displayOrder !== undefined
+          ? { displayOrder: dto.displayOrder }
+          : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
       include: {
@@ -576,7 +596,11 @@ export class GalleryAdminService {
   }
 
   /** Legacy patch (display order, featured, etc.) — image URL changes must match salon uploads. */
-  async patchGalleryItem(id: string, dto: PatchGalleryItemDto, user: DashboardJwtUser) {
+  async patchGalleryItem(
+    id: string,
+    dto: PatchGalleryItemDto,
+    user: DashboardJwtUser,
+  ) {
     await this.ensureGalleryExists(id);
     if (dto.imageUrl !== undefined) {
       const bases = this.getMediaBases();
@@ -594,9 +618,13 @@ export class GalleryAdminService {
         ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl } : {}),
         ...(dto.title !== undefined ? { title: dto.title } : {}),
         ...(dto.category !== undefined ? { category: dto.category } : {}),
-        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.description !== undefined
+          ? { description: dto.description }
+          : {}),
         ...(dto.isFeatured !== undefined ? { isFeatured: dto.isFeatured } : {}),
-        ...(dto.displayOrder !== undefined ? { displayOrder: dto.displayOrder } : {}),
+        ...(dto.displayOrder !== undefined
+          ? { displayOrder: dto.displayOrder }
+          : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
       include: {
@@ -790,7 +818,9 @@ export class GalleryAdminService {
 
     if (dto.usageType === GALLERY_USAGE.SERVICE_IMAGE) {
       if (!user.permissions.includes('services.manage')) {
-        throw new ForbiddenException('Insufficient permissions to attach to a service');
+        throw new ForbiddenException(
+          'Insufficient permissions to attach to a service',
+        );
       }
       if (!dto.entityId) {
         throw new BadRequestException('entityId (service id) is required');
@@ -803,7 +833,8 @@ export class GalleryAdminService {
       const bases = this.getMediaBases();
       const imageUrl =
         asset.storageKey && SERVICE_IMAGE_KEY_RE.test(asset.storageKey)
-          ? (expectedImageUrlForKey(asset.storageKey, bases)[0] ?? asset.imageUrl)
+          ? (expectedImageUrlForKey(asset.storageKey, bases)[0] ??
+            asset.imageUrl)
           : asset.imageUrl;
       const imageKey = asset.storageKey ?? null;
 
@@ -908,7 +939,7 @@ export class GalleryAdminService {
         });
         await tx.siteContent.update({
           where: { id: SITE_CONTENT_ID },
-          data: { homeHero: nextHero as Prisma.InputJsonValue },
+          data: { homeHero: nextHero },
         });
       });
       await this.audit.log({

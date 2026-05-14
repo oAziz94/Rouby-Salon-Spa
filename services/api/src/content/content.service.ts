@@ -7,10 +7,7 @@ import { Prisma, ReviewStatus } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  toPublicSiteContent,
-  toPublicTestimonial,
-} from './content.mapper';
+import { toPublicSiteContent, toPublicTestimonial } from './content.mapper';
 import { CreateDashboardReviewDto } from './dto/dashboard-review-create.dto';
 import { PatchDashboardReviewHomepageDto } from './dto/dashboard-review-homepage.dto';
 import { PatchDashboardReviewDto } from './dto/dashboard-review-patch.dto';
@@ -125,7 +122,11 @@ export class ContentService {
     return this.galleryAdmin.createGalleryItem(dto, user);
   }
 
-  async patchGalleryItem(id: string, dto: PatchGalleryItemDto, user: DashboardJwtUser) {
+  async patchGalleryItem(
+    id: string,
+    dto: PatchGalleryItemDto,
+    user: DashboardJwtUser,
+  ) {
     return this.galleryAdmin.patchGalleryItem(id, dto, user);
   }
 
@@ -241,7 +242,10 @@ export class ContentService {
     return this.toDashboardReviewDto(row);
   }
 
-  async createDashboardReview(user: DashboardJwtUser, dto: CreateDashboardReviewDto) {
+  async createDashboardReview(
+    user: DashboardJwtUser,
+    dto: CreateDashboardReviewDto,
+  ) {
     if (dto.branchId) {
       await this.ensureBranchExists(dto.branchId);
     }
@@ -307,7 +311,9 @@ export class ContentService {
       ...(dto.source !== undefined ? { source: dto.source } : {}),
       ...(dto.rating !== undefined ? { rating: dto.rating } : {}),
       ...(dto.quote !== undefined ? { comment: dto.quote.trim() } : {}),
-      ...(dto.serviceName !== undefined ? { serviceName: dto.serviceName } : {}),
+      ...(dto.serviceName !== undefined
+        ? { serviceName: dto.serviceName }
+        : {}),
       ...(dto.branchId !== undefined
         ? dto.branchId === null
           ? { branch: { disconnect: true } }
@@ -488,7 +494,10 @@ export class ContentService {
     }
     const row = await this.prisma.review.update({
       where: { id },
-      data: { showOnHomepage: false, updatedByUser: { connect: { id: user.userId } } },
+      data: {
+        showOnHomepage: false,
+        updatedByUser: { connect: { id: user.userId } },
+      },
       include: reviewDashboardInclude,
     });
     await this.audit.log({
@@ -531,9 +540,12 @@ export class ContentService {
       module: 'reviews',
       entityId: null,
       newValue: {
-        items: dto.items.map((i) => ({ id: i.id, displayOrder: i.displayOrder })),
+        items: dto.items.map((i) => ({
+          id: i.id,
+          displayOrder: i.displayOrder,
+        })),
         performedByUserId: user.userId,
-      } as Prisma.InputJsonValue,
+      },
     });
     return { ok: true as const };
   }

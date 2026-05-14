@@ -603,7 +603,9 @@ export class CatalogDashboardService {
     let imageKey = dto.imageKey ?? null;
     let imageMediaId: string | null = dto.imageMediaId ?? null;
     if (dto.imageMediaId) {
-      const resolved = await this.resolveGalleryImageForService(dto.imageMediaId);
+      const resolved = await this.resolveGalleryImageForService(
+        dto.imageMediaId,
+      );
       imageUrl = resolved.imageUrl;
       imageKey = resolved.imageKey;
       imageMediaId = resolved.imageMediaId;
@@ -710,7 +712,9 @@ export class CatalogDashboardService {
           nextKey = null;
         }
       } else {
-        const resolved = await this.resolveGalleryImageForService(dto.imageMediaId);
+        const resolved = await this.resolveGalleryImageForService(
+          dto.imageMediaId,
+        );
         nextUrl = resolved.imageUrl;
         nextKey = resolved.imageKey;
         nextMediaId = resolved.imageMediaId;

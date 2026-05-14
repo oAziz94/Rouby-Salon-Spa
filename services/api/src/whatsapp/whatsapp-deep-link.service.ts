@@ -40,10 +40,7 @@ export class WhatsappDeepLinkService {
    * Resolves a template row: exact `templateKey`, or logical key + language
    * (e.g. BOOKING_CONFIRMED + ar → BOOKING_CONFIRMED_AR).
    */
-  private async resolveTemplate(
-    requestedKey: string,
-    language?: 'ar' | 'en',
-  ) {
+  private async resolveTemplate(requestedKey: string, language?: 'ar' | 'en') {
     const preferred = language === 'ar' ? 'ar' : 'en';
 
     let row = await this.prisma.whatsAppTemplate.findUnique({

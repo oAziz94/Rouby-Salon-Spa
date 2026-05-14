@@ -10,11 +10,14 @@ export function substituteWhatsappTemplate(
   content: string,
   values: WhatsappSubstitutionMap,
 ): string {
-  return content.replace(COMBINED_RE, (full, doubleKey: string, singleKey: string) => {
-    const key = (doubleKey ?? singleKey) as string;
-    if (Object.prototype.hasOwnProperty.call(values, key)) {
-      return values[key] ?? '';
-    }
-    return full;
-  });
+  return content.replace(
+    COMBINED_RE,
+    (full, doubleKey: string, singleKey: string) => {
+      const key = doubleKey ?? singleKey;
+      if (Object.prototype.hasOwnProperty.call(values, key)) {
+        return values[key] ?? '';
+      }
+      return full;
+    },
+  );
 }

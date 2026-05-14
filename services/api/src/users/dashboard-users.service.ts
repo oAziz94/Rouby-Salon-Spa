@@ -229,7 +229,7 @@ export class DashboardUsersService {
     }
   }
 
-  private async assertActorCanAssignBranches(
+  private assertActorCanAssignBranches(
     actor: DashboardJwtUser,
     branchIds: string[],
   ) {
@@ -500,7 +500,7 @@ export class DashboardUsersService {
       );
     }
     await this.assertBranchesExistActive(branchIds);
-    await this.assertActorCanAssignBranches(actor, branchIds);
+    this.assertActorCanAssignBranches(actor, branchIds);
     const email = dto.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({
       where: { email },
@@ -627,7 +627,7 @@ export class DashboardUsersService {
         );
       }
       await this.assertBranchesExistActive(nextBranchIds);
-      await this.assertActorCanAssignBranches(actor, nextBranchIds);
+      this.assertActorCanAssignBranches(actor, nextBranchIds);
       await this.assertPrivilegedKeepsBranches(
         userId,
         nextBranchIds,
@@ -702,8 +702,7 @@ export class DashboardUsersService {
     const newDefaultBranchId = updated.branchId;
 
     const roleChanged = current.roleId !== updated.role.id;
-    const defaultBranchChanged =
-      previousDefaultBranchId !== newDefaultBranchId;
+    const defaultBranchChanged = previousDefaultBranchId !== newDefaultBranchId;
     const branchAccessChanged =
       previousBranchIds.join(',') !== newBranchIds.join(',');
 

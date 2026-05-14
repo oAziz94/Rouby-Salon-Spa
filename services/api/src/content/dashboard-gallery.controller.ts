@@ -115,7 +115,9 @@ export class DashboardGalleryController {
 
   @Post()
   @RequirePermissions('gallery.manage')
-  @ApiOperation({ summary: 'Create gallery item (legacy: URL must be salon upload)' })
+  @ApiOperation({
+    summary: 'Create gallery item (legacy: URL must be salon upload)',
+  })
   create(@Req() req: AuthedRequest, @Body() dto: CreateGalleryItemDto) {
     return this.content.createGalleryItem(dto, req.user);
   }
@@ -177,7 +179,10 @@ export class DashboardGalleryController {
   @Delete(':id')
   @RequirePermissions('gallery.manage')
   @ApiOperation({ summary: 'Delete unused gallery asset' })
-  deleteAsset(@Req() req: AuthedRequest, @Param('id', ParseUUIDPipe) id: string) {
+  deleteAsset(
+    @Req() req: AuthedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.gallery.deleteDashboardGalleryAsset(id, req.user);
   }
 }

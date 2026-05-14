@@ -49,9 +49,7 @@ function reportBranchMeta(
   );
 }
 
-function extractBranchIdsForSql(
-  bf: Prisma.BookingWhereInput,
-): string[] | null {
+function extractBranchIdsForSql(bf: Prisma.BookingWhereInput): string[] | null {
   if (bf.branchId === undefined || bf.branchId === null) {
     return null;
   }
@@ -89,8 +87,8 @@ function summarizeItems(
   items: Array<{ nameSnapshot: string }> | null | undefined,
 ): string {
   if (!items?.length) return '—';
-  if (items.length === 1) return items[0]!.nameSnapshot;
-  return `${items[0]!.nameSnapshot} +${items.length - 1} more`;
+  if (items.length === 1) return items[0].nameSnapshot;
+  return `${items[0].nameSnapshot} +${items.length - 1} more`;
 }
 
 function mapAppointmentShell(
@@ -263,7 +261,9 @@ export async function buildDashboardOverview(
     noShowToday +
     rejectedToday;
   const completionRate =
-    totalToday > 0 ? Math.round((completedToday / totalToday) * 1000) / 1000 : 0;
+    totalToday > 0
+      ? Math.round((completedToday / totalToday) * 1000) / 1000
+      : 0;
 
   const dayKeys7 = Array.from({ length: 7 }, (_, i) =>
     addDaysToYmdInCairo(todayYmd, -6 + i),
@@ -586,7 +586,7 @@ export async function buildDashboardOverview(
           orderBy: { updatedAt: 'desc' },
           where: {
             ...(branchIds?.length === 1
-              ? { preferredBranchId: branchIds[0]! }
+              ? { preferredBranchId: branchIds[0] }
               : branchIds && branchIds.length > 1
                 ? { preferredBranchId: { in: branchIds } }
                 : {}),
@@ -637,16 +637,12 @@ export async function buildDashboardOverview(
     const waits = queueCompletedSamples
       .map((r) => {
         if (!r.startedAt) return null;
-        return (
-          (r.startedAt.getTime() - r.checkedInAt.getTime()) / (60 * 1000)
-        );
+        return (r.startedAt.getTime() - r.checkedInAt.getTime()) / (60 * 1000);
       })
       .filter((v): v is number => v !== null && !Number.isNaN(v));
     if (waits.length) {
       avgWaitMinutes =
-        Math.round(
-          (waits.reduce((a, b) => a + b, 0) / waits.length) * 10,
-        ) / 10;
+        Math.round((waits.reduce((a, b) => a + b, 0) / waits.length) * 10) / 10;
     }
   }
 
@@ -777,9 +773,7 @@ export async function buildDashboardOverview(
   let returningClientsToday = 0;
   if (permBookings && permClients && scheduleBookings.length) {
     const clientIds = [
-      ...new Set(
-        scheduleBookings.map((b) => b.clientId).filter(Boolean),
-      ),
+      ...new Set(scheduleBookings.map((b) => b.clientId).filter(Boolean)),
     ] as string[];
     if (clientIds.length) {
       const firsts = await prisma.booking.groupBy({
@@ -833,168 +827,180 @@ export async function buildDashboardOverview(
   if (permStaff && branchIdsForOps.length > 0) {
     try {
       const profiles = await prisma.staffProfile.findMany({
-      where: {
-        branchId: { in: branchIdsForOps },
-        isActive: true,
-      },
-      select: { id: true, branchId: true, displayName: true, isBookable: true },
-      orderBy: { displayName: 'asc' },
-    });
-
-    const busyRows = await prisma.bookingItem.groupBy({
-      by: ['staffProfileId'],
-      where: {
-        staffProfileId: { not: null },
-        lineStatus: BookingItemLineStatus.IN_PROGRESS,
-        booking: { branchId: { in: branchIdsForOps } },
-      },
-      _count: { _all: true },
-    });
-    const busySet = new Set(
-      busyRows.map((r) => r.staffProfileId).filter(Boolean) as string[],
-    );
-
-    const completedRows = await prisma.bookingItem.findMany({
-      where: {
-        staffProfileId: { not: null },
-        lineStatus: BookingItemLineStatus.COMPLETED,
-        completedAt: { gte: cairoStaffDayStart, lt: cairoStaffDayEnd },
-        booking: { branchId: { in: branchIdsForOps } },
-      },
-      select: {
-        staffProfileId: true,
-        durationMinutesSnapshot: true,
-      },
-    });
-    const completedByStaff = new Map<string, { count: number; minutes: number }>();
-    for (const row of completedRows) {
-      const sid = row.staffProfileId!;
-      const cur = completedByStaff.get(sid) ?? { count: 0, minutes: 0 };
-      cur.count += 1;
-      cur.minutes += row.durationMinutesSnapshot;
-      completedByStaff.set(sid, cur);
-    }
-
-    const inProgRows = await prisma.bookingItem.findMany({
-      where: {
-        staffProfileId: { not: null },
-        lineStatus: BookingItemLineStatus.IN_PROGRESS,
-        booking: { branchId: { in: branchIdsForOps } },
-      },
-      select: { staffProfileId: true, durationMinutesSnapshot: true },
-    });
-    const inProgByStaff = new Map<string, number>();
-    const inProgMinutesByStaff = new Map<string, number>();
-    for (const row of inProgRows) {
-      const sid = row.staffProfileId!;
-      inProgByStaff.set(sid, (inProgByStaff.get(sid) ?? 0) + 1);
-      inProgMinutesByStaff.set(
-        sid,
-        (inProgMinutesByStaff.get(sid) ?? 0) + row.durationMinutesSnapshot,
-      );
-    }
-
-    const bookingTouchRows = await prisma.bookingItem.groupBy({
-      by: ['staffProfileId', 'bookingId'],
-      where: {
-        staffProfileId: { not: null },
-        booking: {
+        where: {
           branchId: { in: branchIdsForOps },
-          slot: { date: slotToday },
+          isActive: true,
         },
-      },
-      _count: { _all: true },
-    });
-    const bookingsTodayByStaff = new Map<string, number>();
-    for (const row of bookingTouchRows) {
-      const sid = row.staffProfileId!;
-      bookingsTodayByStaff.set(sid, (bookingsTodayByStaff.get(sid) ?? 0) + 1);
-    }
+        select: {
+          id: true,
+          branchId: true,
+          displayName: true,
+          isBookable: true,
+        },
+        orderBy: { displayName: 'asc' },
+      });
 
-    function wallMinutes(a: string, b: string): number {
-      const pa = a.split(':').map(Number);
-      const pb = b.split(':').map(Number);
-      const ma = pa[0]! * 60 + pa[1]! + pa[2]! / 60;
-      const mb = pb[0]! * 60 + pb[1]! + pb[2]! / 60;
-      return Math.max(0, Math.round(mb - ma));
-    }
-
-    const staffRows: Array<Record<string, unknown>> = [];
-    let scheduledStaffToday = 0;
-    let availableNow = 0;
-    let busyNow = 0;
-    let offToday = 0;
-
-    for (const p of profiles) {
-      const intervals = await staffAvailability.buildWorkingIntervals(
-        p.id,
-        p.branchId,
-        todayYmd,
+      const busyRows = await prisma.bookingItem.groupBy({
+        by: ['staffProfileId'],
+        where: {
+          staffProfileId: { not: null },
+          lineStatus: BookingItemLineStatus.IN_PROGRESS,
+          booking: { branchId: { in: branchIdsForOps } },
+        },
+        _count: { _all: true },
+      });
+      const busySet = new Set(
+        busyRows.map((r) => r.staffProfileId).filter(Boolean) as string[],
       );
-      const hasScheduleToday = intervals.length > 0;
-      const scheduledNow =
-        hasScheduleToday &&
-        staffAvailability.isInstantAvailableOnDate(intervals, nowKey);
-      if (hasScheduleToday) scheduledStaffToday += 1;
 
-      const isBusy = busySet.has(p.id);
-      let status: 'available' | 'busy' | 'off';
-      if (isBusy) {
-        status = 'busy';
-        busyNow += 1;
-      } else if (scheduledNow) {
-        status = 'available';
-        availableNow += 1;
-      } else {
-        status = 'off';
-        offToday += 1;
+      const completedRows = await prisma.bookingItem.findMany({
+        where: {
+          staffProfileId: { not: null },
+          lineStatus: BookingItemLineStatus.COMPLETED,
+          completedAt: { gte: cairoStaffDayStart, lt: cairoStaffDayEnd },
+          booking: { branchId: { in: branchIdsForOps } },
+        },
+        select: {
+          staffProfileId: true,
+          durationMinutesSnapshot: true,
+        },
+      });
+      const completedByStaff = new Map<
+        string,
+        { count: number; minutes: number }
+      >();
+      for (const row of completedRows) {
+        const sid = row.staffProfileId!;
+        const cur = completedByStaff.get(sid) ?? { count: 0, minutes: 0 };
+        cur.count += 1;
+        cur.minutes += row.durationMinutesSnapshot;
+        completedByStaff.set(sid, cur);
       }
 
-      const scheduledMinutesToday = intervals.reduce(
-        (sum, w) => sum + wallMinutes(w.start, w.end),
-        0,
-      );
-      const comp = completedByStaff.get(p.id) ?? { count: 0, minutes: 0 };
-      const servicesCompletedToday = comp.count;
-      const servicesInProgressNow = inProgByStaff.get(p.id) ?? 0;
-      const bookedMinutesToday = comp.minutes;
-      const inProgMinutes = inProgMinutesByStaff.get(p.id) ?? 0;
-      const workloadPercent =
-        scheduledMinutesToday > 0
-          ? Math.min(
-              100,
-              Math.round(
-                ((bookedMinutesToday + inProgMinutes) / scheduledMinutesToday) *
-                  100,
-              ),
-            )
-          : null;
-
-      staffRows.push({
-        staffProfileId: p.id,
-        displayName: p.displayName,
-        status,
-        scheduledStart: intervals[0]?.start ?? null,
-        scheduledEnd: intervals[intervals.length - 1]?.end ?? null,
-        bookingsCountToday: bookingsTodayByStaff.get(p.id) ?? 0,
-        servicesCompletedToday,
-        servicesInProgressNow,
-        bookedMinutesToday,
-        scheduledMinutesToday,
-        workloadPercent,
+      const inProgRows = await prisma.bookingItem.findMany({
+        where: {
+          staffProfileId: { not: null },
+          lineStatus: BookingItemLineStatus.IN_PROGRESS,
+          booking: { branchId: { in: branchIdsForOps } },
+        },
+        select: { staffProfileId: true, durationMinutesSnapshot: true },
       });
-    }
+      const inProgByStaff = new Map<string, number>();
+      const inProgMinutesByStaff = new Map<string, number>();
+      for (const row of inProgRows) {
+        const sid = row.staffProfileId!;
+        inProgByStaff.set(sid, (inProgByStaff.get(sid) ?? 0) + 1);
+        inProgMinutesByStaff.set(
+          sid,
+          (inProgMinutesByStaff.get(sid) ?? 0) + row.durationMinutesSnapshot,
+        );
+      }
 
-    staffTodayPayload = {
-      supported: true,
-      scheduledStaffToday,
-      availableNow,
-      busyNow,
-      offToday,
-      staffToday: staffRows,
-    };
+      const bookingTouchRows = await prisma.bookingItem.groupBy({
+        by: ['staffProfileId', 'bookingId'],
+        where: {
+          staffProfileId: { not: null },
+          booking: {
+            branchId: { in: branchIdsForOps },
+            slot: { date: slotToday },
+          },
+        },
+        _count: { _all: true },
+      });
+      const bookingsTodayByStaff = new Map<string, number>();
+      for (const row of bookingTouchRows) {
+        const sid = row.staffProfileId!;
+        bookingsTodayByStaff.set(sid, (bookingsTodayByStaff.get(sid) ?? 0) + 1);
+      }
+
+      function wallMinutes(a: string, b: string): number {
+        const pa = a.split(':').map(Number);
+        const pb = b.split(':').map(Number);
+        const ma = pa[0] * 60 + pa[1] + pa[2] / 60;
+        const mb = pb[0] * 60 + pb[1] + pb[2] / 60;
+        return Math.max(0, Math.round(mb - ma));
+      }
+
+      const staffRows: Array<Record<string, unknown>> = [];
+      let scheduledStaffToday = 0;
+      let availableNow = 0;
+      let busyNow = 0;
+      let offToday = 0;
+
+      for (const p of profiles) {
+        const intervals = await staffAvailability.buildWorkingIntervals(
+          p.id,
+          p.branchId,
+          todayYmd,
+        );
+        const hasScheduleToday = intervals.length > 0;
+        const scheduledNow =
+          hasScheduleToday &&
+          staffAvailability.isInstantAvailableOnDate(intervals, nowKey);
+        if (hasScheduleToday) scheduledStaffToday += 1;
+
+        const isBusy = busySet.has(p.id);
+        let status: 'available' | 'busy' | 'off';
+        if (isBusy) {
+          status = 'busy';
+          busyNow += 1;
+        } else if (scheduledNow) {
+          status = 'available';
+          availableNow += 1;
+        } else {
+          status = 'off';
+          offToday += 1;
+        }
+
+        const scheduledMinutesToday = intervals.reduce(
+          (sum, w) => sum + wallMinutes(w.start, w.end),
+          0,
+        );
+        const comp = completedByStaff.get(p.id) ?? { count: 0, minutes: 0 };
+        const servicesCompletedToday = comp.count;
+        const servicesInProgressNow = inProgByStaff.get(p.id) ?? 0;
+        const bookedMinutesToday = comp.minutes;
+        const inProgMinutes = inProgMinutesByStaff.get(p.id) ?? 0;
+        const workloadPercent =
+          scheduledMinutesToday > 0
+            ? Math.min(
+                100,
+                Math.round(
+                  ((bookedMinutesToday + inProgMinutes) /
+                    scheduledMinutesToday) *
+                    100,
+                ),
+              )
+            : null;
+
+        staffRows.push({
+          staffProfileId: p.id,
+          displayName: p.displayName,
+          status,
+          scheduledStart: intervals[0]?.start ?? null,
+          scheduledEnd: intervals[intervals.length - 1]?.end ?? null,
+          bookingsCountToday: bookingsTodayByStaff.get(p.id) ?? 0,
+          servicesCompletedToday,
+          servicesInProgressNow,
+          bookedMinutesToday,
+          scheduledMinutesToday,
+          workloadPercent,
+        });
+      }
+
+      staffTodayPayload = {
+        supported: true,
+        scheduledStaffToday,
+        availableNow,
+        busyNow,
+        offToday,
+        staffToday: staffRows,
+      };
     } catch (e: unknown) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2021') {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2021'
+      ) {
         staffTodayPayload = {
           supported: false,
           scheduledStaffToday: 0,
@@ -1014,7 +1020,8 @@ export async function buildDashboardOverview(
     meta: {
       timezone: 'Africa/Cairo',
       todayYmd,
-      quickWeekStartYmd: cairoMondayWeekRangeContainingYmd(todayYmd).weekStartYmd,
+      quickWeekStartYmd:
+        cairoMondayWeekRangeContainingYmd(todayYmd).weekStartYmd,
       generatedAt: new Date().toISOString(),
     },
     todayRevenue: permFinancial ? paidToday : undefined,
@@ -1091,7 +1098,7 @@ export async function buildDashboardOverview(
             createdAt: c.createdAt.toISOString(),
             totalVisits: c._count.bookings,
             lastVisitDate: c.bookings[0]?.slot?.date
-              ? c.bookings[0]!.slot!.date.toISOString().slice(0, 10)
+              ? c.bookings[0].slot.date.toISOString().slice(0, 10)
               : null,
             lastBookingAt: c.bookings[0]?.createdAt.toISOString() ?? null,
           })),

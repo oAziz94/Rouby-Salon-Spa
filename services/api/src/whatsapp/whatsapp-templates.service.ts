@@ -27,7 +27,9 @@ type ListQuery = {
   limit?: number;
 };
 
-function asStringRecord(value: Prisma.JsonValue | null | undefined): Record<string, string> {
+function asStringRecord(
+  value: Prisma.JsonValue | null | undefined,
+): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
   }
@@ -205,7 +207,9 @@ export class WhatsappTemplatesService {
   buildPreviewResult(body: string, sample: Record<string, string>) {
     const previewText = substituteWhatsappTemplate(body, sample);
     const usedKeys = extractWhatsappTemplatePlaceholderKeys(body);
-    const unknownVariables = usedKeys.filter((k) => !isKnownWhatsappTemplateVariable(k));
+    const unknownVariables = usedKeys.filter(
+      (k) => !isKnownWhatsappTemplateVariable(k),
+    );
     const warnings: string[] = [];
     if (unknownVariables.length > 0) {
       warnings.push(
@@ -255,9 +259,7 @@ export class WhatsappTemplatesService {
     const variablesJson: Prisma.InputJsonValue =
       dto.variables !== undefined ? dto.variables : [];
     const sampleJson: Prisma.InputJsonValue | undefined =
-      dto.sampleData !== undefined
-        ? (dto.sampleData as Prisma.InputJsonValue)
-        : undefined;
+      dto.sampleData !== undefined ? dto.sampleData : undefined;
 
     if (dto.isActive !== false) {
       this.assertActivatable(dto.body);
@@ -315,7 +317,9 @@ export class WhatsappTemplatesService {
 
   private assertActivatable(body: string) {
     if (!body || body.trim().length === 0) {
-      throw new BadRequestException('Cannot activate a template with an empty body');
+      throw new BadRequestException(
+        'Cannot activate a template with an empty body',
+      );
     }
   }
 
@@ -344,7 +348,8 @@ export class WhatsappTemplatesService {
     }
 
     const nextBody = dto.body !== undefined ? dto.body : existing.content;
-    const nextActive = dto.isActive !== undefined ? dto.isActive : existing.isActive;
+    const nextActive =
+      dto.isActive !== undefined ? dto.isActive : existing.isActive;
 
     if (nextActive) {
       this.assertActivatable(nextBody);
@@ -375,9 +380,7 @@ export class WhatsappTemplatesService {
     }
     if (dto.sampleData !== undefined) {
       data.sampleData =
-        dto.sampleData === null
-          ? Prisma.DbNull
-          : (dto.sampleData as Prisma.InputJsonValue);
+        dto.sampleData === null ? Prisma.DbNull : dto.sampleData;
       changedKeys.push('sampleData');
     }
     if (dto.variables !== undefined) {

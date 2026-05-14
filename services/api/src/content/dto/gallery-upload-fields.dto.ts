@@ -1,10 +1,4 @@
-import { Transform } from 'class-transformer';
-import {
-  IsArray,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
 
 /** Optional multipart text fields alongside `file` on POST /dashboard/gallery/upload */
 export class DashboardGalleryUploadFieldsDto {

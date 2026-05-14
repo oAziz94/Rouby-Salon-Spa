@@ -226,7 +226,10 @@ export function cairoMonthRangeContainingYmd(ymd: string): {
   monthStartYmd: string;
   monthEndYmd: string;
 } {
-  const z = zonedTimeParts(startOfZonedDayUtc(ymd, CAIRO_TIME_ZONE), CAIRO_TIME_ZONE);
+  const z = zonedTimeParts(
+    startOfZonedDayUtc(ymd, CAIRO_TIME_ZONE),
+    CAIRO_TIME_ZONE,
+  );
   const y = Number(z.ymd.slice(0, 4));
   const m = Number(z.ymd.slice(5, 7));
   const monthStartYmd = `${y}-${String(m).padStart(2, '0')}-01`;

@@ -54,7 +54,11 @@ export class DashboardQueueController {
   }
 
   @Post(':queueEntryId/items')
-  @RequirePermissions('queue.manage', 'bookings.update', 'bookingServiceItems.create')
+  @RequirePermissions(
+    'queue.manage',
+    'bookings.update',
+    'bookingServiceItems.create',
+  )
   @ApiOperation({
     summary:
       'Append priced booking lines for the visit linked to this queue row (WAITING / IN_SERVICE only)',
@@ -79,7 +83,11 @@ export class DashboardQueueController {
   }
 
   @Post(':queueEntryId/start')
-  @RequirePermissions('queue.manage', 'bookings.status.progress', 'bookingServiceItems.start')
+  @RequirePermissions(
+    'queue.manage',
+    'bookings.status.progress',
+    'bookingServiceItems.start',
+  )
   @ApiOperation({
     summary:
       'Start service (WAITING → IN_SERVICE). Booking-linked rows sync booking to IN_PROGRESS when permitted.',

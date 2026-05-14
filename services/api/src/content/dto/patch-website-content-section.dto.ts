@@ -80,10 +80,11 @@ export class PatchWebsiteContentSectionDto {
   content?: Prisma.InputJsonValue;
 
   @IsOptional()
-  @Transform(({ value }) => {
+  @Transform(({ value }: { value: unknown }): boolean | undefined => {
     if (value === true || value === 'true') return true;
     if (value === false || value === 'false') return false;
-    return value;
+    if (typeof value === 'boolean') return value;
+    return undefined;
   })
   @IsBoolean()
   isVisible?: boolean;

@@ -38,10 +38,7 @@ describe('dashboard-branch-scope', () => {
   });
 
   it('uses allowedBranchIds when set', () => {
-    expect(getEffectiveAllowedBranchIds(manager).sort()).toEqual([
-      'b1',
-      'b2',
-    ]);
+    expect(getEffectiveAllowedBranchIds(manager).sort()).toEqual(['b1', 'b2']);
   });
 
   it('falls back to User.branchId when no access rows', () => {
@@ -58,14 +55,12 @@ describe('dashboard-branch-scope', () => {
   });
 
   it('assertDashboardBranchAccess allows assigned branch', () => {
-    expect(() =>
-      assertDashboardBranchAccess(manager, 'b2'),
-    ).not.toThrow();
+    expect(() => assertDashboardBranchAccess(manager, 'b2')).not.toThrow();
   });
 
   it('assertDashboardBranchAccess rejects unassigned branch', () => {
-    expect(() =>
-      assertDashboardBranchAccess(manager, 'b99'),
-    ).toThrow('Insufficient permissions');
+    expect(() => assertDashboardBranchAccess(manager, 'b99')).toThrow(
+      'Insufficient permissions',
+    );
   });
 });

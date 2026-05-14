@@ -44,14 +44,14 @@ export class WebsiteContentService {
     for (const s of WEBSITE_CONTENT_SECTION_SEEDS) {
       await this.prisma.websiteContentSection.upsert({
         where: { key: s.key },
-        create: websiteContentSectionCreateFromSeed(
-          s,
-          _user?.userId ?? null,
-        ),
+        create: websiteContentSectionCreateFromSeed(s, _user?.userId ?? null),
         update: {},
       });
     }
-    return { ok: true as const, seededKeys: WEBSITE_CONTENT_SECTION_SEEDS.map((x) => x.key) };
+    return {
+      ok: true as const,
+      seededKeys: WEBSITE_CONTENT_SECTION_SEEDS.map((x) => x.key),
+    };
   }
 
   async listDashboard(query: DashboardWebsiteContentListQueryDto) {
@@ -67,14 +67,21 @@ export class WebsiteContentService {
       orderBy: [{ page: 'asc' }, { displayOrder: 'asc' }, { key: 'asc' }],
       include: sectionInclude,
     });
-    const grouped: Record<string, ReturnType<typeof this.toDashboardSection>[]> = {};
+    const grouped: Record<
+      string,
+      ReturnType<typeof this.toDashboardSection>[]
+    > = {};
     for (const row of rows) {
       const dto = this.toDashboardSection(row);
       if (!grouped[row.page]) grouped[row.page] = [];
       grouped[row.page].push(dto);
     }
     const stats = await this.computeStats(where);
-    return { grouped, sections: rows.map((r) => this.toDashboardSection(r)), stats };
+    return {
+      grouped,
+      sections: rows.map((r) => this.toDashboardSection(r)),
+      stats,
+    };
   }
 
   private async computeStats(
@@ -100,16 +107,14 @@ export class WebsiteContentService {
     ]);
     const imageHungry = new Set(['hero', 'textImage']);
     const missingPrimaryImage = rows.filter(
-      (r) =>
-        imageHungry.has(r.sectionType) &&
-        r.primaryGalleryItemId === null,
+      (r) => imageHungry.has(r.sectionType) && r.primaryGalleryItemId === null,
     ).length;
     const lastUpdatedAt =
       rows.length === 0
         ? null
         : rows.reduce(
             (max, r) => (r.updatedAt > max ? r.updatedAt : max),
-            rows[0]!.updatedAt,
+            rows[0].updatedAt,
           );
     return {
       totalSections: total,
@@ -166,10 +171,13 @@ export class WebsiteContentService {
     const before = await this.prisma.websiteContentSection.findUnique({
       where: { id },
     });
-    if (!before) throw new NotFoundException('Website content section not found');
+    if (!before)
+      throw new NotFoundException('Website content section not found');
 
     if (dto.isVisible === false && before.isRequired) {
-      throw new BadRequestException('This section is required and cannot be hidden.');
+      throw new BadRequestException(
+        'This section is required and cannot be hidden.',
+      );
     }
 
     if (dto.primaryGalleryItemId) {
@@ -196,7 +204,7 @@ export class WebsiteContentService {
       field: keyof Prisma.WebsiteContentSectionUpdateInput,
     ) => {
       if (dto[key] === undefined) return;
-      (data as Record<string, unknown>)[field as string] = dto[key] as unknown;
+      (data as Record<string, unknown>)[field as string] = dto[key];
       changed.push(String(field));
     };
 
@@ -226,7 +234,7 @@ export class WebsiteContentService {
       changed.push('secondaryGalleryItemId');
     }
     if (dto.content !== undefined) {
-      data.content = dto.content as Prisma.InputJsonValue;
+      data.content = dto.content;
       changed.push('content');
     }
 
@@ -308,7 +316,11 @@ export class WebsiteContentService {
             slot: img.label,
             mediaAssetId: img.beforeId,
           },
-          newValue: { sectionKey: after.key, slot: img.label, mediaAssetId: img.afterId },
+          newValue: {
+            sectionKey: after.key,
+            slot: img.label,
+            mediaAssetId: img.afterId,
+          },
         });
       }
     }
@@ -356,9 +368,12 @@ export class WebsiteContentService {
       entityType: 'WebsiteContentSection',
       entityId: null,
       newValue: {
-        items: dto.items.map((i) => ({ id: i.id, displayOrder: i.displayOrder })),
+        items: dto.items.map((i) => ({
+          id: i.id,
+          displayOrder: i.displayOrder,
+        })),
         performedByUserId: user.userId,
-      } as Prisma.InputJsonValue,
+      },
     });
     return { ok: true as const };
   }

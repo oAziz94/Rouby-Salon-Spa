@@ -5,13 +5,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  StaffScheduleExceptionType,
-} from '@prisma/client';
+import { StaffScheduleExceptionType } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
-import {
-  assertDashboardBranchAccess,
-} from '../billing/dashboard-branch-scope';
+import { assertDashboardBranchAccess } from '../billing/dashboard-branch-scope';
 import { PrismaService } from '../prisma/prisma.service';
 import { StaffAvailabilityService } from './staff-availability.service';
 import type { CreateStaffProfileDto } from './dto/create-staff-profile.dto';
@@ -44,10 +40,7 @@ export class StaffService {
     return u;
   }
 
-  async listStaff(
-    user: DashboardJwtUser,
-    branchId: string,
-  ) {
+  async listStaff(user: DashboardJwtUser, branchId: string) {
     assertDashboardBranchAccess(user, branchId);
     if (!user.permissions.includes('staff.read')) {
       throw new ForbiddenException('Insufficient permissions');
@@ -76,7 +69,15 @@ export class StaffService {
     const profiles = await this.prisma.staffProfile.findMany({
       where: { branchId },
       include: {
-        user: { select: { id: true, name: true, email: true, phone: true, isActive: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            isActive: true,
+          },
+        },
         services: { select: { id: true } },
         schedules: {
           where: { branchId },
@@ -134,7 +135,9 @@ export class StaffService {
       },
     });
     if (existing) {
-      throw new ConflictException('Staff profile already exists for this user and branch');
+      throw new ConflictException(
+        'Staff profile already exists for this user and branch',
+      );
     }
 
     const created = await this.prisma.staffProfile.create({
@@ -161,9 +164,21 @@ export class StaffService {
     const p = await this.prisma.staffProfile.findUnique({
       where: { id: profileId },
       include: {
-        user: { select: { id: true, name: true, email: true, phone: true, isActive: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            isActive: true,
+          },
+        },
         branch: { select: { id: true, name: true } },
-        services: { include: { service: { select: { id: true, name: true, categoryId: true } } } },
+        services: {
+          include: {
+            service: { select: { id: true, name: true, categoryId: true } },
+          },
+        },
       },
     });
     if (!p) throw new NotFoundException('Staff profile not found');
@@ -185,7 +200,9 @@ export class StaffService {
     if (!user.permissions.includes('staff.update')) {
       throw new ForbiddenException('Insufficient permissions');
     }
-    const p = await this.prisma.staffProfile.findUnique({ where: { id: profileId } });
+    const p = await this.prisma.staffProfile.findUnique({
+      where: { id: profileId },
+    });
     if (!p) throw new NotFoundException('Staff profile not found');
     assertDashboardBranchAccess(user, p.branchId);
 
@@ -208,7 +225,9 @@ export class StaffService {
     if (!user.permissions.includes('staff.delete')) {
       throw new ForbiddenException('Insufficient permissions');
     }
-    const p = await this.prisma.staffProfile.findUnique({ where: { id: profileId } });
+    const p = await this.prisma.staffProfile.findUnique({
+      where: { id: profileId },
+    });
     if (!p) throw new NotFoundException('Staff profile not found');
     assertDashboardBranchAccess(user, p.branchId);
     return this.prisma.staffProfile.update({
@@ -243,7 +262,9 @@ export class StaffService {
     if (!user.permissions.includes('staffServices.update')) {
       throw new ForbiddenException('Insufficient permissions');
     }
-    const p = await this.prisma.staffProfile.findUnique({ where: { id: profileId } });
+    const p = await this.prisma.staffProfile.findUnique({
+      where: { id: profileId },
+    });
     if (!p) throw new NotFoundException('Staff profile not found');
     assertDashboardBranchAccess(user, p.branchId);
 
@@ -262,7 +283,9 @@ export class StaffService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.staffProfileService.deleteMany({ where: { staffProfileId: profileId } });
+      await tx.staffProfileService.deleteMany({
+        where: { staffProfileId: profileId },
+      });
       if (body.serviceIds.length === 0) return;
       await tx.staffProfileService.createMany({
         data: body.serviceIds.map((serviceId) => ({
@@ -277,7 +300,9 @@ export class StaffService {
 
   private assertTimeOrder(start: Date, end: Date, label: string) {
     if (start >= end) {
-      throw new BadRequestException(`${label}: startTime must be before endTime`);
+      throw new BadRequestException(
+        `${label}: startTime must be before endTime`,
+      );
     }
   }
 
@@ -298,7 +323,9 @@ export class StaffService {
     if (!user.permissions.includes('staffSchedule.read')) {
       throw new ForbiddenException('Insufficient permissions');
     }
-    const p = await this.prisma.staffProfile.findUnique({ where: { id: profileId } });
+    const p = await this.prisma.staffProfile.findUnique({
+      where: { id: profileId },
+    });
     if (!p) throw new NotFoundException('Staff profile not found');
     assertDashboardBranchAccess(user, p.branchId);
     return this.prisma.staffSchedule.findMany({
@@ -307,11 +334,17 @@ export class StaffService {
     });
   }
 
-  async putSchedule(user: DashboardJwtUser, profileId: string, body: PutStaffScheduleDto) {
+  async putSchedule(
+    user: DashboardJwtUser,
+    profileId: string,
+    body: PutStaffScheduleDto,
+  ) {
     if (!user.permissions.includes('staffSchedule.update')) {
       throw new ForbiddenException('Insufficient permissions');
     }
-    const p = await this.prisma.staffProfile.findUnique({ where: { id: profileId } });
+    const p = await this.prisma.staffProfile.findUnique({
+      where: { id: profileId },
+    });
     if (!p) throw new NotFoundException('Staff profile not found');
     assertDashboardBranchAccess(user, p.branchId);
 
@@ -325,7 +358,11 @@ export class StaffService {
             `startTime and endTime are required for working day ${row.dayOfWeek}`,
           );
         }
-        this.assertTimeOrder(row.startTime, row.endTime, `Day ${row.dayOfWeek}`);
+        this.assertTimeOrder(
+          row.startTime,
+          row.endTime,
+          `Day ${row.dayOfWeek}`,
+        );
         this.assertBreakInside(
           row.startTime,
           row.endTime,
@@ -350,8 +387,8 @@ export class StaffService {
             dayOfWeek: row.dayOfWeek,
             startTime: row.isWorking ? row.startTime! : placeholderStart,
             endTime: row.isWorking ? row.endTime! : placeholderEnd,
-            breakStartTime: row.isWorking ? row.breakStartTime ?? null : null,
-            breakEndTime: row.isWorking ? row.breakEndTime ?? null : null,
+            breakStartTime: row.isWorking ? (row.breakStartTime ?? null) : null,
+            breakEndTime: row.isWorking ? (row.breakEndTime ?? null) : null,
             isWorking: row.isWorking,
           },
         });
@@ -365,7 +402,9 @@ export class StaffService {
     if (!user.permissions.includes('staffSchedule.read')) {
       throw new ForbiddenException('Insufficient permissions');
     }
-    const p = await this.prisma.staffProfile.findUnique({ where: { id: profileId } });
+    const p = await this.prisma.staffProfile.findUnique({
+      where: { id: profileId },
+    });
     if (!p) throw new NotFoundException('Staff profile not found');
     assertDashboardBranchAccess(user, p.branchId);
     return this.prisma.staffScheduleException.findMany({
@@ -382,7 +421,9 @@ export class StaffService {
     if (!user.permissions.includes('staffSchedule.create')) {
       throw new ForbiddenException('Insufficient permissions');
     }
-    const p = await this.prisma.staffProfile.findUnique({ where: { id: profileId } });
+    const p = await this.prisma.staffProfile.findUnique({
+      where: { id: profileId },
+    });
     if (!p) throw new NotFoundException('Staff profile not found');
     assertDashboardBranchAccess(user, p.branchId);
 
@@ -390,7 +431,9 @@ export class StaffService {
       // ok
     } else {
       if (!body.startTime || !body.endTime) {
-        throw new BadRequestException('startTime and endTime are required for this exception type');
+        throw new BadRequestException(
+          'startTime and endTime are required for this exception type',
+        );
       }
       this.assertTimeOrder(body.startTime, body.endTime, 'Exception');
     }
@@ -428,7 +471,9 @@ export class StaffService {
     const end = body.endTime ?? ex.endTime;
     if (type !== StaffScheduleExceptionType.DAY_OFF) {
       if (!start || !end) {
-        throw new BadRequestException('startTime and endTime are required for this exception type');
+        throw new BadRequestException(
+          'startTime and endTime are required for this exception type',
+        );
       }
       this.assertTimeOrder(start, end, 'Exception');
     }
@@ -440,12 +485,17 @@ export class StaffService {
         type: body.type ?? undefined,
         startTime: body.startTime === undefined ? undefined : body.startTime,
         endTime: body.endTime === undefined ? undefined : body.endTime,
-        reason: body.reason === undefined ? undefined : body.reason?.trim() || null,
+        reason:
+          body.reason === undefined ? undefined : body.reason?.trim() || null,
       },
     });
   }
 
-  async deleteException(user: DashboardJwtUser, profileId: string, exceptionId: string) {
+  async deleteException(
+    user: DashboardJwtUser,
+    profileId: string,
+    exceptionId: string,
+  ) {
     if (!user.permissions.includes('staffSchedule.delete')) {
       throw new ForbiddenException('Insufficient permissions');
     }
@@ -454,7 +504,9 @@ export class StaffService {
     });
     if (!ex) throw new NotFoundException('Exception not found');
     assertDashboardBranchAccess(user, ex.branchId);
-    await this.prisma.staffScheduleException.delete({ where: { id: exceptionId } });
+    await this.prisma.staffScheduleException.delete({
+      where: { id: exceptionId },
+    });
     return { deleted: true };
   }
 

@@ -1,12 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import {
   BookingItemLineStatus,
-  Prisma,
   StaffScheduleExceptionType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  CAIRO_TIME_ZONE,
   cairoTodayYmd,
   cairoWeekdayIndexFromDateString,
   getCairoNowCompositeKey,
@@ -77,13 +75,11 @@ export class StaffAvailabilityService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Resolve catalog service id used for StaffProfileService rows (variant → parent service). */
-  async resolveCatalogServiceIdForBookingItem(
-    item: {
-      itemType: string;
-      serviceId: string | null;
-      serviceVariantId: string | null;
-    },
-  ): Promise<string | null> {
+  async resolveCatalogServiceIdForBookingItem(item: {
+    itemType: string;
+    serviceId: string | null;
+    serviceVariantId: string | null;
+  }): Promise<string | null> {
     if (item.serviceId) return item.serviceId;
     if (!item.serviceVariantId) return null;
     const v = await this.prisma.serviceVariant.findUnique({
@@ -117,9 +113,7 @@ export class StaffAvailabilityService {
       where: {
         staffProfileId,
         lineStatus: BookingItemLineStatus.IN_PROGRESS,
-        ...(excludeBookingItemId
-          ? { id: { not: excludeBookingItemId } }
-          : {}),
+        ...(excludeBookingItemId ? { id: { not: excludeBookingItemId } } : {}),
       },
     });
     return count > 0;
@@ -267,7 +261,11 @@ export class StaffAvailabilityService {
 
     const out: StaffAvailabilityEntry[] = [];
     for (const p of profiles) {
-      const intervals = await this.buildWorkingIntervals(p.id, branchId, whenCompositeKey.slice(0, 10));
+      const intervals = await this.buildWorkingIntervals(
+        p.id,
+        branchId,
+        whenCompositeKey.slice(0, 10),
+      );
       if (intervals.length === 0) {
         out.push({
           staffProfileId: p.id,

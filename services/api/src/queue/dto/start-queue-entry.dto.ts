@@ -20,7 +20,9 @@ export class StartQueueEntryDto {
     required: false,
     default: [],
   })
-  @Transform(({ value }) => (Array.isArray(value) ? value : []))
+  @Transform(({ value }: { value: unknown }): unknown[] =>
+    Array.isArray(value) ? value : [],
+  )
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => QueueStartServiceLineDto)

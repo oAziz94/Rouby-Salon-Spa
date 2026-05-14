@@ -34,7 +34,9 @@ export class DashboardStaffController {
 
   @Get('availability')
   @RequirePermissions('staff.read')
-  @ApiOperation({ summary: 'Qualified staff availability for a service at a branch/time' })
+  @ApiOperation({
+    summary: 'Qualified staff availability for a service at a branch/time',
+  })
   availability(
     @CurrentDashboardUser() user: DashboardJwtUser,
     @Query() query: StaffAvailabilityQueryDto,

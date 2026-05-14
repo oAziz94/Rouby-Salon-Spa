@@ -42,7 +42,7 @@ export type ResolvedBookingLine = {
 
 @Injectable()
 export class BookingPricingService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async getSystemSettings(): Promise<SystemSettings> {
     const row = await this.prisma.systemSettings.findUnique({
@@ -148,7 +148,8 @@ export class BookingPricingService {
     items: BookingItemInputDto[],
     options?: ResolveBookingLinesOptions,
   ): Promise<ResolvedBookingLine[]> {
-    const enforceOnlineCatalogRules = options?.enforceOnlineCatalogRules ?? true;
+    const enforceOnlineCatalogRules =
+      options?.enforceOnlineCatalogRules ?? true;
     const allowStaffPriceOverrides =
       Boolean(options?.allowStaffPriceOverrides) && !enforceOnlineCatalogRules;
     const lines: ResolvedBookingLine[] = [];
@@ -269,7 +270,8 @@ export class BookingPricingService {
         throw new HttpException(
           {
             statusCode: HttpStatus.BAD_REQUEST,
-            message: 'Staff override duration must be a whole number of minutes ≥ 1',
+            message:
+              'Staff override duration must be a whole number of minutes ≥ 1',
             error: 'Bad Request',
             code: 'STAFF_OVERRIDE_DURATION_INVALID',
           },
@@ -324,7 +326,10 @@ export class BookingPricingService {
     }
     await this.assertServiceAtBranch(service.id, branchId);
 
-    const staffOv = this.parseStaffCatalogOverride(item, allowStaffPriceOverrides);
+    const staffOv = this.parseStaffCatalogOverride(
+      item,
+      allowStaffPriceOverrides,
+    );
     const displayType = service.priceDisplayType;
     const catalogBase = service.basePrice
       ? Number(service.basePrice.toString())
@@ -429,12 +434,12 @@ export class BookingPricingService {
 
     const lineMetadata: Prisma.JsonValue | null =
       allowStaffPriceOverrides && staffOv
-        ? ({
-          staffCatalogOverride: {
-            unitPrice,
-            durationMinutes: durationMinutesSnapshot,
-          },
-        } as Prisma.JsonValue)
+        ? {
+            staffCatalogOverride: {
+              unitPrice,
+              durationMinutes: durationMinutesSnapshot,
+            },
+          }
         : null;
 
     return {

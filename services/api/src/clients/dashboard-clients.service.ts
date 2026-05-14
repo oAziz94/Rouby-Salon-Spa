@@ -62,10 +62,7 @@ export class DashboardClientsService {
     if (allowed.length === 1) {
       const b = allowed[0];
       return {
-        OR: [
-          { preferredBranchId: b },
-          { bookings: { some: { branchId: b } } },
-        ],
+        OR: [{ preferredBranchId: b }, { bookings: { some: { branchId: b } } }],
       };
     }
     return {
@@ -427,10 +424,7 @@ export class DashboardClientsService {
       if (!allowed.length) {
         throw new ForbiddenException('Insufficient permissions');
       }
-      if (
-        preferredBranchId &&
-        !allowed.includes(preferredBranchId)
-      ) {
+      if (preferredBranchId && !allowed.includes(preferredBranchId)) {
         throw new ForbiddenException('Insufficient permissions');
       }
     }
@@ -448,9 +442,7 @@ export class DashboardClientsService {
           preferredBranchId:
             preferredBranchId ??
             (!canAccessAllBranches(user)
-              ? (user.branchId ??
-                  getEffectiveAllowedBranchIds(user)[0] ??
-                  null)
+              ? (user.branchId ?? getEffectiveAllowedBranchIds(user)[0] ?? null)
               : null),
           notes: canSensitive ? (dto.notes ?? null) : null,
           allergiesOrWarnings: canSensitive

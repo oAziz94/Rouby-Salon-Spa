@@ -14,9 +14,7 @@ export function canAccessAllBranches(user: DashboardJwtUser): boolean {
  * TODO(multi-branch): Remove legacy fallback (empty join + User.branchId only) after
  * UserBranchAccess backfill is verified in production.
  */
-export function getEffectiveAllowedBranchIds(
-  user: DashboardJwtUser,
-): string[] {
+export function getEffectiveAllowedBranchIds(user: DashboardJwtUser): string[] {
   if (canAccessAllBranches(user)) {
     return [];
   }

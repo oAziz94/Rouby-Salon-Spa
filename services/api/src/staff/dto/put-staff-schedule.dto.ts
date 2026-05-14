@@ -12,7 +12,11 @@ import {
 } from 'class-validator';
 
 export class StaffScheduleDayDto {
-  @ApiProperty({ minimum: 0, maximum: 6, description: '0=Sunday … 6=Saturday (Cairo)' })
+  @ApiProperty({
+    minimum: 0,
+    maximum: 6,
+    description: '0=Sunday … 6=Saturday (Cairo)',
+  })
   @IsInt()
   @Min(0)
   @Max(6)

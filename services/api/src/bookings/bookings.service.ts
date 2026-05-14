@@ -99,12 +99,12 @@ function extractBookingIdSearchCompact(raw: string): string | null {
 
 type PromoComputationResult =
   | {
-    ok: true;
-    offerId: string;
-    appliedPromoCode: string;
-    discountAmount: number;
-    promoSnapshot: Record<string, unknown>;
-  }
+      ok: true;
+      offerId: string;
+      appliedPromoCode: string;
+      discountAmount: number;
+      promoSnapshot: Record<string, unknown>;
+    }
   | { ok: false; message: string };
 
 @Injectable()
@@ -116,7 +116,7 @@ export class BookingsService {
     private readonly audit: AuditService,
     private readonly invoices: InvoicesService,
     private readonly staffAvailability: StaffAvailabilityService,
-  ) { }
+  ) {}
 
   async estimatePublic(body: PublicBookingEstimateBodyDto) {
     const settings = await this.pricing.getSystemSettings();
@@ -361,23 +361,23 @@ export class BookingsService {
 
     const rules =
       offer.eligibilityRules &&
-        typeof offer.eligibilityRules === 'object' &&
-        !Array.isArray(offer.eligibilityRules)
+      typeof offer.eligibilityRules === 'object' &&
+      !Array.isArray(offer.eligibilityRules)
         ? (offer.eligibilityRules as Record<string, unknown>)
         : {};
     const ruleServiceIds = Array.isArray(rules.serviceIds)
       ? new Set(
-        rules.serviceIds
-          .filter((v): v is string => typeof v === 'string')
-          .map((v) => v.trim()),
-      )
+          rules.serviceIds
+            .filter((v): v is string => typeof v === 'string')
+            .map((v) => v.trim()),
+        )
       : null;
     const rulePackageIds = Array.isArray(rules.packageIds)
       ? new Set(
-        rules.packageIds
-          .filter((v): v is string => typeof v === 'string')
-          .map((v) => v.trim()),
-      )
+          rules.packageIds
+            .filter((v): v is string => typeof v === 'string')
+            .map((v) => v.trim()),
+        )
       : null;
 
     const eligibleLines = lines.filter((line) => {
@@ -694,9 +694,9 @@ export class BookingsService {
       typeof branchWhere.branchId === 'string'
         ? [branchWhere.branchId]
         : branchWhere.branchId &&
-          typeof branchWhere.branchId === 'object' &&
-          'in' in branchWhere.branchId &&
-          Array.isArray((branchWhere.branchId as { in: string[] }).in)
+            typeof branchWhere.branchId === 'object' &&
+            'in' in branchWhere.branchId &&
+            Array.isArray((branchWhere.branchId as { in: string[] }).in)
           ? (branchWhere.branchId as { in: string[] }).in
           : undefined;
 
@@ -831,10 +831,10 @@ export class BookingsService {
       data: rows.map((b) => {
         const slot = b.slot
           ? {
-            date: b.slot.date.toISOString().slice(0, 10),
-            startTime: b.slot.startTime.toISOString().slice(11, 19),
-            endTime: b.slot.endTime.toISOString().slice(11, 19),
-          }
+              date: b.slot.date.toISOString().slice(0, 10),
+              startTime: b.slot.startTime.toISOString().slice(11, 19),
+              endTime: b.slot.endTime.toISOString().slice(11, 19),
+            }
           : null;
         const itemsPreview =
           b.items?.map((it) => ({
@@ -859,11 +859,11 @@ export class BookingsService {
           clientId: b.clientId,
           client: b.client
             ? {
-              id: b.client.id,
-              fullName: b.client.fullName,
-              phone: b.client.phone,
-              email: b.client.email,
-            }
+                id: b.client.id,
+                fullName: b.client.fullName,
+                phone: b.client.phone,
+                email: b.client.email,
+              }
             : null,
           source: b.source,
           totalAmount: Number(b.totalAmount.toString()),
@@ -935,16 +935,16 @@ export class BookingsService {
       items,
       activeQueueEntryId:
         latestQueueEntry &&
-          (latestQueueEntry.status === QueueEntryStatus.WAITING ||
-            latestQueueEntry.status === QueueEntryStatus.IN_SERVICE)
+        (latestQueueEntry.status === QueueEntryStatus.WAITING ||
+          latestQueueEntry.status === QueueEntryStatus.IN_SERVICE)
           ? latestQueueEntry.id
           : null,
       linkedQueueEntry: latestQueueEntry
         ? {
-          id: latestQueueEntry.id,
-          status: latestQueueEntry.status,
-          source: latestQueueEntry.source,
-        }
+            id: latestQueueEntry.id,
+            status: latestQueueEntry.status,
+            source: latestQueueEntry.source,
+          }
         : null,
     };
   }
@@ -1335,7 +1335,10 @@ export class BookingsService {
         bookingId,
         itemType: { in: staffTrackedItemTypes },
         lineStatus: {
-          in: [BookingItemLineStatus.PENDING, BookingItemLineStatus.IN_PROGRESS],
+          in: [
+            BookingItemLineStatus.PENDING,
+            BookingItemLineStatus.IN_PROGRESS,
+          ],
         },
       },
     });
@@ -1619,7 +1622,9 @@ export class BookingsService {
     }
     const item = await this.prisma.bookingItem.findFirst({
       where: { id: itemId, bookingId },
-      include: { booking: { select: { id: true, branchId: true, status: true } } },
+      include: {
+        booking: { select: { id: true, branchId: true, status: true } },
+      },
     });
     if (!item?.booking) {
       throw new NotFoundException('Booking item not found');
@@ -2486,8 +2491,8 @@ export class BookingsService {
         isTaxable,
         lineMetadata: meta?.selectedServiceIds
           ? {
-            selectedServiceIds: meta.selectedServiceIds,
-          }
+              selectedServiceIds: meta.selectedServiceIds,
+            }
           : null,
       };
     });
@@ -2828,10 +2833,10 @@ export class BookingsService {
       updatedAt: booking.updatedAt,
       slot: booking.slot
         ? {
-          date: booking.slot.date.toISOString().slice(0, 10),
-          startTime: booking.slot.startTime.toISOString().slice(11, 19),
-          endTime: booking.slot.endTime.toISOString().slice(11, 19),
-        }
+            date: booking.slot.date.toISOString().slice(0, 10),
+            startTime: booking.slot.startTime.toISOString().slice(11, 19),
+            endTime: booking.slot.endTime.toISOString().slice(11, 19),
+          }
         : undefined,
       client: booking.client,
       items:
@@ -2870,18 +2875,18 @@ export class BookingsService {
         })) ?? [],
       finalizedInvoice: inv
         ? {
-          id: inv.id,
-          invoiceNumber: inv.invoiceNumber,
-          totalAmount: Number(inv.totalAmount.toString()),
-          paidAmount: Number(inv.paidAmount.toString()),
-          remainingAmount: Number(inv.remainingAmount.toString()),
-          status: inv.status,
-          paymentStatus: inv.remainingAmount.lessThanOrEqualTo(0)
-            ? 'PAID'
-            : inv.paidAmount.greaterThan(0)
-              ? 'PARTIALLY_PAID'
-              : 'UNPAID',
-        }
+            id: inv.id,
+            invoiceNumber: inv.invoiceNumber,
+            totalAmount: Number(inv.totalAmount.toString()),
+            paidAmount: Number(inv.paidAmount.toString()),
+            remainingAmount: Number(inv.remainingAmount.toString()),
+            status: inv.status,
+            paymentStatus: inv.remainingAmount.lessThanOrEqualTo(0)
+              ? 'PAID'
+              : inv.paidAmount.greaterThan(0)
+                ? 'PARTIALLY_PAID'
+                : 'UNPAID',
+          }
         : null,
     };
   }

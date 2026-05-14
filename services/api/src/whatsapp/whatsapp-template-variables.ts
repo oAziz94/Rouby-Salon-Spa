@@ -73,36 +73,37 @@ export const WHATSAPP_TEMPLATE_DEFAULT_SAMPLE_DATA: Record<string, string> = {
 };
 
 /** Arabic sample values for previews when template language is `ar`. */
-export const WHATSAPP_TEMPLATE_DEFAULT_SAMPLE_DATA_AR: Record<string, string> = {
-  clientName: 'سارة أحمد',
-  clientPhone: '٠١٠٠٠٠٠٠٠٠٠',
-  salonName: 'صالون وسبا الروبي',
-  branchName: 'فرع الروبي الرئيسي',
-  branchAddress: 'الإسكندرية، مصر',
-  branchPhone: '+٢٠ ١٥ ١١١٠ ٠٩٥٦',
-  bookingReference: 'حجز-١٠٢٤',
-  bookingDate: '١٥ مايو ٢٠٢٦',
-  bookingTime: '٦:٣٠ مساءً',
-  serviceSummary: 'تصفيف شعر، مانيكير',
-  services: 'تصفيف شعر، مانيكير',
-  staffName: 'نور',
-  bookingStatus: 'مؤكد',
-  queueNumber: '١٢',
-  estimatedWaitTime: 'حوالي ٢٥ دقيقة',
-  invoiceNumber: 'فاتورة-١٠٢٤',
-  invoiceTotal: '١٬٢٥٠ ج.م.',
-  amountPaid: '١٬٢٥٠ ج.م.',
-  paidAmount: '١٬٢٥٠ ج.م.',
-  totalAmount: '١٬٢٥٠ ج.م.',
-  remainingAmount: '٠ ج.م.',
-  paymentMethod: 'نقدي',
-  receiptLink: 'https://example.com/receipt',
-  salonAddress: 'الإسكندرية',
-  whatsappNumber: '+٢٠ ١٥ ١١١٠ ٠٩٥٦',
-  bookingLink: 'https://example.com/booking',
-  rescheduleLink: 'https://example.com/reschedule',
-  cancelLink: 'https://example.com/cancel',
-};
+export const WHATSAPP_TEMPLATE_DEFAULT_SAMPLE_DATA_AR: Record<string, string> =
+  {
+    clientName: 'سارة أحمد',
+    clientPhone: '٠١٠٠٠٠٠٠٠٠٠',
+    salonName: 'صالون وسبا الروبي',
+    branchName: 'فرع الروبي الرئيسي',
+    branchAddress: 'الإسكندرية، مصر',
+    branchPhone: '+٢٠ ١٥ ١١١٠ ٠٩٥٦',
+    bookingReference: 'حجز-١٠٢٤',
+    bookingDate: '١٥ مايو ٢٠٢٦',
+    bookingTime: '٦:٣٠ مساءً',
+    serviceSummary: 'تصفيف شعر، مانيكير',
+    services: 'تصفيف شعر، مانيكير',
+    staffName: 'نور',
+    bookingStatus: 'مؤكد',
+    queueNumber: '١٢',
+    estimatedWaitTime: 'حوالي ٢٥ دقيقة',
+    invoiceNumber: 'فاتورة-١٠٢٤',
+    invoiceTotal: '١٬٢٥٠ ج.م.',
+    amountPaid: '١٬٢٥٠ ج.م.',
+    paidAmount: '١٬٢٥٠ ج.م.',
+    totalAmount: '١٬٢٥٠ ج.م.',
+    remainingAmount: '٠ ج.م.',
+    paymentMethod: 'نقدي',
+    receiptLink: 'https://example.com/receipt',
+    salonAddress: 'الإسكندرية',
+    whatsappNumber: '+٢٠ ١٥ ١١١٠ ٠٩٥٦',
+    bookingLink: 'https://example.com/booking',
+    rescheduleLink: 'https://example.com/reschedule',
+    cancelLink: 'https://example.com/cancel',
+  };
 
 export const WHATSAPP_TEMPLATE_CATEGORIES = [
   'booking_confirmation',
@@ -138,8 +139,9 @@ export function extractWhatsappTemplatePlaceholderKeys(body: string): string[] {
   while ((m = double.exec(body)) !== null) {
     found.add(m[1]);
   }
-  const normalized = body.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_, key: string) =>
-    `{${key}}`,
+  const normalized = body.replace(
+    /\{\{([a-zA-Z0-9_]+)\}\}/g,
+    (_, key: string) => `{${key}}`,
   );
   const single = /\{([a-zA-Z0-9_]+)\}/g;
   while ((m = single.exec(normalized)) !== null) {

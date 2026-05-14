@@ -177,7 +177,9 @@ export class DashboardAuthService {
       throw new BadRequestException('Current password is incorrect.');
     }
     if (dto.currentPassword === dto.newPassword) {
-      throw new BadRequestException('New password must differ from the current password.');
+      throw new BadRequestException(
+        'New password must differ from the current password.',
+      );
     }
     const passwordHash = await argon2.hash(dto.newPassword, {
       type: argon2.argon2id,

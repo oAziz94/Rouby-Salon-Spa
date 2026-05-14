@@ -176,19 +176,19 @@ export class CatalogPublicService {
     }
     const row = await this.prisma.service.findFirst({
       where,
-        include: {
-          branches: { include: { branch: true } },
-          category: true,
-          benefits: {
-            where: { isActive: true },
-            orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
-            select: { id: true, label: true, displayOrder: true },
-          },
-          imageMedia: {
-            where: { libraryStatus: GalleryItemLibraryStatus.ACTIVE },
-            select: { imageUrl: true },
-          },
+      include: {
+        branches: { include: { branch: true } },
+        category: true,
+        benefits: {
+          where: { isActive: true },
+          orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
+          select: { id: true, label: true, displayOrder: true },
         },
+        imageMedia: {
+          where: { libraryStatus: GalleryItemLibraryStatus.ACTIVE },
+          select: { imageUrl: true },
+        },
+      },
     });
     if (!row) {
       throw new NotFoundException('Service not found');

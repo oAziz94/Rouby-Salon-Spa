@@ -177,7 +177,9 @@ export class DashboardBookingsController {
 
   @Post(':bookingId/service-items/:itemId/start')
   @RequirePermissions('bookingServiceItems.start')
-  @ApiOperation({ summary: 'Assign staff and start a PENDING booking service line' })
+  @ApiOperation({
+    summary: 'Assign staff and start a PENDING booking service line',
+  })
   startServiceItem(
     @CurrentDashboardUser() user: DashboardJwtUser,
     @Param('bookingId') bookingId: string,
@@ -194,7 +196,9 @@ export class DashboardBookingsController {
 
   @Post(':bookingId/service-items/:itemId/complete')
   @RequirePermissions('bookingServiceItems.complete')
-  @ApiOperation({ summary: 'Mark an IN_PROGRESS booking service line as completed' })
+  @ApiOperation({
+    summary: 'Mark an IN_PROGRESS booking service line as completed',
+  })
   completeServiceItem(
     @CurrentDashboardUser() user: DashboardJwtUser,
     @Param('bookingId') bookingId: string,

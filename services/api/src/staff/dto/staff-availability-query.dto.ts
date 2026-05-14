@@ -16,7 +16,9 @@ export class StaffAvailabilityQueryDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   date?: string;
 
-  @ApiPropertyOptional({ description: 'HH:mm:ss wall clock (same projection as slots)' })
+  @ApiPropertyOptional({
+    description: 'HH:mm:ss wall clock (same projection as slots)',
+  })
   @IsOptional()
   @IsString()
   @Matches(/^\d{2}:\d{2}:\d{2}$/)

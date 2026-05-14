@@ -49,7 +49,9 @@ export class DashboardWebsiteContentController {
 
   @Patch('reorder')
   @RequirePermissions('websiteContent.reorder')
-  @ApiOperation({ summary: 'Update display order for website content sections' })
+  @ApiOperation({
+    summary: 'Update display order for website content sections',
+  })
   reorder(@Req() req: AuthedRequest, @Body() dto: ReorderWebsiteContentDto) {
     return this.websiteContent.reorder(req.user, dto);
   }
