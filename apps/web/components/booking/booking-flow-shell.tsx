@@ -761,10 +761,10 @@ export function BookingFlowShell({
       const slot = slots.find((s) => s.id === selectedSlotId) ?? null;
       return Boolean(
         selectedBranchId &&
-          selectedDate &&
-          selectedSlotId &&
-          slot &&
-          !publicSlotIsFull(slot),
+        selectedDate &&
+        selectedSlotId &&
+        slot &&
+        !publicSlotIsFull(slot),
       );
     }
     return true;
@@ -1134,29 +1134,26 @@ export function BookingFlowShell({
             return (
               <li key={label} className="flex min-w-0 flex-1 items-center">
                 <div
-                  className={`flex w-full items-center gap-2 rounded-xl border px-2 py-2 sm:px-3 sm:py-2.5 ${
-                    current
+                  className={`flex w-full items-center gap-2 rounded-xl border px-2 py-2 sm:px-3 sm:py-2.5 ${current
                       ? "border-accent bg-card shadow-sm ring-1 ring-accent/30"
                       : done
                         ? "border-primary/20 bg-primary/5"
                         : "border-[rgb(23_53_31_/10%)] bg-card/60"
-                  }`}
+                    }`}
                 >
                   <span
-                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                      current
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${current
                         ? "bg-accent text-accent-foreground"
                         : done
                           ? "bg-primary text-primary-foreground"
                           : "bg-muted/25 text-muted"
-                    }`}
+                      }`}
                   >
                     {done ? "✓" : index + 1}
                   </span>
                   <span
-                    className={`truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs ${
-                      current ? "text-primary" : "text-muted"
-                    }`}
+                    className={`truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs ${current ? "text-primary" : "text-muted"
+                      }`}
                   >
                     {label}
                   </span>
@@ -1183,33 +1180,30 @@ export function BookingFlowShell({
                   <button
                     type="button"
                     onClick={() => setCatalogTab("services")}
-                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                      catalogTab === "services"
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${catalogTab === "services"
                         ? "bg-primary text-primary-foreground shadow"
                         : "text-muted hover:text-foreground"
-                    }`}
+                      }`}
                   >
                     Services
                   </button>
                   <button
                     type="button"
                     onClick={() => setCatalogTab("packages")}
-                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                      catalogTab === "packages"
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${catalogTab === "packages"
                         ? "bg-primary text-primary-foreground shadow"
                         : "text-muted hover:text-foreground"
-                    }`}
+                      }`}
                   >
                     Packages
                   </button>
                   <button
                     type="button"
                     onClick={() => setCatalogTab("enhancements")}
-                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
-                      catalogTab === "enhancements"
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${catalogTab === "enhancements"
                         ? "bg-primary text-primary-foreground shadow"
                         : "text-muted hover:text-foreground"
-                    }`}
+                      }`}
                   >
                     Add-ons
                   </button>
@@ -1249,11 +1243,10 @@ export function BookingFlowShell({
                           <button
                             type="button"
                             onClick={() => setCategoryFilterId(null)}
-                            className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
-                              categoryFilterId === null
+                            className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${categoryFilterId === null
                                 ? "border-accent bg-accent/15 text-primary"
                                 : "border-border bg-background/80 text-muted hover:text-foreground"
-                            }`}
+                              }`}
                           >
                             All
                           </button>
@@ -1262,11 +1255,10 @@ export function BookingFlowShell({
                               key={cat.id}
                               type="button"
                               onClick={() => setCategoryFilterId(cat.id)}
-                              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
-                                categoryFilterId === cat.id
+                              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${categoryFilterId === cat.id
                                   ? "border-accent bg-accent/15 text-primary"
                                   : "border-border bg-background/80 text-muted hover:text-foreground"
-                              }`}
+                                }`}
                             >
                               {cat.name}
                             </button>
@@ -1308,11 +1300,10 @@ export function BookingFlowShell({
                             return (
                               <li
                                 key={service.id}
-                                className={`flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
-                                  selected
+                                className={`flex flex-col overflow-hidden rounded-2xl border transition-shadow ${selected
                                     ? "border-accent/60 bg-gradient-to-b from-card to-[#faf7f0] shadow-md ring-1 ring-accent/25"
                                     : "border-[rgb(23_53_31_/10%)] bg-card/70 hover:border-accent/30 hover:shadow-sm"
-                                }`}
+                                  }`}
                               >
                                 <div className="relative aspect-[16/10] w-full bg-primary/5">
                                   {service.imageUrl ? (
@@ -1347,11 +1338,10 @@ export function BookingFlowShell({
                                     <button
                                       type="button"
                                       onClick={() => toggleService(service.id)}
-                                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
-                                        selected
+                                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors ${selected
                                           ? "bg-destructive/90 text-destructive-foreground hover:opacity-90"
                                           : "bg-primary text-primary-foreground hover:opacity-90"
-                                      }`}
+                                        }`}
                                     >
                                       {selected ? "Remove" : "Add"}
                                     </button>
@@ -1403,11 +1393,10 @@ export function BookingFlowShell({
                                                     [service.id]: variant.id,
                                                   }))
                                                 }
-                                                className={`rounded-lg border px-3 py-1.5 text-left text-xs transition-colors ${
-                                                  vid === variant.id
+                                                className={`rounded-lg border px-3 py-1.5 text-left text-xs transition-colors ${vid === variant.id
                                                     ? "border-accent bg-accent/15 text-primary"
                                                     : "border-border bg-background text-foreground hover:border-accent/40"
-                                                }`}
+                                                  }`}
                                               >
                                                 <span className="font-medium">{variant.name}</span>
                                                 <span className="mt-0.5 block text-muted">
@@ -1465,11 +1454,10 @@ export function BookingFlowShell({
                             return (
                               <li
                                 key={pkg.id}
-                                className={`flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
-                                  selected
+                                className={`flex flex-col overflow-hidden rounded-2xl border transition-shadow ${selected
                                     ? "border-accent/60 bg-gradient-to-b from-card to-[#faf7f0] shadow-md ring-1 ring-accent/25"
                                     : "border-[rgb(23_53_31_/10%)] bg-card/70 hover:border-accent/30"
-                                }`}
+                                  }`}
                               >
                                 <div className="relative aspect-[16/10] w-full bg-primary/5">
                                   {pkg.imageUrl ? (
@@ -1496,11 +1484,10 @@ export function BookingFlowShell({
                                     <button
                                       type="button"
                                       onClick={() => togglePackage(pkg.id)}
-                                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide ${
-                                        selected
+                                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide ${selected
                                           ? "bg-destructive/90 text-destructive-foreground"
                                           : "bg-primary text-primary-foreground"
-                                      }`}
+                                        }`}
                                     >
                                       {selected ? "Remove" : "Add"}
                                     </button>
@@ -1574,11 +1561,10 @@ export function BookingFlowShell({
                             return (
                               <li
                                 key={item.id}
-                                className={`flex flex-col overflow-hidden rounded-2xl border transition-shadow ${
-                                  selected
+                                className={`flex flex-col overflow-hidden rounded-2xl border transition-shadow ${selected
                                     ? "border-accent/60 bg-gradient-to-b from-card to-[#faf7f0] shadow-md ring-1 ring-accent/25"
                                     : "border-[rgb(23_53_31_/10%)] bg-card/70 hover:border-accent/30 hover:shadow-sm"
-                                }`}
+                                  }`}
                               >
                                 <div className="relative aspect-[16/10] w-full bg-primary/5">
                                   {item.imageUrl ? (
@@ -1601,11 +1587,10 @@ export function BookingFlowShell({
                                       type="button"
                                       onClick={() => toggleEnhancement(item.id)}
                                       disabled={item.price == null}
-                                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                                        selected
+                                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${selected
                                           ? "bg-destructive/90 text-destructive-foreground hover:opacity-90"
                                           : "bg-primary text-primary-foreground hover:opacity-90"
-                                      }`}
+                                        }`}
                                     >
                                       {selected ? "Remove" : item.price == null ? "N/A" : "Add"}
                                     </button>
@@ -1729,25 +1714,23 @@ export function BookingFlowShell({
                                   }
                                   setSelectedSlotId(slot.id);
                                 }}
-                                className={`flex w-full flex-col rounded-xl border px-4 py-3 text-left text-sm transition-all ${
-                                  full
+                                className={`flex w-full flex-col rounded-xl border px-4 py-3 text-left text-sm transition-all ${full
                                     ? "cursor-not-allowed border-[rgb(23_53_31_/8%)] bg-muted/40 text-muted-foreground opacity-80"
                                     : selected
                                       ? "border-accent bg-primary text-primary-foreground shadow-md ring-2 ring-accent/50"
                                       : "border-[rgb(23_53_31_/12%)] bg-background/90 text-foreground hover:border-accent/40 hover:shadow-sm"
-                                }`}
+                                  }`}
                               >
                                 <span className="font-heading text-lg tracking-tight">
                                   {formatWallClockRange12h(slot.startTime, slot.endTime)}
                                 </span>
                                 <span
-                                  className={`mt-1 text-xs font-semibold ${
-                                    full
+                                  className={`mt-1 text-xs font-semibold ${full
                                       ? "text-muted-foreground"
                                       : selected
                                         ? "text-primary-foreground/80"
                                         : "text-muted"
-                                  }`}
+                                    }`}
                                 >
                                   {publicSlotClientStatusLabel(slot)}
                                 </span>
@@ -1795,7 +1778,7 @@ export function BookingFlowShell({
                             {formatServicePriceLabel(
                               s,
                               variantOptionsByServiceId[s.id]?.find((v) => v.id === vid)?.price ??
-                                null,
+                              null,
                             )}
                           </span>
                         </li>
@@ -1875,22 +1858,20 @@ export function BookingFlowShell({
                       <button
                         type="button"
                         onClick={() => selectBookingAuthPath("signin")}
-                        className={`flex-1 rounded-full py-2.5 text-sm font-semibold ${
-                          bookingAuthPath === "signin"
+                        className={`flex-1 rounded-full py-2.5 text-sm font-semibold ${bookingAuthPath === "signin"
                             ? "bg-primary text-primary-foreground shadow"
                             : "text-muted"
-                        }`}
+                          }`}
                       >
                         Sign in
                       </button>
                       <button
                         type="button"
                         onClick={() => selectBookingAuthPath("register")}
-                        className={`flex-1 rounded-full py-2.5 text-sm font-semibold ${
-                          bookingAuthPath === "register"
+                        className={`flex-1 rounded-full py-2.5 text-sm font-semibold ${bookingAuthPath === "register"
                             ? "bg-primary text-primary-foreground shadow"
                             : "text-muted"
-                        }`}
+                          }`}
                       >
                         Create account
                       </button>

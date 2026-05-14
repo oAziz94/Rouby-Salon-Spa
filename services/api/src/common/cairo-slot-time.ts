@@ -133,14 +133,42 @@ function startOfZonedDayUtc(ymd: string, timeZone: string): Date {
   if (!y || !mo || !da) {
     throw new Error(`Invalid ymd: ${ymd}`);
   }
-  for (let utcH = -14; utcH <= 14; utcH += 1) {
-    const t = new Date(Date.UTC(y, mo - 1, da, utcH, 0, 0, 0));
-    const z = zonedTimeParts(t, timeZone);
-    if (z.ymd === ymd && z.hour === 0 && z.minute === 0 && z.second === 0) {
-      return t;
+
+  const dateFmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const formatYmd = (instant: Date) => dateFmt.format(instant);
+
+  /** First UTC ms where `timeZone` civil date is `ymd` (handles non–whole-hour offsets). */
+  let lo = Date.UTC(y, mo - 1, da, 12, 0, 0, 0) - 48 * 3600 * 1000;
+  let hi = Date.UTC(y, mo - 1, da, 12, 0, 0, 0) + 48 * 3600 * 1000;
+  for (let i = 0; i < 40 && formatYmd(new Date(lo)) >= ymd; i++) {
+    lo -= 24 * 3600 * 1000;
+  }
+  for (let i = 0; i < 40 && formatYmd(new Date(hi)) < ymd; i++) {
+    hi += 24 * 3600 * 1000;
+  }
+  if (formatYmd(new Date(lo)) >= ymd || formatYmd(new Date(hi)) < ymd) {
+    throw new Error(`Could not resolve start of ${ymd} in ${timeZone}`);
+  }
+
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (formatYmd(new Date(mid)) >= ymd) {
+      hi = mid;
+    } else {
+      lo = mid + 1;
     }
   }
-  throw new Error(`Could not resolve start of ${ymd} in ${timeZone}`);
+
+  if (formatYmd(new Date(lo)) !== ymd) {
+    throw new Error(`Could not resolve start of ${ymd} in ${timeZone}`);
+  }
+
+  return new Date(lo);
 }
 
 function startOfNextZonedDayUtc(ymd: string, timeZone: string): Date {
