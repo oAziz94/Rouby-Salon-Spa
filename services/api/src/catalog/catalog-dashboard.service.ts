@@ -35,9 +35,12 @@ import {
   assertOnlineBookableRequiresImage,
   assertWritableServiceImagePair,
   expectedImageUrlForKey,
+  isCloudinaryFolderPublicId,
+  parsePublicIdFromCloudinaryImageUrl,
   parsePublicMediaBaseUrls,
   parseStorageKeyFromAllowedImageUrl,
   SERVICE_IMAGE_KEY_RE,
+  type ServiceImagePairContext,
 } from './service-image-policy';
 
 const CURRENCY = 'EGP' as const;
@@ -57,13 +60,30 @@ export class CatalogDashboardService {
     );
   }
 
+  private getServiceImagePairContext(): ServiceImagePairContext {
+    const raw = (
+      this.config.get<string>('MEDIA_STORAGE') ?? 'local'
+    ).toLowerCase();
+    const mediaStorage = raw === 'cloudinary' ? 'cloudinary' : 'local';
+    return {
+      mediaStorage,
+      cloudName: this.config.get<string>('CLOUDINARY_CLOUD_NAME')?.trim(),
+      folder: this.config.get<string>('CLOUDINARY_FOLDER')?.trim() || 'alrouby',
+    };
+  }
+
   private validateResolvedServiceImage(
     bookingAvailability: boolean,
     imageUrl: string | null,
     imageKey: string | null,
   ): void {
     const bases = this.getMediaBases();
-    assertWritableServiceImagePair(imageUrl, imageKey, bases);
+    assertWritableServiceImagePair(
+      imageUrl,
+      imageKey,
+      bases,
+      this.getServiceImagePairContext(),
+    );
     assertOnlineBookableRequiresImage(bookingAvailability, imageUrl);
   }
 
@@ -82,17 +102,54 @@ export class CatalogDashboardService {
       throw new BadRequestException('Invalid or inactive gallery image');
     }
     const bases = this.getMediaBases();
-    const key =
-      (item.storageKey && SERVICE_IMAGE_KEY_RE.test(item.storageKey)
+    const pairCtx = this.getServiceImagePairContext();
+    const folder = pairCtx.folder ?? 'alrouby';
+    const cloudName = pairCtx.cloudName;
+
+    let key: string | null =
+      item.storageKey && SERVICE_IMAGE_KEY_RE.test(item.storageKey)
         ? item.storageKey
-        : null) ?? parseStorageKeyFromAllowedImageUrl(item.imageUrl, bases);
+        : null;
+    if (!key && item.storageKey && cloudName) {
+      if (isCloudinaryFolderPublicId(item.storageKey, folder)) {
+        key = item.storageKey;
+      }
+    }
+    if (!key) {
+      key = parseStorageKeyFromAllowedImageUrl(item.imageUrl, bases);
+    }
+    if (!key && cloudName) {
+      const fromCloud = parsePublicIdFromCloudinaryImageUrl(
+        item.imageUrl,
+        cloudName,
+      );
+      if (fromCloud && isCloudinaryFolderPublicId(fromCloud, folder)) {
+        key = fromCloud;
+      }
+    }
+
+    if (
+      key &&
+      cloudName &&
+      isCloudinaryFolderPublicId(key, folder) &&
+      parsePublicIdFromCloudinaryImageUrl(item.imageUrl, cloudName) === key
+    ) {
+      const imageUrl = item.imageUrl;
+      assertWritableServiceImagePair(imageUrl, key, bases, {
+        mediaStorage: 'cloudinary',
+        cloudName,
+        folder,
+      });
+      return { imageMediaId: item.id, imageUrl, imageKey: key };
+    }
+
     if (!key || !SERVICE_IMAGE_KEY_RE.test(key)) {
       throw new BadRequestException(
         'Only salon-uploaded gallery images can be linked to services.',
       );
     }
     const imageUrl = expectedImageUrlForKey(key, bases)[0] ?? item.imageUrl;
-    assertWritableServiceImagePair(imageUrl, key, bases);
+    assertWritableServiceImagePair(imageUrl, key, bases, pairCtx);
     return { imageMediaId: item.id, imageUrl, imageKey: key };
   }
 

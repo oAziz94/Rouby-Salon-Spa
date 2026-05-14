@@ -17,9 +17,32 @@ export class ApiRequestError extends Error {
   }
 }
 
+function ensureVersionedApiBase(trimmed: string): string {
+  try {
+    const u = new URL(trimmed);
+    const path = u.pathname.replace(/\/+$/, "") || "";
+    if (!path) {
+      return `${trimmed}/api/v1`.replace(/\/+$/, "");
+    }
+  } catch {
+    /* leave as-is */
+  }
+  return trimmed;
+}
+
 function resolveApiBaseUrl(): string {
   const raw = process.env.NEXT_PUBLIC_API_URL ?? process.env.API_URL;
-  return (raw ?? "http://localhost:4000/api/v1").replace(/\/$/, "");
+  const fallback =
+    process.env.NODE_ENV === "production"
+      ? ""
+      : "http://localhost:4000/api/v1";
+  const base = ensureVersionedApiBase((raw ?? fallback).replace(/\/$/, ""));
+  if (!base) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL (or API_URL) must be set in production.",
+    );
+  }
+  return base;
 }
 
 function shouldSkipApiFetchDuringBuild(baseUrl: string): boolean {

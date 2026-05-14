@@ -16,6 +16,7 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "migrate:media:cloudinary": "tsx scripts/migrate-media-to-cloudinary.ts",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build -w @rouby/api-client && npm run build -w api && npm run build -w web && npm run build -w dashboard",
@@ -28,6 +29,7 @@
   },
   "devDependencies": {
     "argon2": "^0.41.1",
+    "cloudinary": "^2.5.1",
     "prisma": "^6.7.0",
     "tsx": "^4.19.4"
   }

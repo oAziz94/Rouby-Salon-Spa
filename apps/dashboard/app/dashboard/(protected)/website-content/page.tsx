@@ -28,8 +28,12 @@ import { GalleryImagePicker } from "@/components/gallery-image-picker";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 
 const PUBLIC_SITE =
-  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_PUBLIC_WEBSITE_URL?.replace(/\/$/, "")) ||
-  "http://localhost:3000";
+  (typeof process !== "undefined" &&
+    (process.env.NEXT_PUBLIC_WEB_URL?.trim() ||
+      process.env.NEXT_PUBLIC_PUBLIC_WEBSITE_URL?.trim())?.replace(/\/$/, "")) ||
+  (typeof process !== "undefined" && process.env.NODE_ENV === "production"
+    ? ""
+    : "http://localhost:3000");
 
 const PAGE_LABEL: Record<string, string> = {
   homepage: "Homepage",
@@ -405,10 +409,11 @@ export default function WebsiteContentPage() {
                   Refresh
                 </button>
                 <Link
-                  href={`${PUBLIC_SITE}/`}
+                  href={PUBLIC_SITE ? `${PUBLIC_SITE}/` : "#"}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-95"
+                  aria-disabled={!PUBLIC_SITE}
                 >
                   <ExternalLink className="h-4 w-4" />
                   Preview website

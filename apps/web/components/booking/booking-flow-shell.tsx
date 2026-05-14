@@ -135,7 +135,14 @@ type BookingAuthPath = "signin" | "register";
 type CatalogTab = "services" | "packages" | "enhancements";
 
 function resolveApiBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1").replace(/\/$/, "");
+  const raw = process.env.NEXT_PUBLIC_API_URL;
+  const fallback =
+    process.env.NODE_ENV === "production" ? "" : "http://localhost:4000/api/v1";
+  const base = (raw ?? fallback).replace(/\/$/, "");
+  if (!base) {
+    throw new Error("NEXT_PUBLIC_API_URL must be set in production.");
+  }
+  return base;
 }
 
 async function fetchJson<T>(path: string): Promise<T> {

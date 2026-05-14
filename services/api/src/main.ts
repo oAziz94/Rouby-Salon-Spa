@@ -27,11 +27,27 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  const origins = configService.get<string>('CORS_ORIGINS');
+  const originsRaw =
+    configService.get<string>('CORS_ORIGIN') ??
+    configService.get<string>('CORS_ORIGINS');
+  const nodeEnvEarly = configService.get<string>('NODE_ENV', 'development');
+  const isProdEarly = nodeEnvEarly === 'production';
+  const defaultOrigins = isProdEarly
+    ? []
+    : ['http://localhost:3000', 'http://localhost:3001'];
+  const list = originsRaw
+    ? originsRaw
+        .split(',')
+        .map((o) => o.trim().replace(/\/+$/, ''))
+        .filter(Boolean)
+    : defaultOrigins;
+  if (!list.length && isProdEarly) {
+    throw new Error(
+      'CORS_ORIGIN (or CORS_ORIGINS) must be set in production with comma-separated allowed browser origins.',
+    );
+  }
   app.enableCors({
-    origin: origins
-      ? origins.split(',').map((o) => o.trim())
-      : ['http://localhost:3000', 'http://localhost:3001'],
+    origin: list.length ? list : defaultOrigins,
     credentials: true,
   });
 

@@ -51,10 +51,6 @@ export class ClientAuthService {
     );
   }
 
-  private getNodeEnv(): string {
-    return this.config.get<string>('NODE_ENV', 'development');
-  }
-
   private verifyCode(expectedHash: string, submittedCode: string): boolean {
     const submittedHash = this.buildCodeHash(submittedCode.trim());
     return timingSafeEqual(
@@ -158,12 +154,24 @@ export class ClientAuthService {
       },
     });
 
-    const isNonProduction = this.getNodeEnv() !== 'production';
+    const otpEnabled =
+      this.config.get<string>('OTP_ENABLED', 'true').toLowerCase() !== 'false';
+    const otpProvider = (
+      this.config.get<string>('OTP_PROVIDER', 'dummy') ?? 'dummy'
+    )
+      .trim()
+      .toLowerCase();
+    const exposeDummyCode =
+      otpEnabled &&
+      otpProvider === 'dummy' &&
+      this.config.get<string>('OTP_DUMMY_EXPOSE_CODE', 'true').toLowerCase() !==
+        'false';
+
     return {
       success: true,
       expiresIn,
       phone,
-      ...(isNonProduction ? { devCode: code } : {}),
+      ...(exposeDummyCode ? { devCode: code } : {}),
     };
   }
 

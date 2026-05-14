@@ -1967,6 +1967,26 @@ export class ApiClientError extends Error {
   }
 }
 
+function defaultApiBaseUrl(): string {
+  return process.env.NODE_ENV === "production"
+    ? ""
+    : "http://localhost:4000/api/v1";
+}
+
+/** If env is only scheme+host (no path), assume the versioned API root. */
+function ensureVersionedApiBase(trimmed: string): string {
+  try {
+    const u = new URL(trimmed);
+    const path = u.pathname.replace(/\/+$/, "") || "";
+    if (!path) {
+      return `${trimmed}/api/v1`.replace(/\/+$/, "");
+    }
+  } catch {
+    /* leave as-is */
+  }
+  return trimmed;
+}
+
 /**
  * Base URL for the HTTP API under `/api/v1` (no trailing slash).
  * In Next.js, set `NEXT_PUBLIC_API_URL`. On the server, `API_URL` may be used instead.
@@ -1976,7 +1996,12 @@ export function getApiBaseUrl(): string {
     typeof process !== "undefined"
       ? (process.env.NEXT_PUBLIC_API_URL ?? process.env.API_URL)
       : undefined;
-  const base = (raw ?? "http://localhost:4000/api/v1").replace(/\/$/, "");
+  const base = ensureVersionedApiBase((raw ?? defaultApiBaseUrl()).replace(/\/$/, ""));
+  if (!base) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL (or API_URL for server-side calls) must be set in production.",
+    );
+  }
   return base;
 }
 

@@ -13,8 +13,10 @@ import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { AuditService } from '../audit/audit.service';
 import {
   expectedImageUrlForKey,
+  isAllowedSalonImageUrl,
   parsePublicMediaBaseUrls,
   SERVICE_IMAGE_KEY_RE,
+  type ServiceImagePairContext,
 } from '../catalog/service-image-policy';
 import { MediaUploadService } from '../media/media-upload.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -80,6 +82,17 @@ export class GalleryAdminService {
     return parsePublicMediaBaseUrls(
       this.config.get<string>('PUBLIC_MEDIA_BASE_URL'),
     );
+  }
+
+  private getServiceImageCtx(): ServiceImagePairContext {
+    const raw = (
+      this.config.get<string>('MEDIA_STORAGE') ?? 'local'
+    ).toLowerCase();
+    return {
+      mediaStorage: raw === 'cloudinary' ? 'cloudinary' : 'local',
+      cloudName: this.config.get<string>('CLOUDINARY_CLOUD_NAME')?.trim(),
+      folder: this.config.get<string>('CLOUDINARY_FOLDER')?.trim() || 'alrouby',
+    };
   }
 
   /** Public gallery: explicit HOMEPAGE_GALLERY usages win; otherwise legacy active rows. */
@@ -605,7 +618,7 @@ export class GalleryAdminService {
     if (dto.imageUrl !== undefined) {
       const bases = this.getMediaBases();
       const url = dto.imageUrl.trim();
-      const ok = bases.some((base) => url.startsWith(`${base}/uploads/`));
+      const ok = isAllowedSalonImageUrl(url, bases, this.getServiceImageCtx());
       if (!ok) {
         throw new BadRequestException(
           'Only images from this salon media store are allowed.',
@@ -657,12 +670,9 @@ export class GalleryAdminService {
   /** Legacy JSON create — only allows URLs from this deployment's media origins. */
   async createGalleryItem(dto: CreateGalleryItemDto, user: DashboardJwtUser) {
     const bases = this.getMediaBases();
-    const allowed = new Set<string>();
-    for (const b of bases) {
-      allowed.add(b);
-    }
+    const ctx = this.getServiceImageCtx();
     const url = dto.imageUrl.trim();
-    const ok = [...allowed].some((base) => url.startsWith(`${base}/uploads/`));
+    const ok = isAllowedSalonImageUrl(url, bases, ctx);
     if (!ok) {
       throw new BadRequestException(
         'Only images uploaded to this salon media store are allowed. Use Upload from the Gallery.',
@@ -714,7 +724,7 @@ export class GalleryAdminService {
         HttpStatus.BAD_REQUEST,
       );
     }
-    if (row.storageKey && SERVICE_IMAGE_KEY_RE.test(row.storageKey)) {
+    if (row.storageKey?.trim()) {
       await this.mediaUpload.deleteStoredImage(row.storageKey);
     }
     await this.prisma.galleryItem.delete({ where: { id } });
