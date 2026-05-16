@@ -3,6 +3,7 @@ import {
   ConflictException,
   HttpException,
   HttpStatus,
+  Inject,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -16,6 +17,7 @@ import type { ClientAccessTokenPayload } from './client-jwt-payload.interface';
 import { ClientOtpRequestIntent } from './dto/client-otp-request-intent.enum';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizePhoneToE164 } from '../common/phone/phone.util';
+import { OTP_DELIVERY, type OtpProvider } from './otp/otp-provider.interface';
 
 type ClientAuthProfile = {
   id: string;
@@ -30,6 +32,7 @@ export class ClientAuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
+    @Inject(OTP_DELIVERY) private readonly otpDelivery: OtpProvider,
   ) {}
 
   private buildCodeHash(code: string): string {
@@ -154,6 +157,8 @@ export class ClientAuthService {
       },
     });
 
+    await this.otpDelivery.sendOtp(phone, code, purpose);
+
     const otpEnabled =
       this.config.get<string>('OTP_ENABLED', 'true').toLowerCase() !== 'false';
     const otpProvider = (
@@ -161,9 +166,12 @@ export class ClientAuthService {
     )
       .trim()
       .toLowerCase();
+    const isProduction =
+      this.config.get<string>('NODE_ENV', 'development') === 'production';
     const exposeDummyCode =
       otpEnabled &&
       otpProvider === 'dummy' &&
+      !isProduction &&
       this.config.get<string>('OTP_DUMMY_EXPOSE_CODE', 'true').toLowerCase() !==
         'false';
 

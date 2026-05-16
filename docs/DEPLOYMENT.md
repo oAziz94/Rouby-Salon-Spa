@@ -1,6 +1,6 @@
 # AlRouby Salon & Spa — deployment notes
 
-This document reflects the **accepted deployment stack** for this repository: existing PostgreSQL database, NestJS API on Render, public website and staff dashboard as Next.js apps, DNS/SSL on Cloudflare, and **Cloudinary** for new production media uploads. **SMS Misr is not integrated yet.** Client auth still uses the **dummy OTP** path (see below).
+This document reflects the **accepted deployment stack** for this repository: existing PostgreSQL database, NestJS API on Render, public website and staff dashboard as Next.js apps, DNS/SSL on Cloudflare, and **Cloudinary** for new production media uploads. Client OTP can use the **dummy** provider for local testing or **WhatsApp via WAPilot** in production (see below).
 
 ---
 
@@ -13,11 +13,12 @@ This document reflects the **accepted deployment stack** for this repository: ex
 
 ---
 
-## Dummy OTP (temporary)
+## Client OTP (dummy vs WhatsApp)
 
-- The API issues real OTP codes stored as hashes, but with **`OTP_PROVIDER=dummy`** and **`OTP_ENABLED=true`**, the `POST /client/auth/otp/request` response includes **`devCode`** so testers can sign in without SMS.
-- **`OTP_DUMMY_EXPOSE_CODE=false`** stops returning `devCode` even for the dummy provider (e.g. demos).
-- **You must replace this with a real SMS/WhatsApp provider before a public launch.** Until then, treat `devCode` as a secret channel comparable to a master password for anyone who can request OTPs.
+- OTP codes are stored **hashed** with expiry, resend cooldown, and verification attempt limits.
+- **`OTP_PROVIDER=dummy`** (default for local dev): no outbound message; when **`NODE_ENV` is not `production`** and **`OTP_DUMMY_EXPOSE_CODE` is not `false`**, `POST /client/auth/otp/request` may include **`devCode`** for testers. Do not use dummy OTP in production.
+- **`OTP_PROVIDER=whatsapp`** with **`WHATSAPP_PROVIDER=wapilot`**: sends OTP via [WAPilot](https://wapilot.net) `POST /{instance_id}/send-message`. Required: **`WAPILOT_API_TOKEN`**, **`WAPILOT_INSTANCE_ID`**. Optional: **`WAPILOT_API_BASE_URL`** (default `https://api.wapilot.net/api/v2`).
+- **Phone format:** accept `010…`, `+2010…`, or `2010…`; the API normalizes Egyptian mobiles to **international digits without `+`** for WAPilot `chat_id` (e.g. `201001234567`). Client records in the database continue to use E.164 with `+` from the same normalization path.
 
 ---
 
@@ -123,8 +124,12 @@ Both `apps/web` and `apps/dashboard` are **Next.js 15 App Router** apps that loa
 | `DEFAULT_TIMEZONE` | e.g. `Africa/Cairo` |
 | `DEFAULT_CURRENCY` | e.g. `EGP` |
 | `DEFAULT_VAT_RATE` | Optional; business VAT may live in DB |
-| `OTP_PROVIDER` | `dummy` until SMS |
+| `OTP_PROVIDER` | `whatsapp` in production; `dummy` for local dev only |
 | `OTP_ENABLED` | `true` |
+| `WHATSAPP_PROVIDER` | `wapilot` when `OTP_PROVIDER=whatsapp` |
+| `WAPILOT_API_BASE_URL` | Default `https://api.wapilot.net/api/v2` |
+| `WAPILOT_API_TOKEN` | WAPilot API token (header `token`) |
+| `WAPILOT_INSTANCE_ID` | WAPilot instance id |
 | `MEDIA_STORAGE` | `cloudinary` in production uploads |
 | `CLOUDINARY_*` | As above |
 | `PUBLIC_MEDIA_BASE_URL` | Public API origin if serving `/uploads` locally |

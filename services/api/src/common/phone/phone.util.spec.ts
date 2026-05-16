@@ -1,5 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-import { normalizePhoneToE164 } from './phone.util';
+import {
+  normalizePhoneToE164,
+  normalizePhoneToWhatsAppChatId,
+} from './phone.util';
 
 describe('normalizePhoneToE164', () => {
   it('accepts valid international numbers with plus prefix', () => {
@@ -21,5 +24,24 @@ describe('normalizePhoneToE164', () => {
       BadRequestException,
     );
     expect(() => normalizePhoneToE164('123')).toThrow(BadRequestException);
+  });
+});
+
+describe('normalizePhoneToWhatsAppChatId', () => {
+  it('normalizes Egyptian mobile formats to international digits', () => {
+    expect(normalizePhoneToWhatsAppChatId('01001234567')).toBe('201001234567');
+    expect(normalizePhoneToWhatsAppChatId('+2010-0123-4567')).toBe(
+      '201001234567',
+    );
+    expect(normalizePhoneToWhatsAppChatId('201001234567')).toBe('201001234567');
+  });
+
+  it('rejects invalid phone numbers', () => {
+    expect(() => normalizePhoneToWhatsAppChatId('123')).toThrow(
+      BadRequestException,
+    );
+    expect(() => normalizePhoneToWhatsAppChatId('abc')).toThrow(
+      BadRequestException,
+    );
   });
 });

@@ -12,15 +12,23 @@ function phoneInvalidException(): BadRequestException {
   });
 }
 
+function stripPhoneSeparators(value: string): string {
+  return value.replace(/[\s\-()]/g, '');
+}
+
 export function normalizePhoneToE164(input: string): string {
-  const raw = input.trim();
+  const raw = stripPhoneSeparators(input.trim());
   if (!raw) {
     throw phoneInvalidException();
   }
 
   const withInternationalPrefix = raw.startsWith('00')
     ? `+${raw.slice(2)}`
-    : raw;
+    : raw.startsWith('+')
+      ? raw
+      : /^20\d{9,10}$/.test(raw)
+        ? `+${raw}`
+        : raw;
 
   const numericLike = withInternationalPrefix.startsWith('+')
     ? /^\+[0-9]+$/.test(withInternationalPrefix)
@@ -38,4 +46,9 @@ export function normalizePhoneToE164(input: string): string {
   }
 
   return parsed.number;
+}
+
+/** International digits without "+" (e.g. `201001234567` for WAPilot `chat_id`). */
+export function normalizePhoneToWhatsAppChatId(input: string): string {
+  return normalizePhoneToE164(input).replace(/^\+/, '');
 }
