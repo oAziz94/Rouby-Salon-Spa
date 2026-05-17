@@ -2,7 +2,7 @@ import type { ConfigService } from '@nestjs/config';
 import { DummyOtpProvider } from './dummy-otp.provider';
 import type { OtpProvider } from './otp-provider.interface';
 import { OtpConfigService } from './otp-config.service';
-import { WapilotWhatsAppClient } from './wapilot-whatsapp.client';
+import { WapilotWhatsAppClient } from '../../wapilot/wapilot-whatsapp.client';
 import { WapilotWhatsAppOtpProvider } from './wapilot-whatsapp-otp.provider';
 
 export function createOtpProvider(deps: {

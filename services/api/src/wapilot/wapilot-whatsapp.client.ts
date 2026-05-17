@@ -4,7 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { OtpConfigService } from './otp-config.service';
+import { WapilotConfigService } from './wapilot-config.service';
 
 export type WapilotSendMessagePayload = {
   chat_id: string;
@@ -18,11 +18,11 @@ export class WapilotWhatsAppClient {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly otpConfig: OtpConfigService,
+    private readonly wapilotConfig: WapilotConfigService,
   ) {}
 
-  async sendMessage(chatId: string, text: string): Promise<void> {
-    const baseUrl = this.otpConfig.getWapilotApiBaseUrl();
+  async sendTextMessage(chatId: string, text: string): Promise<void> {
+    const baseUrl = this.wapilotConfig.getApiBaseUrl();
     const instanceId = this.config.getOrThrow<string>('WAPILOT_INSTANCE_ID');
     const token = this.config.getOrThrow<string>('WAPILOT_API_TOKEN');
     const url = `${baseUrl}/${encodeURIComponent(instanceId)}/send-message`;
@@ -49,9 +49,9 @@ export class WapilotWhatsAppClient {
       );
       throw new ServiceUnavailableException({
         statusCode: 503,
-        message: 'Unable to send verification code. Please try again shortly.',
+        message: 'Unable to send WhatsApp message. Please try again shortly.',
         error: 'Service Unavailable',
-        code: 'OTP_DELIVERY_FAILED',
+        code: 'WHATSAPP_DELIVERY_FAILED',
       });
     }
 
@@ -62,10 +62,15 @@ export class WapilotWhatsAppClient {
       );
       throw new ServiceUnavailableException({
         statusCode: 503,
-        message: 'Unable to send verification code. Please try again shortly.',
+        message: 'Unable to send WhatsApp message. Please try again shortly.',
         error: 'Service Unavailable',
-        code: 'OTP_DELIVERY_FAILED',
+        code: 'WHATSAPP_DELIVERY_FAILED',
       });
     }
+  }
+
+  /** @deprecated Use {@link sendTextMessage}. */
+  async sendMessage(chatId: string, text: string): Promise<void> {
+    return this.sendTextMessage(chatId, text);
   }
 }

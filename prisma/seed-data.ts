@@ -341,6 +341,16 @@ export const PERMISSION_SEED_ROWS: Array<{
     module: "whatsapp",
     description: "Generate WhatsApp deep links",
   },
+  {
+    key: "notifications.read",
+    module: "notifications",
+    description: "View WhatsApp notification delivery logs",
+  },
+  {
+    key: "notifications.retry",
+    module: "notifications",
+    description: "Retry failed WhatsApp notification deliveries",
+  },
 
   { key: "gallery.manage", module: "gallery", description: "CRUD gallery" },
   { key: "gallery.read", module: "gallery", description: "View gallery admin" },
@@ -520,6 +530,8 @@ export const BRANCH_MANAGER_PERMISSION_KEYS = [
   "whatsapp.templates.read",
   "whatsapp.templates.manage",
   "whatsapp.send",
+  "notifications.read",
+  "notifications.retry",
   "gallery.read",
   "gallery.manage",
   "reviews.read",
@@ -584,6 +596,7 @@ export const RECEPTIONIST_PERMISSION_KEYS = [
   "dailyClosing.create",
   "whatsapp.templates.read",
   "whatsapp.send",
+  "notifications.read",
 ];
 
 /** Staff: salon operators with a dashboard login; schedules and assignments are scoped in StaffProfile. */

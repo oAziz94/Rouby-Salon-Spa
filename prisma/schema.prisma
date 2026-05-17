@@ -777,6 +777,7 @@ model Booking {
   invoices       Invoice[]
   reviews        Review[]
   queueEntries   QueueEntry[]
+  notificationLogs NotificationLog[]
 
   @@index([clientId, createdAt(sort: Desc)])
   @@index([branchId, status, slotId])
@@ -836,7 +837,8 @@ model BookingChangeRequest {
   booking       Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   client        Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
   requestedSlot BookingSlot? @relation("ChangeRequestTargetSlot", fields: [requestedSlotId], references: [id], onDelete: SetNull)
-  handledByUser User?        @relation("BookingChangeRequestHandledBy", fields: [handledByUserId], references: [id], onDelete: SetNull)
+  handledByUser    User?             @relation("BookingChangeRequestHandledBy", fields: [handledByUserId], references: [id], onDelete: SetNull)
+  notificationLogs NotificationLog[]
 
   @@index([bookingId, status])
   @@index([clientId, createdAt(sort: Desc)])
@@ -1281,4 +1283,47 @@ enum ReviewStatus {
   APPROVED
   REJECTED
   HIDDEN
+}
+
+enum NotificationChannel {
+  WHATSAPP
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMATION
+  APPOINTMENT_REMINDER
+  APPOINTMENT_REMINDER_90M
+  BOOKING_CANCELLATION
+  CHANGE_REQUEST_UPDATE
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model NotificationLog {
+  id                String               @id @default(uuid()) @db.Uuid
+  branchId          String?              @map("branch_id") @db.Uuid
+  bookingId         String?              @map("booking_id") @db.Uuid
+  changeRequestId   String?              @map("change_request_id") @db.Uuid
+  channel           NotificationChannel
+  type              NotificationType
+  recipientPhone    String               @map("recipient_phone")
+  provider          String               @default("wapilot")
+  status            NotificationStatus
+  providerMessageId String?              @map("provider_message_id")
+  errorMessage      String?              @map("error_message")
+  sentAt            DateTime?            @map("sent_at")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  booking       Booking?              @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  changeRequest BookingChangeRequest? @relation(fields: [changeRequestId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId, type, status])
+  @@index([changeRequestId, type, status])
+  @@index([status, type, createdAt])
+  @@map("notification_logs")
 }

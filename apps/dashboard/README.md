@@ -1,5 +1,9 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Staff dashboard features
+
+- **Notification Logs** (`/dashboard/notification-logs`, **Admin** sidebar): requires `notifications.read`. Lists transactional WhatsApp delivery attempts with filters; users with `notifications.retry` can retry **FAILED** messages from the table or detail drawer.
+
 ## Getting Started
 
 First, run the development server:

@@ -51,6 +51,7 @@ import type {
 } from './dto/booking-item-input.dto';
 import type { RescheduleBodyDto } from './dto/reschedule-body.dto';
 import { buildListMeta } from '../catalog/catalog.utils';
+import { BookingNotificationService } from '../notifications/booking-notification.service';
 import {
   decimalMaxZero,
   sumPaidPayments,
@@ -116,6 +117,7 @@ export class BookingsService {
     private readonly audit: AuditService,
     private readonly invoices: InvoicesService,
     private readonly staffAvailability: StaffAvailabilityService,
+    private readonly bookingNotifications: BookingNotificationService,
   ) {}
 
   async estimatePublic(body: PublicBookingEstimateBodyDto) {
@@ -1163,8 +1165,7 @@ export class BookingsService {
       entityId: bookingId,
       newValue: { status: updated.status },
     });
-    // TODO(alrouby-whatsapp): When automated sending exists, resolve by client locale
-    // (logical key BOOKING_CONFIRMED + language → BOOKING_CONFIRMED_AR / _EN) and notify.
+    this.bookingNotifications.notifyBookingConfirmed(bookingId);
     return updated;
   }
 
@@ -1241,6 +1242,7 @@ export class BookingsService {
         data: { status: BookingStatus.CONFIRMED },
       });
     });
+    this.bookingNotifications.notifyBookingConfirmed(bookingId);
     return this.getDashboardBooking(user, bookingId);
   }
 
@@ -1256,6 +1258,7 @@ export class BookingsService {
       entityId: bookingId,
       newValue: { status: updated.status },
     });
+    this.bookingNotifications.notifyBookingCancelled(bookingId);
     return updated;
   }
 
@@ -2240,7 +2243,13 @@ export class BookingsService {
       },
     );
 
-    return this.getChangeRequest(user, requestId);
+    const approved = await this.getChangeRequest(user, requestId);
+    if (approved.requestType === BookingChangeRequestType.CANCEL) {
+      this.bookingNotifications.notifyBookingCancelled(approved.bookingId);
+    } else {
+      this.bookingNotifications.notifyChangeRequestApproved(requestId);
+    }
+    return approved;
   }
 
   async rejectChangeRequest(user: DashboardJwtUser, requestId: string) {
@@ -2264,6 +2273,7 @@ export class BookingsService {
         handledAt: new Date(),
       },
     });
+    this.bookingNotifications.notifyChangeRequestRejected(requestId);
     return this.getChangeRequest(user, requestId);
   }
 

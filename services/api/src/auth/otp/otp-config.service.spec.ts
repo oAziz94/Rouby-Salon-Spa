@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { WapilotConfigService } from '../../wapilot/wapilot-config.service';
 import { OtpConfigService } from './otp-config.service';
 
 describe('OtpConfigService', () => {
@@ -6,7 +7,8 @@ describe('OtpConfigService', () => {
     const config = {
       get: jest.fn((key: string) => env[key]),
     } as unknown as ConfigService;
-    return new OtpConfigService(config);
+    const wapilotConfig = new WapilotConfigService(config);
+    return new OtpConfigService(config, wapilotConfig);
   }
 
   it('allows dummy provider without WAPilot credentials', () => {

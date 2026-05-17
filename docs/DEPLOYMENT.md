@@ -19,6 +19,8 @@ This document reflects the **accepted deployment stack** for this repository: ex
 - **`OTP_PROVIDER=dummy`** (default for local dev): no outbound message; when **`NODE_ENV` is not `production`** and **`OTP_DUMMY_EXPOSE_CODE` is not `false`**, `POST /client/auth/otp/request` may include **`devCode`** for testers. Do not use dummy OTP in production.
 - **`OTP_PROVIDER=whatsapp`** with **`WHATSAPP_PROVIDER=wapilot`**: sends OTP via [WAPilot](https://wapilot.net) `POST /{instance_id}/send-message`. Required: **`WAPILOT_API_TOKEN`**, **`WAPILOT_INSTANCE_ID`**. Optional: **`WAPILOT_API_BASE_URL`** (default `https://api.wapilot.net/api/v2`).
 - **Phone format:** accept `010…`, `+2010…`, or `2010…`; the API normalizes Egyptian mobiles to **international digits without `+`** for WAPilot `chat_id` (e.g. `201001234567`). Client records in the database continue to use E.164 with `+` from the same normalization path.
+- **Transactional notifications:** set **`NOTIFICATIONS_ENABLED=true`** in production (same WAPilot env vars). Sends booking confirmation, cancellation, change-request updates, and **two** appointment reminders per booking: **`BOOKING_REMINDER_HOURS_BEFORE=24`** (default) and **`BOOKING_REMINDER_MINUTES_BEFORE_FINAL=90`** (default). Leave **`NOTIFICATIONS_ENABLED=false`** locally unless you are testing live WhatsApp delivery.
+- **Dashboard monitoring:** grant **`notifications.read`** (and **`notifications.retry`** for managers) so staff can use **Admin → Notification Logs** to inspect delivery history and retry failed messages without exposing WAPilot tokens.
 
 ---
 
@@ -130,6 +132,9 @@ Both `apps/web` and `apps/dashboard` are **Next.js 15 App Router** apps that loa
 | `WAPILOT_API_BASE_URL` | Default `https://api.wapilot.net/api/v2` |
 | `WAPILOT_API_TOKEN` | WAPilot API token (header `token`) |
 | `WAPILOT_INSTANCE_ID` | WAPilot instance id |
+| `NOTIFICATIONS_ENABLED` | `true` in production for booking WhatsApp alerts |
+| `BOOKING_REMINDER_HOURS_BEFORE` | Hours before appointment for first reminder (default `24`) |
+| `BOOKING_REMINDER_MINUTES_BEFORE_FINAL` | Minutes before appointment for second reminder (default `90`) |
 | `MEDIA_STORAGE` | `cloudinary` in production uploads |
 | `CLOUDINARY_*` | As above |
 | `PUBLIC_MEDIA_BASE_URL` | Public API origin if serving `/uploads` locally |

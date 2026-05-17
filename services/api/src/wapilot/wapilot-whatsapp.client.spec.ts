@@ -1,7 +1,7 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { WapilotWhatsAppClient } from './wapilot-whatsapp.client';
-import { OtpConfigService } from './otp-config.service';
+import { WapilotConfigService } from './wapilot-config.service';
 
 describe('WapilotWhatsAppClient', () => {
   const fetchMock = jest.fn();
@@ -24,15 +24,15 @@ describe('WapilotWhatsAppClient', () => {
         throw new Error(`missing ${key}`);
       }),
     } as unknown as ConfigService;
-    const otpConfig = {
-      getWapilotApiBaseUrl: () => 'https://api.wapilot.net/api/v2',
-    } as OtpConfigService;
-    return new WapilotWhatsAppClient(config, otpConfig);
+    const wapilotConfig = {
+      getApiBaseUrl: () => 'https://api.wapilot.net/api/v2',
+    } as WapilotConfigService;
+    return new WapilotWhatsAppClient(config, wapilotConfig);
   }
 
-  it('posts send-message with expected shape', async () => {
+  it('posts send-message with expected shape via sendTextMessage', async () => {
     fetchMock.mockResolvedValue({ ok: true, status: 200 });
-    await client().sendMessage('201001234567', 'hello');
+    await client().sendTextMessage('201001234567', 'hello');
 
     expect(fetchMock).toHaveBeenCalledWith(
       'https://api.wapilot.net/api/v2/inst-1/send-message',
@@ -51,7 +51,7 @@ describe('WapilotWhatsAppClient', () => {
     );
   });
 
-  it('does not include OTP in error logs on failure', async () => {
+  it('does not include message body secrets in error logs on failure', async () => {
     fetchMock.mockResolvedValue({
       ok: false,
       status: 502,
@@ -64,11 +64,12 @@ describe('WapilotWhatsAppClient', () => {
     );
 
     await expect(
-      c.sendMessage('201001234567', '654321'),
+      c.sendTextMessage('201001234567', '654321'),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
     const logged = errorSpy.mock.calls.flat().join(' ');
     expect(logged).not.toContain('654321');
+    expect(logged).not.toContain('secret-token');
     expect(logged).toContain('…4567');
   });
 });

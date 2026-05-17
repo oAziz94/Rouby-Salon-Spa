@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   Clock,
   CreditCard,
+  Bell,
   FileSearch,
   FileText,
   Gift,
@@ -255,6 +256,12 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
         href: "/dashboard/users-roles",
         permission: "users.read",
         icon: Shield,
+      },
+      {
+        label: "Notification Logs",
+        href: "/dashboard/notification-logs",
+        permission: "notifications.read",
+        icon: Bell,
       },
       {
         label: "Audit Logs",

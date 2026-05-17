@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { StaffModule } from '../staff/staff.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { SlotsModule } from '../slots/slots.module';
 import { BookingPricingService } from './booking-pricing.service';
 import { BookingsService } from './bookings.service';
@@ -20,6 +21,7 @@ import { PublicBookingsController } from './public-bookings.controller';
     AuditModule,
     BillingModule,
     StaffModule,
+    NotificationsModule,
   ],
   controllers: [
     PublicBookingsController,

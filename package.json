@@ -16,6 +16,7 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:grant-notification-permissions": "tsx prisma/scripts/grant-notification-permissions.ts",
     "migrate:media:cloudinary": "tsx scripts/migrate-media-to-cloudinary.ts",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

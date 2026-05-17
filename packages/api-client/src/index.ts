@@ -4705,6 +4705,148 @@ export async function getDashboardAuditLogFacets(
   return (await res.json()) as DashboardAuditLogFacets;
 }
 
+// --- Dashboard notification logs (WhatsApp) ---
+
+export type DashboardNotificationChannel = "WHATSAPP";
+
+export type DashboardNotificationType =
+  | "BOOKING_CONFIRMATION"
+  | "APPOINTMENT_REMINDER"
+  | "APPOINTMENT_REMINDER_90M"
+  | "BOOKING_CANCELLATION"
+  | "CHANGE_REQUEST_UPDATE";
+
+export type DashboardNotificationStatus = "PENDING" | "SENT" | "FAILED";
+
+export type DashboardNotificationLogItem = {
+  id: string;
+  channel: DashboardNotificationChannel;
+  type: DashboardNotificationType;
+  status: DashboardNotificationStatus;
+  recipientPhone: string;
+  provider: string;
+  bookingId: string | null;
+  bookingReference: string | null;
+  clientName: string | null;
+  branchId: string | null;
+  branchName: string | null;
+  bookingDateLabel: string | null;
+  bookingTimeLabel: string | null;
+  createdAt: string;
+  sentAt: string | null;
+  errorMessage: string | null;
+  canRetry: boolean;
+};
+
+export type DashboardNotificationLogsQuery = {
+  search?: string;
+  channel?: DashboardNotificationChannel;
+  type?: DashboardNotificationType;
+  status?: DashboardNotificationStatus;
+  branchId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type DashboardNotificationLogsResponse = {
+  data: DashboardNotificationLogItem[];
+  meta: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+    hasNextPage: boolean;
+  };
+};
+
+export type DashboardNotificationLogDetail = DashboardNotificationLogItem & {
+  changeRequestId: string | null;
+  providerMessageId: string | null;
+  updatedAt: string;
+  client: {
+    id: string;
+    fullName: string;
+    phone: string;
+    email: string | null;
+  } | null;
+  booking: {
+    id: string;
+    status: string;
+    reference: string;
+    dateLabel: string;
+    timeLabel: string;
+    services: string;
+  } | null;
+  changeRequest: {
+    id: string;
+    status: string;
+    requestType: string;
+    handledAt: string | null;
+  } | null;
+};
+
+export type DashboardNotificationRetryResponse = {
+  success: true;
+  attempt: DashboardNotificationLogDetail;
+};
+
+export async function getDashboardNotificationLogs(
+  accessToken: string,
+  query: DashboardNotificationLogsQuery = {},
+): Promise<DashboardNotificationLogsResponse> {
+  const res = await fetch(
+    withQuery("/dashboard/notifications", {
+      search: query.search,
+      channel: query.channel,
+      type: query.type,
+      status: query.status,
+      branchId: query.branchId,
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+      page: query.page,
+      pageSize: query.pageSize,
+    }),
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardNotificationLogsResponse;
+}
+
+export async function getDashboardNotificationLogById(
+  accessToken: string,
+  id: string,
+): Promise<DashboardNotificationLogDetail> {
+  const res = await fetch(apiUrl(`/dashboard/notifications/${id}`), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardNotificationLogDetail;
+}
+
+export async function retryDashboardNotification(
+  accessToken: string,
+  id: string,
+): Promise<DashboardNotificationRetryResponse> {
+  const res = await fetch(apiUrl(`/dashboard/notifications/${id}/retry`), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardNotificationRetryResponse;
+}
+
 // --- Cash drawer & daily closing (finance) ---
 
 export type DashboardCashDrawerMovement = {

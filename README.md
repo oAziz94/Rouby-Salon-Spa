@@ -107,7 +107,9 @@ After the container is healthy, continue with **Quick start** from step 4 (`npm 
 
 ## Client OTP (API)
 
-Local development uses **`OTP_PROVIDER=dummy`** in [`.env.example`](.env.example) so `POST /client/auth/otp/request` can return **`devCode`** when `NODE_ENV` is not production. Production should use **`OTP_PROVIDER=whatsapp`** with **WAPilot** (`WHATSAPP_PROVIDER=wapilot`, `WAPILOT_API_TOKEN`, `WAPILOT_INSTANCE_ID`). Egyptian numbers are accepted as `010…`, `+2010…`, or `2010…`; WAPilot `chat_id` uses international digits without `+` (e.g. `201001234567`). See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+Local development uses **`OTP_PROVIDER=dummy`** in [`.env.example`](.env.example) so `POST /client/auth/otp/request` can return **`devCode`** when `NODE_ENV` is not production. Production should use **`OTP_PROVIDER=whatsapp`** with **WAPilot** (`WHATSAPP_PROVIDER=wapilot`, `WAPILOT_API_TOKEN`, `WAPILOT_INSTANCE_ID`). Transactional booking WhatsApp messages (confirmation, reminder, cancellation, change-request updates) use the same WAPilot client when **`NOTIFICATIONS_ENABLED=true`**; keep it **`false`** locally unless testing live delivery. Reminders are sent twice: **`BOOKING_REMINDER_HOURS_BEFORE=24`** (~24h before, via cron) and **`BOOKING_REMINDER_MINUTES_BEFORE_FINAL=90`** (any time the appointment is within 90 minutes, including immediately on same-day confirm). Egyptian numbers are accepted as `010…`, `+2010…`, or `2010…`; WAPilot `chat_id` uses international digits without `+` (e.g. `201001234567`). See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+Staff with **`notifications.read`** can open **Admin → Notification Logs** in the dashboard (`/dashboard/notification-logs`) to review every transactional WhatsApp attempt (filters, booking context, failure reasons for authorized roles). Users with **`notifications.retry`** can retry **FAILED** deliveries from the list or detail drawer; each retry creates a new log entry for audit history. Re-run **`npm run db:seed`** (or assign the new permissions manually) after upgrading an existing database so roles receive `notifications.read` / `notifications.retry`.
 
 ## Root scripts
 

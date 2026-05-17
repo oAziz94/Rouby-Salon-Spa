@@ -1,17 +1,17 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { WapilotModule } from '../../wapilot/wapilot.module';
+import { WapilotWhatsAppClient } from '../../wapilot/wapilot-whatsapp.client';
 import { DummyOtpProvider } from './dummy-otp.provider';
 import { OTP_DELIVERY } from './otp-provider.interface';
 import { createOtpProvider } from './otp-provider.factory';
 import { OtpConfigService } from './otp-config.service';
-import { WapilotWhatsAppClient } from './wapilot-whatsapp.client';
 import { WapilotWhatsAppOtpProvider } from './wapilot-whatsapp-otp.provider';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, WapilotModule],
   providers: [
     OtpConfigService,
-    WapilotWhatsAppClient,
     DummyOtpProvider,
     WapilotWhatsAppOtpProvider,
     {
