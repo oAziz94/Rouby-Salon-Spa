@@ -97,20 +97,30 @@ describe('DashboardNotificationsService', () => {
       type: NotificationType.BOOKING_CONFIRMATION,
     });
 
-    const where = findMany.mock.calls[0][0].where;
-    expect(where.AND).toEqual(
+    expect(findMany).toHaveBeenCalled();
+    const findManyCalls = findMany.mock.calls as Array<
+      [
+        {
+          where: { AND: unknown[] };
+          orderBy: { createdAt: string };
+          skip: number;
+          take: number;
+        },
+      ]
+    >;
+    const findManyArgs = findManyCalls[0]?.[0];
+    expect(findManyArgs).toBeDefined();
+    expect(findManyArgs.where.AND).toEqual(
       expect.arrayContaining([
         { status: NotificationStatus.FAILED },
         { type: NotificationType.BOOKING_CONFIRMATION },
       ]),
     );
-    expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orderBy: { createdAt: 'desc' },
-        skip: 0,
-        take: 20,
-      }),
-    );
+    expect(findManyArgs).toMatchObject({
+      orderBy: { createdAt: 'desc' },
+      skip: 0,
+      take: 20,
+    });
   });
 
   it('hides errorMessage for users without elevated permissions', async () => {
@@ -247,7 +257,9 @@ describe('DashboardNotificationsService', () => {
           }),
       },
     };
-    const service = createService(prisma, { retryFailedNotificationLog: retry });
+    const service = createService(prisma, {
+      retryFailedNotificationLog: retry,
+    });
 
     const res = await service.retry(ownerUser, logId);
     expect(retry).toHaveBeenCalledWith(logId);
@@ -268,7 +280,9 @@ describe('DashboardNotificationsService', () => {
       },
     };
     const retry = jest.fn();
-    const service = createService(prisma, { retryFailedNotificationLog: retry });
+    const service = createService(prisma, {
+      retryFailedNotificationLog: retry,
+    });
 
     await expect(service.retry(ownerUser, logId)).rejects.toBeInstanceOf(
       BadRequestException,

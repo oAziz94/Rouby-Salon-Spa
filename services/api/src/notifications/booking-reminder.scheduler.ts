@@ -54,9 +54,7 @@ export class BookingReminderScheduler {
         continue;
       }
 
-      if (
-        is24HourReminderCronDue(slotMs, nowMs, hoursBefore, windowMs)
-      ) {
+      if (is24HourReminderCronDue(slotMs, nowMs, hoursBefore, windowMs)) {
         const ok = await this.notifications.sendAppointmentReminderForBooking(
           booking.id,
           NotificationType.APPOINTMENT_REMINDER,

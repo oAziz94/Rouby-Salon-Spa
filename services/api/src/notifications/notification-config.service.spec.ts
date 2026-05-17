@@ -29,8 +29,9 @@ describe('NotificationConfigService', () => {
 
   it('reads final reminder minutes before', () => {
     expect(
-      service({ BOOKING_REMINDER_MINUTES_BEFORE_FINAL: '60' })
-        .getReminderMinutesBeforeFinal(),
+      service({
+        BOOKING_REMINDER_MINUTES_BEFORE_FINAL: '60',
+      }).getReminderMinutesBeforeFinal(),
     ).toBe(60);
   });
 

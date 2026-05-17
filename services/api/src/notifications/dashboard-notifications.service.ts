@@ -138,9 +138,8 @@ export class DashboardNotificationsService {
       });
     }
 
-    const result = await this.bookingNotifications.retryFailedNotificationLog(
-      id,
-    );
+    const result =
+      await this.bookingNotifications.retryFailedNotificationLog(id);
     const row = await this.getById(user, result.id);
     return {
       success: true,
@@ -312,9 +311,7 @@ export class DashboardNotificationsService {
         : null,
       createdAt: row.createdAt.toISOString(),
       sentAt: row.sentAt?.toISOString() ?? null,
-      errorMessage: this.canViewErrorMessage(user)
-        ? row.errorMessage
-        : null,
+      errorMessage: this.canViewErrorMessage(user) ? row.errorMessage : null,
       canRetry:
         row.status === NotificationStatus.FAILED &&
         user.permissions.includes('notifications.retry'),

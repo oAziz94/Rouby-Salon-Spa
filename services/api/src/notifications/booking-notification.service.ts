@@ -174,9 +174,13 @@ export class BookingNotificationService {
         if (!log.bookingId) {
           throw new BadRequestException('Notification is missing bookingId');
         }
-        result = await this.deliverAppointmentReminder(log.bookingId, log.type, {
-          force: true,
-        });
+        result = await this.deliverAppointmentReminder(
+          log.bookingId,
+          log.type,
+          {
+            force: true,
+          },
+        );
         break;
       case NotificationType.CHANGE_REQUEST_UPDATE:
         if (!log.changeRequestId) {

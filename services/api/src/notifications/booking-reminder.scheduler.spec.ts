@@ -64,13 +64,17 @@ describe('BookingReminderScheduler', () => {
     const scheduler = new BookingReminderScheduler(
       {
         booking: {
-          findMany: jest.fn().mockResolvedValue([
-            { id: 'b1', status: BookingStatus.CONFIRMED, slot },
-          ]),
+          findMany: jest
+            .fn()
+            .mockResolvedValue([
+              { id: 'b1', status: BookingStatus.CONFIRMED, slot },
+            ]),
         },
       } as never,
       createConfig(),
-      { sendAppointmentReminderForBooking } as unknown as BookingNotificationService,
+      {
+        sendAppointmentReminderForBooking,
+      } as unknown as BookingNotificationService,
     );
     await scheduler.dispatchDueReminders();
     expect(sendAppointmentReminderForBooking).not.toHaveBeenCalled();
@@ -83,19 +87,21 @@ describe('BookingReminderScheduler', () => {
     const slot = { date: new Date(), startTime: new Date() };
     jest.mocked(bookingSlotStartUtcMs).mockReturnValue(slotMs);
 
-    const sendAppointmentReminderForBooking = jest
-      .fn()
-      .mockResolvedValue(true);
+    const sendAppointmentReminderForBooking = jest.fn().mockResolvedValue(true);
     const scheduler = new BookingReminderScheduler(
       {
         booking: {
-          findMany: jest.fn().mockResolvedValue([
-            { id: 'b-24h', status: BookingStatus.CONFIRMED, slot },
-          ]),
+          findMany: jest
+            .fn()
+            .mockResolvedValue([
+              { id: 'b-24h', status: BookingStatus.CONFIRMED, slot },
+            ]),
         },
       } as never,
       createConfig(),
-      { sendAppointmentReminderForBooking } as unknown as BookingNotificationService,
+      {
+        sendAppointmentReminderForBooking,
+      } as unknown as BookingNotificationService,
     );
     await scheduler.dispatchDueReminders();
 
@@ -116,19 +122,21 @@ describe('BookingReminderScheduler', () => {
     const slot = { date: new Date(), startTime: new Date() };
     jest.mocked(bookingSlotStartUtcMs).mockReturnValue(slotMs);
 
-    const sendAppointmentReminderForBooking = jest
-      .fn()
-      .mockResolvedValue(true);
+    const sendAppointmentReminderForBooking = jest.fn().mockResolvedValue(true);
     const scheduler = new BookingReminderScheduler(
       {
         booking: {
-          findMany: jest.fn().mockResolvedValue([
-            { id: 'b-45m', status: BookingStatus.CONFIRMED, slot },
-          ]),
+          findMany: jest
+            .fn()
+            .mockResolvedValue([
+              { id: 'b-45m', status: BookingStatus.CONFIRMED, slot },
+            ]),
         },
       } as never,
       createConfig(),
-      { sendAppointmentReminderForBooking } as unknown as BookingNotificationService,
+      {
+        sendAppointmentReminderForBooking,
+      } as unknown as BookingNotificationService,
     );
     await scheduler.dispatchDueReminders();
 
