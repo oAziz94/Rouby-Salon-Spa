@@ -337,9 +337,12 @@ export function BookingFlowShell({
     [categories],
   );
 
+  const catalogSearchActive = searchQuery.trim().length > 0;
+
   const filteredServices = useMemo(() => {
+    const q = searchQuery.trim();
     return services.filter((s) => {
-      if (categoryFilterId && s.categoryId !== categoryFilterId) {
+      if (!q && categoryFilterId && s.categoryId !== categoryFilterId) {
         return false;
       }
       return serviceMatchesSearch(s, searchQuery);
@@ -1222,8 +1225,32 @@ export function BookingFlowShell({
                 </div>
               ) : null}
 
-              {catalogTab === "services" ? (
-                <div className="mt-6 space-y-5">
+              <div className="mt-4">
+                <label className="block w-full">
+                  <span className="sr-only">Search treatments</span>
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search services, packages, and add-ons…"
+                    className="w-full rounded-full border border-[rgb(23_53_31_/15%)] bg-background/90 px-4 py-2.5 text-sm text-foreground placeholder:text-muted/70 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
+                  />
+                </label>
+              </div>
+
+              {catalogSearchActive &&
+              filteredServices.length === 0 &&
+              filteredPackages.length === 0 &&
+              filteredEnhancements.length === 0 ? (
+                <p className="mt-6 py-8 text-center text-sm text-muted">
+                  No treatments match your search. Try a different term or clear the search.
+                </p>
+              ) : null}
+
+              <div className={catalogSearchActive ? "mt-6 space-y-8" : undefined}>
+              {(!catalogSearchActive && catalogTab === "services") ||
+              (catalogSearchActive && filteredServices.length > 0) ? (
+                <div className={catalogSearchActive ? "space-y-5" : "mt-6 space-y-5"}>
                   {initialErrors.categories ? (
                     <ErrorState
                       title="Categories unavailable"
@@ -1239,7 +1266,10 @@ export function BookingFlowShell({
                     />
                   ) : (
                     <>
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      {catalogSearchActive && filteredServices.length > 0 ? (
+                        <h3 className="font-heading text-lg text-primary">Services</h3>
+                      ) : null}
+                      {!catalogSearchActive ? (
                         <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                           <button
                             type="button"
@@ -1265,23 +1295,13 @@ export function BookingFlowShell({
                             </button>
                           ))}
                         </div>
-                        <label className="block w-full shrink-0 sm:max-w-xs">
-                          <span className="sr-only">Search services</span>
-                          <input
-                            type="search"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search services…"
-                            className="w-full rounded-full border border-[rgb(23_53_31_/15%)] bg-background/90 px-4 py-2.5 text-sm text-foreground placeholder:text-muted/70 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
-                          />
-                        </label>
-                      </div>
+                      ) : null}
 
-                      {filteredServices.length === 0 ? (
+                      {!catalogSearchActive && filteredServices.length === 0 ? (
                         <p className="py-8 text-center text-sm text-muted">
                           No services match your filters. Try another category or search.
                         </p>
-                      ) : (
+                      ) : filteredServices.length > 0 ? (
                         <ul className="grid gap-4 sm:grid-cols-2">
                           {filteredServices.map((service) => {
                             const selected = selectedServiceIds.includes(service.id);
@@ -1415,12 +1435,14 @@ export function BookingFlowShell({
                             );
                           })}
                         </ul>
-                      )}
+                      ) : null}
                     </>
                   )}
                 </div>
-              ) : catalogTab === "packages" ? (
-                <div className="mt-6 space-y-5">
+              ) : null}
+              {(!catalogSearchActive && catalogTab === "packages") ||
+              (catalogSearchActive && filteredPackages.length > 0) ? (
+                <div className={catalogSearchActive ? "space-y-5" : "mt-6 space-y-5"}>
                   {initialErrors.packages ? (
                     <ErrorState title="Packages unavailable" message={initialErrors.packages} />
                   ) : packages.length === 0 ? (
@@ -1430,21 +1452,14 @@ export function BookingFlowShell({
                     />
                   ) : (
                     <>
-                      <label className="block max-w-md">
-                        <span className="sr-only">Search packages</span>
-                        <input
-                          type="search"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="Search packages…"
-                          className="w-full rounded-full border border-[rgb(23_53_31_/15%)] bg-background/90 px-4 py-2.5 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
-                        />
-                      </label>
-                      {filteredPackages.length === 0 ? (
+                      {catalogSearchActive && filteredPackages.length > 0 ? (
+                        <h3 className="font-heading text-lg text-primary">Packages</h3>
+                      ) : null}
+                      {!catalogSearchActive && filteredPackages.length === 0 ? (
                         <p className="py-8 text-center text-sm text-muted">
                           No packages match your search.
                         </p>
-                      ) : (
+                      ) : filteredPackages.length > 0 ? (
                         <ul className="grid gap-4 sm:grid-cols-2">
                           {filteredPackages.map((pkg) => {
                             const selected = selectedPackageIds.includes(pkg.id);
@@ -1521,12 +1536,14 @@ export function BookingFlowShell({
                             );
                           })}
                         </ul>
-                      )}
+                      ) : null}
                     </>
                   )}
                 </div>
-              ) : (
-                <div className="mt-6 space-y-5">
+              ) : null}
+              {(!catalogSearchActive && catalogTab === "enhancements") ||
+              (catalogSearchActive && filteredEnhancements.length > 0) ? (
+                <div className={catalogSearchActive ? "space-y-5" : "mt-6 space-y-5"}>
                   {initialErrors.enhancements ? (
                     <ErrorState title="Add-ons unavailable" message={initialErrors.enhancements} />
                   ) : enhancements.length === 0 ? (
@@ -1536,25 +1553,20 @@ export function BookingFlowShell({
                     />
                   ) : (
                     <>
-                      <p className="text-sm text-muted">
-                        Optional add-ons complement your services or packages. Pick at least one treatment on the
-                        Services or Packages tab before continuing — add-ons layer onto your visit.
-                      </p>
-                      <label className="block max-w-md">
-                        <span className="sr-only">Search add-ons</span>
-                        <input
-                          type="search"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="Search add-ons…"
-                          className="w-full rounded-full border border-[rgb(23_53_31_/15%)] bg-background/90 px-4 py-2.5 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
-                        />
-                      </label>
-                      {filteredEnhancements.length === 0 ? (
+                      {!catalogSearchActive ? (
+                        <p className="text-sm text-muted">
+                          Optional add-ons complement your services or packages. Pick at least one treatment on the
+                          Services or Packages tab before continuing — add-ons layer onto your visit.
+                        </p>
+                      ) : null}
+                      {catalogSearchActive && filteredEnhancements.length > 0 ? (
+                        <h3 className="font-heading text-lg text-primary">Add-ons</h3>
+                      ) : null}
+                      {!catalogSearchActive && filteredEnhancements.length === 0 ? (
                         <p className="py-8 text-center text-sm text-muted">
                           No add-ons match your search.
                         </p>
-                      ) : (
+                      ) : filteredEnhancements.length > 0 ? (
                         <ul className="grid gap-4 sm:grid-cols-2">
                           {filteredEnhancements.map((item) => {
                             const selected = selectedEnhancementIds.includes(item.id);
@@ -1616,11 +1628,12 @@ export function BookingFlowShell({
                             );
                           })}
                         </ul>
-                      )}
+                      ) : null}
                     </>
                   )}
                 </div>
-              )}
+              ) : null}
+              </div>
             </section>
           ) : null}
 
