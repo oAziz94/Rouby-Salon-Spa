@@ -79,6 +79,14 @@ function formatSlotStartLabel(date: string | undefined, time: string | undefined
   });
 }
 
+function bookingDetailHref(bookingId: string | undefined | null): string {
+  const id = bookingId?.trim() ?? "";
+  if (id.length >= 32) {
+    return `/dashboard/bookings?bookingId=${encodeURIComponent(id)}`;
+  }
+  return "/dashboard/bookings";
+}
+
 function uniqueByKey(items: DashboardNotification[]): DashboardNotification[] {
   const seen = new Set<string>();
   const result: DashboardNotification[] = [];
@@ -306,7 +314,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           body: `${actor}created a new booking.`.trim(),
           whenLabel: formatRelativeTime(activity.createdAt),
           sortTs,
-          href: "/dashboard/bookings",
+          href: bookingDetailHref(activity.entityId),
         };
       });
 
@@ -329,7 +337,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           body: `${clientName}'s booking starts ${formatTimeUntil(startTs)} (${formatSlotStartLabel(booking.slot?.date, booking.slot?.startTime)}).`,
           whenLabel: formatTimeUntil(startTs),
           sortTs: startTs,
-          href: "/dashboard/bookings",
+          href: bookingDetailHref(booking.id),
         } satisfies DashboardNotification;
       })
       .filter((item): item is DashboardNotification => item !== null);

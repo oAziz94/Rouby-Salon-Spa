@@ -50,6 +50,7 @@ export type DashboardOverviewActivity = {
   id?: string;
   action?: string;
   module?: string;
+  entityId?: string;
   createdAt?: string;
   user?: {
     id?: string;

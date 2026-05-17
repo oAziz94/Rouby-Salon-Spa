@@ -447,7 +447,7 @@ export default function DashboardNotificationLogsPage() {
                           ) : null}
                           {row.bookingId ? (
                             <Link
-                              href={`/dashboard/bookings?highlight=${row.bookingId}`}
+                              href={`/dashboard/bookings?bookingId=${row.bookingId}`}
                               className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs hover:bg-[#FFF9EE]"
                             >
                               <ExternalLink className="h-3 w-3" />
@@ -568,7 +568,7 @@ export default function DashboardNotificationLogsPage() {
                       <p className="mt-2 text-[#7A6A58]">{detail.booking.services}</p>
                       {detail.bookingId ? (
                         <Link
-                          href={`/dashboard/bookings?highlight=${detail.bookingId}`}
+                          href={`/dashboard/bookings?bookingId=${detail.bookingId}`}
                           className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-[#B8860B] hover:underline"
                         >
                           Open booking

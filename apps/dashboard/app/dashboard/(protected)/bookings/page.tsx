@@ -248,7 +248,6 @@ export default function DashboardBookingsPage() {
   const [discountReason, setDiscountReason] = useState<string>("");
   const [actionLoading, setActionLoading] = useState<DrawerAction | null>(null);
   const [actionError, setActionError] = useState("");
-  const consumedBookingFromUrlRef = useRef(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [staffChangeType, setStaffChangeType] = useState<"" | "CANCEL" | "RESCHEDULE">("");
   const [staffChangeReason, setStaffChangeReason] = useState("");
@@ -634,14 +633,13 @@ export default function DashboardBookingsPage() {
   }, [drawerOpen]);
 
   useEffect(() => {
-    if (!token || !canRead || consumedBookingFromUrlRef.current) {
+    if (!token || !canRead) {
       return;
     }
     const raw = searchParams.get("bookingId")?.trim() ?? "";
     if (!raw || raw.length < 32) {
       return;
     }
-    consumedBookingFromUrlRef.current = true;
     setDrawerOpen(true);
     setSelectedBookingId(raw);
     void loadDetailRef.current(raw);
