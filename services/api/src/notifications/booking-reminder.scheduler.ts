@@ -4,7 +4,7 @@ import { BookingStatus, NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { bookingSlotStartUtcMs } from './booking-slot-format';
 import {
-  is24HourReminderCronDue,
+  is24HourReminderDue,
   is90MinuteReminderDue,
   reminderComparisonNowMs,
 } from './booking-reminder-timing';
@@ -34,7 +34,6 @@ export class BookingReminderScheduler {
 
     const hoursBefore = this.config.getReminderHoursBefore();
     const minutesBeforeFinal = this.config.getReminderMinutesBeforeFinal();
-    const windowMs = this.config.getReminderCronWindowMs();
     const nowMs = reminderComparisonNowMs();
 
     const bookings = await this.prisma.booking.findMany({
@@ -54,7 +53,7 @@ export class BookingReminderScheduler {
         continue;
       }
 
-      if (is24HourReminderCronDue(slotMs, nowMs, hoursBefore, windowMs)) {
+      if (is24HourReminderDue(slotMs, nowMs, hoursBefore, minutesBeforeFinal)) {
         const ok = await this.notifications.sendAppointmentReminderForBooking(
           booking.id,
           NotificationType.APPOINTMENT_REMINDER,

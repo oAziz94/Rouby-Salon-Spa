@@ -18,15 +18,20 @@ export function minutesUntilSlot(slotMs: number, nowMs: number): number {
   return (slotMs - nowMs) / 60_000;
 }
 
-/** ~24h reminder: fire once in a cron window anchored at `slotStart - hoursBefore`. */
-export function is24HourReminderCronDue(
+/**
+ * ~24h reminder: appointment is in the future, more than the final reminder lead
+ * time away, and within `hoursBefore` of start. Catches late confirmations; dedup
+ * in notification logs prevents repeat sends on each cron tick.
+ */
+export function is24HourReminderDue(
   slotMs: number,
   nowMs: number,
   hoursBefore: number,
-  windowMs: number,
+  minutesBeforeFinal: number,
 ): boolean {
-  const reminderAtMs = slotMs - hoursBefore * 3_600_000;
-  return reminderAtMs <= nowMs && reminderAtMs >= nowMs - windowMs;
+  const minutesUntil = minutesUntilSlot(slotMs, nowMs);
+  const maxLeadMinutes = hoursBefore * 60;
+  return minutesUntil > minutesBeforeFinal && minutesUntil <= maxLeadMinutes;
 }
 
 /**

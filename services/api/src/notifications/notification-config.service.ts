@@ -41,8 +41,4 @@ export class NotificationConfigService implements OnModuleInit {
     );
     return Number.isFinite(raw) && raw > 0 ? raw : 90;
   }
-
-  getReminderCronWindowMs(): number {
-    return 30 * 60 * 1000;
-  }
 }

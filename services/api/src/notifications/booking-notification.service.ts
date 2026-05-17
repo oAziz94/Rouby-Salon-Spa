@@ -17,6 +17,7 @@ import {
   formatBookingTimeLabel,
 } from './booking-slot-format';
 import {
+  is24HourReminderDue,
   is90MinuteReminderDue,
   reminderComparisonNowMs,
 } from './booking-reminder-timing';
@@ -67,6 +68,7 @@ export class BookingNotificationService {
         return;
       }
       await this.deliverBookingConfirmation(bookingId);
+      await this.deliver24HourReminderIfWithinWindow(bookingId);
       await this.deliver90MinuteReminderIfWithinWindow(bookingId);
     });
   }
@@ -204,6 +206,35 @@ export class BookingNotificationService {
       });
     }
     return result;
+  }
+
+  /** Catch-up when staff confirms inside the ~24h reminder window (but outside 90m). */
+  async deliver24HourReminderIfWithinWindow(bookingId: string): Promise<void> {
+    if (!this.config.isEnabled()) {
+      return;
+    }
+    const ctx = await this.loadBookingContext(bookingId);
+    if (!ctx) {
+      return;
+    }
+    const slotMs = bookingSlotStartUtcMs(ctx.slot);
+    if (slotMs === null) {
+      return;
+    }
+    if (
+      !is24HourReminderDue(
+        slotMs,
+        reminderComparisonNowMs(),
+        this.config.getReminderHoursBefore(),
+        this.config.getReminderMinutesBeforeFinal(),
+      )
+    ) {
+      return;
+    }
+    await this.deliverAppointmentReminder(
+      bookingId,
+      NotificationType.APPOINTMENT_REMINDER,
+    );
   }
 
   /** Same-day catch-up when staff confirms inside the final reminder window. */

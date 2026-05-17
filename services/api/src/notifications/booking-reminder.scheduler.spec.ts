@@ -28,7 +28,6 @@ describe('BookingReminderScheduler', () => {
       isEnabled: () => true,
       getReminderHoursBefore: () => 24,
       getReminderMinutesBeforeFinal: () => 90,
-      getReminderCronWindowMs: () => 30 * 60 * 1000,
       ...overrides,
     } as NotificationConfigService;
   }
@@ -49,11 +48,9 @@ describe('BookingReminderScheduler', () => {
   });
 
   it('does not send when slot is outside both reminder rules', async () => {
-    const hoursBefore = 24;
-    const windowMs = 30 * 60 * 1000;
     const nowMs = Date.now();
     reminderNowMsSpy.mockReturnValue(nowMs);
-    const slotMs = nowMs + hoursBefore * 3_600_000 + windowMs + 60_000;
+    const slotMs = nowMs + 25 * 60 * 60_000;
     const slot = {
       date: new Date('2026-05-18T00:00:00.000Z'),
       startTime: new Date(),
@@ -80,10 +77,10 @@ describe('BookingReminderScheduler', () => {
     expect(sendAppointmentReminderForBooking).not.toHaveBeenCalled();
   });
 
-  it('sends 24h reminder in anchored cron window', async () => {
+  it('sends 24h reminder when appointment is within 24h but outside 90m', async () => {
     const nowMs = Date.now();
     reminderNowMsSpy.mockReturnValue(nowMs);
-    const slotMs = nowMs + 24 * 3_600_000 - 10 * 60_000;
+    const slotMs = nowMs + 12 * 60 * 60_000;
     const slot = { date: new Date(), startTime: new Date() };
     jest.mocked(bookingSlotStartUtcMs).mockReturnValue(slotMs);
 

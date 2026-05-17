@@ -1,13 +1,11 @@
 import { compositeKeyToApproxUtcMs } from '../common/cairo-slot-time';
 import {
-  is24HourReminderCronDue,
+  is24HourReminderDue,
   is90MinuteReminderDue,
   minutesUntilSlot,
 } from './booking-reminder-timing';
 
 describe('booking-reminder-timing', () => {
-  const windowMs = 30 * 60 * 1000;
-
   it('computes minutes until slot', () => {
     const now = 1_000_000;
     expect(minutesUntilSlot(now + 45 * 60_000, now)).toBe(45);
@@ -35,16 +33,46 @@ describe('booking-reminder-timing', () => {
     expect(is90MinuteReminderDue(slotMs!, realUtcNowMs, 90)).toBe(false);
   });
 
-  it('24h reminder uses anchored cron window', () => {
-    const now = 1_000_000_000;
+  it('24h reminder is due between final lead time and hoursBefore', () => {
+    const now = Date.now();
     const hoursBefore = 24;
-    const slotAt24hTarget = now + hoursBefore * 3_600_000 - 10 * 60_000;
+    const minutesBeforeFinal = 90;
     expect(
-      is24HourReminderCronDue(slotAt24hTarget, now, hoursBefore, windowMs),
+      is24HourReminderDue(
+        now + 20 * 60 * 60_000,
+        now,
+        hoursBefore,
+        minutesBeforeFinal,
+      ),
     ).toBe(true);
-    const slotTooFar = now + hoursBefore * 3_600_000 + windowMs + 60_000;
     expect(
-      is24HourReminderCronDue(slotTooFar, now, hoursBefore, windowMs),
+      is24HourReminderDue(
+        now + 25 * 60 * 60_000,
+        now,
+        hoursBefore,
+        minutesBeforeFinal,
+      ),
     ).toBe(false);
+    expect(
+      is24HourReminderDue(
+        now + 60 * 60_000,
+        now,
+        hoursBefore,
+        minutesBeforeFinal,
+      ),
+    ).toBe(false);
+    expect(
+      is24HourReminderDue(
+        now + 90 * 60_000,
+        now,
+        hoursBefore,
+        minutesBeforeFinal,
+      ),
+    ).toBe(false);
+  });
+
+  it('24h reminder catches late confirmation (12h before appointment)', () => {
+    const now = Date.now();
+    expect(is24HourReminderDue(now + 12 * 60 * 60_000, now, 24, 90)).toBe(true);
   });
 });
