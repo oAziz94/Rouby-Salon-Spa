@@ -14,12 +14,31 @@ export type BookingConfirmationPayload = BookingNotificationDetails & {
   branchId: string;
 };
 
+export type BookingRequestReceivedPayload = BookingNotificationDetails & {
+  bookingId: string;
+  branchId: string;
+};
+
+export type BookingRejectedPayload = BookingNotificationDetails & {
+  bookingId: string;
+  branchId: string;
+};
+
+export type BookingRescheduledPayload = BookingNotificationDetails & {
+  bookingId: string;
+  branchId: string;
+  newDateLabel: string;
+  newTimeLabel: string;
+};
+
 export type AppointmentReminderVariant = '24h' | '90m';
 
 export type AppointmentReminderPayload = BookingNotificationDetails & {
   bookingId: string;
   branchId: string;
   reminderVariant: AppointmentReminderVariant;
+  /** Final reminder lead time in minutes (90m variant only). */
+  minutesBeforeFinal?: number;
 };
 
 export type BookingCancellationPayload = BookingNotificationDetails & {
@@ -27,12 +46,8 @@ export type BookingCancellationPayload = BookingNotificationDetails & {
   branchId: string;
 };
 
-export type ChangeRequestApprovedPayload = BookingNotificationDetails & {
-  bookingId: string;
-  branchId: string;
+export type ChangeRequestApprovedPayload = BookingRescheduledPayload & {
   changeRequestId: string;
-  newDateLabel: string;
-  newTimeLabel: string;
 };
 
 export type ChangeRequestRejectedPayload = BookingNotificationDetails & {

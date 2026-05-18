@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { BookingStatus, NotificationType } from '@prisma/client';
+import {
+  getCairoNowCompositeKey,
+  isSlotStartStrictlyInFutureCairo,
+} from '../common/cairo-slot-time';
 import { PrismaService } from '../prisma/prisma.service';
 import { bookingSlotStartUtcMs } from './booking-slot-format';
 import {
@@ -35,19 +39,26 @@ export class BookingReminderScheduler {
     const hoursBefore = this.config.getReminderHoursBefore();
     const minutesBeforeFinal = this.config.getReminderMinutesBeforeFinal();
     const nowMs = reminderComparisonNowMs();
+    const todayYmd = getCairoNowCompositeKey().slice(0, 10);
+    const minSlotDate = new Date(`${todayYmd}T00:00:00.000Z`);
 
     const bookings = await this.prisma.booking.findMany({
       where: {
         status: { in: ACTIVE_REMINDER_STATUSES },
+        slot: { date: { gte: minSlotDate } },
       },
       include: {
         slot: true,
       },
-      take: 500,
+      orderBy: [{ slot: { date: 'asc' } }, { slot: { startTime: 'asc' } }],
     });
 
     let sent = 0;
     for (const booking of bookings) {
+      if (!isSlotStartStrictlyInFutureCairo(booking.slot)) {
+        continue;
+      }
+
       const slotMs = bookingSlotStartUtcMs(booking.slot);
       if (slotMs === null) {
         continue;

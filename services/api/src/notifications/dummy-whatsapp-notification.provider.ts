@@ -4,6 +4,9 @@ import type {
   AppointmentReminderPayload,
   BookingCancellationPayload,
   BookingConfirmationPayload,
+  BookingRejectedPayload,
+  BookingRequestReceivedPayload,
+  BookingRescheduledPayload,
   ChangeRequestApprovedPayload,
   ChangeRequestRejectedPayload,
 } from './booking-notification.types';
@@ -15,6 +18,29 @@ export class DummyWhatsAppNotificationProvider implements WhatsAppNotificationPr
   sendBookingConfirmation(payload: BookingConfirmationPayload): Promise<void> {
     this.logger.debug(
       `Notifications disabled: skip booking confirmation for booking ${payload.bookingId}`,
+    );
+    return Promise.resolve();
+  }
+
+  sendBookingRequestReceived(
+    payload: BookingRequestReceivedPayload,
+  ): Promise<void> {
+    this.logger.debug(
+      `Notifications disabled: skip booking request received for booking ${payload.bookingId}`,
+    );
+    return Promise.resolve();
+  }
+
+  sendBookingRejected(payload: BookingRejectedPayload): Promise<void> {
+    this.logger.debug(
+      `Notifications disabled: skip booking rejection for booking ${payload.bookingId}`,
+    );
+    return Promise.resolve();
+  }
+
+  sendBookingRescheduled(payload: BookingRescheduledPayload): Promise<void> {
+    this.logger.debug(
+      `Notifications disabled: skip booking reschedule for booking ${payload.bookingId}`,
     );
     return Promise.resolve();
   }

@@ -43,4 +43,11 @@ describe('NotificationConfigService', () => {
     });
     expect(() => s.onModuleInit()).toThrow(/WAPILOT_API_TOKEN/);
   });
+
+  it('rejects enabled notifications without wapilot provider', () => {
+    const s = service({
+      NOTIFICATIONS_ENABLED: 'true',
+    });
+    expect(() => s.onModuleInit()).toThrow(/WHATSAPP_PROVIDER/);
+  });
 });

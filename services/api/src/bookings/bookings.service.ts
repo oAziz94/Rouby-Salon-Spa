@@ -304,6 +304,8 @@ export class BookingsService {
       },
     });
 
+    this.bookingNotifications.notifyBookingRequestReceived(booking.id);
+
     return {
       id: booking.id,
       status: booking.status,
@@ -1054,6 +1056,10 @@ export class BookingsService {
       },
     });
 
+    if (initialStatus === BookingStatus.CONFIRMED) {
+      this.bookingNotifications.notifyBookingConfirmed(booking.id);
+    }
+
     return this.mapBookingDetail(booking);
   }
 
@@ -1202,6 +1208,7 @@ export class BookingsService {
       entityId: bookingId,
       newValue: { status: updated.status },
     });
+    this.bookingNotifications.notifyBookingRejected(bookingId);
     return updated;
   }
 
@@ -1221,6 +1228,7 @@ export class BookingsService {
       entityId: bookingId,
       newValue: { status: updated.status, slotId: updated.slotId },
     });
+    this.bookingNotifications.notifyBookingRescheduled(bookingId);
     return updated;
   }
 
@@ -1242,7 +1250,6 @@ export class BookingsService {
         data: { status: BookingStatus.CONFIRMED },
       });
     });
-    this.bookingNotifications.notifyBookingConfirmed(bookingId);
     return this.getDashboardBooking(user, bookingId);
   }
 

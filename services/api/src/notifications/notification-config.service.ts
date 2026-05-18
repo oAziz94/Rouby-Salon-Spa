@@ -1,18 +1,28 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { WapilotConfigService } from '../wapilot/wapilot-config.service';
 
 @Injectable()
 export class NotificationConfigService implements OnModuleInit {
+  private readonly logger = new Logger(NotificationConfigService.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly wapilotConfig: WapilotConfigService,
   ) {}
 
   onModuleInit(): void {
-    if (this.isEnabled() && this.usesWapilot()) {
-      this.wapilotConfig.assertWapilotCredentials();
+    if (!this.isEnabled()) {
+      return;
     }
+    if (!this.usesWapilot()) {
+      throw new Error(
+        'NOTIFICATIONS_ENABLED=true requires WHATSAPP_PROVIDER=wapilot. ' +
+          'Messages are not delivered with the dummy provider.',
+      );
+    }
+    this.wapilotConfig.assertWapilotCredentials();
+    this.logger.log('WhatsApp booking notifications enabled (WAPilot)');
   }
 
   isEnabled(): boolean {

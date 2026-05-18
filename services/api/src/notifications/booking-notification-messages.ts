@@ -1,6 +1,9 @@
 import type {
   BookingCancellationPayload,
   BookingConfirmationPayload,
+  BookingRejectedPayload,
+  BookingRequestReceivedPayload,
+  BookingRescheduledPayload,
   ChangeRequestApprovedPayload,
   ChangeRequestRejectedPayload,
   AppointmentReminderPayload,
@@ -16,6 +19,22 @@ function branchLine(branchName?: string): string {
   return branchName?.trim() ? `Branch: ${branchName.trim()}` : '';
 }
 
+function appendOptionalLines(
+  lines: string[],
+  branchName?: string,
+  supportPhone?: string,
+): string[] {
+  const branch = branchLine(branchName);
+  if (branch) {
+    lines.push(branch);
+  }
+  const support = supportLine(supportPhone);
+  if (support) {
+    lines.push(support);
+  }
+  return lines;
+}
+
 export function buildBookingConfirmationMessage(
   payload: BookingConfirmationPayload,
 ): string {
@@ -25,10 +44,42 @@ export function buildBookingConfirmationMessage(
     `Time: ${payload.bookingTimeLabel}`,
     `Services: ${payload.serviceNames}`,
   ];
-  const branch = branchLine(payload.branchName);
-  if (branch) {
-    lines.push(branch);
-  }
+  return appendOptionalLines(
+    lines,
+    payload.branchName,
+    payload.supportPhone,
+  ).join('\n');
+}
+
+export function buildBookingRequestReceivedMessage(
+  payload: BookingRequestReceivedPayload,
+): string {
+  const lines = [
+    `Hello ${payload.clientName}, your booking request at ${payload.salonName} has been received.`,
+    `Date: ${payload.bookingDateLabel}`,
+    `Time: ${payload.bookingTimeLabel}`,
+    `Services: ${payload.serviceNames}`,
+    '',
+    'Our team will review your request and contact you shortly to confirm your appointment.',
+  ];
+  return appendOptionalLines(
+    lines,
+    payload.branchName,
+    payload.supportPhone,
+  ).join('\n');
+}
+
+export function buildBookingRejectedMessage(
+  payload: BookingRejectedPayload,
+): string {
+  const lines = [
+    `Hello ${payload.clientName}, we could not confirm your booking request at ${payload.salonName}.`,
+    `Date: ${payload.bookingDateLabel}`,
+    `Time: ${payload.bookingTimeLabel}`,
+    `Services: ${payload.serviceNames}`,
+    '',
+    'You can contact us anytime to book a new appointment.',
+  ];
   const support = supportLine(payload.supportPhone);
   if (support) {
     lines.push(support);
@@ -36,28 +87,58 @@ export function buildBookingConfirmationMessage(
   return lines.join('\n');
 }
 
+export function buildBookingRescheduledMessage(
+  payload: BookingRescheduledPayload,
+): string {
+  const lines = [
+    `Hello ${payload.clientName}, your booking at ${payload.salonName} has been rescheduled.`,
+    `New date: ${payload.newDateLabel}`,
+    `New time: ${payload.newTimeLabel}`,
+    `Services: ${payload.serviceNames}`,
+  ];
+  return appendOptionalLines(
+    lines,
+    payload.branchName,
+    payload.supportPhone,
+  ).join('\n');
+}
+
 export function buildAppointmentReminderMessage(
   payload: AppointmentReminderPayload,
 ): string {
   const intro =
     payload.reminderVariant === '90m'
-      ? `Hello ${payload.clientName}, your appointment at ${payload.salonName} starts in less than 90 minutes.`
-      : `Hello ${payload.clientName}, this is a friendly reminder from ${payload.salonName}. Your appointment is tomorrow.`;
+      ? `Hello ${payload.clientName}, your appointment at ${payload.salonName} starts in ${formatFinalReminderLead(payload.minutesBeforeFinal)}.`
+      : `Hello ${payload.clientName}, this is a friendly reminder for your appointment at ${payload.salonName}.`;
   const lines = [
     intro,
     `Date: ${payload.bookingDateLabel}`,
     `Time: ${payload.bookingTimeLabel}`,
     `Services: ${payload.serviceNames}`,
   ];
-  const branch = branchLine(payload.branchName);
-  if (branch) {
-    lines.push(branch);
+  return appendOptionalLines(
+    lines,
+    payload.branchName,
+    payload.supportPhone,
+  ).join('\n');
+}
+
+function formatFinalReminderLead(minutes?: number): string {
+  const lead = minutes && minutes > 0 ? minutes : 90;
+  if (lead === 1) {
+    return 'about 1 minute';
   }
-  const support = supportLine(payload.supportPhone);
-  if (support) {
-    lines.push(support);
+  if (lead < 60) {
+    return `less than ${lead} minutes`;
   }
-  return lines.join('\n');
+  if (lead === 60) {
+    return 'about 1 hour';
+  }
+  if (lead % 60 === 0) {
+    const hours = lead / 60;
+    return hours === 1 ? 'about 1 hour' : `about ${hours} hours`;
+  }
+  return `less than ${lead} minutes`;
 }
 
 export function buildBookingCancellationMessage(
@@ -68,6 +149,8 @@ export function buildBookingCancellationMessage(
     `Date: ${payload.bookingDateLabel}`,
     `Time: ${payload.bookingTimeLabel}`,
     `Services: ${payload.serviceNames}`,
+    '',
+    'You can contact us anytime to book a new appointment.',
   ];
   const support = supportLine(payload.supportPhone);
   if (support) {
@@ -79,21 +162,7 @@ export function buildBookingCancellationMessage(
 export function buildChangeRequestApprovedMessage(
   payload: ChangeRequestApprovedPayload,
 ): string {
-  const lines = [
-    `Hello ${payload.clientName}, your booking change at ${payload.salonName} has been approved.`,
-    `New date: ${payload.newDateLabel}`,
-    `New time: ${payload.newTimeLabel}`,
-    `Services: ${payload.serviceNames}`,
-  ];
-  const branch = branchLine(payload.branchName);
-  if (branch) {
-    lines.push(branch);
-  }
-  const support = supportLine(payload.supportPhone);
-  if (support) {
-    lines.push(support);
-  }
-  return lines.join('\n');
+  return buildBookingRescheduledMessage(payload);
 }
 
 export function buildChangeRequestRejectedMessage(

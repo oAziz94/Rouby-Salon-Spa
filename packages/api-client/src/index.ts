@@ -4712,6 +4712,9 @@ export type DashboardNotificationChannel = "WHATSAPP";
 
 export type DashboardNotificationType =
   | "BOOKING_CONFIRMATION"
+  | "BOOKING_REQUEST_RECEIVED"
+  | "BOOKING_REJECTED"
+  | "BOOKING_RESCHEDULED"
   | "APPOINTMENT_REMINDER"
   | "APPOINTMENT_REMINDER_90M"
   | "BOOKING_CANCELLATION"

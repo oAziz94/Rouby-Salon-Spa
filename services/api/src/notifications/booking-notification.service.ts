@@ -73,6 +73,33 @@ export class BookingNotificationService {
     });
   }
 
+  notifyBookingRequestReceived(bookingId: string): void {
+    void this.safeRun(async () => {
+      if (!this.config.isEnabled()) {
+        return;
+      }
+      await this.deliverBookingRequestReceived(bookingId);
+    });
+  }
+
+  notifyBookingRejected(bookingId: string): void {
+    void this.safeRun(async () => {
+      if (!this.config.isEnabled()) {
+        return;
+      }
+      await this.deliverBookingRejected(bookingId);
+    });
+  }
+
+  notifyBookingRescheduled(bookingId: string): void {
+    void this.safeRun(async () => {
+      if (!this.config.isEnabled()) {
+        return;
+      }
+      await this.deliverBookingRescheduled(bookingId);
+    });
+  }
+
   notifyBookingCancelled(bookingId: string): void {
     void this.safeRun(async () => {
       if (!this.config.isEnabled()) {
@@ -162,6 +189,28 @@ export class BookingNotificationService {
         result = await this.deliverBookingConfirmation(log.bookingId, {
           force: true,
         });
+        break;
+      case NotificationType.BOOKING_REQUEST_RECEIVED:
+        if (!log.bookingId) {
+          throw new BadRequestException('Notification is missing bookingId');
+        }
+        result = await this.deliverBookingRequestReceived(log.bookingId, {
+          force: true,
+        });
+        break;
+      case NotificationType.BOOKING_REJECTED:
+        if (!log.bookingId) {
+          throw new BadRequestException('Notification is missing bookingId');
+        }
+        result = await this.deliverBookingRejected(log.bookingId, {
+          force: true,
+        });
+        break;
+      case NotificationType.BOOKING_RESCHEDULED:
+        if (!log.bookingId) {
+          throw new BadRequestException('Notification is missing bookingId');
+        }
+        result = await this.deliverBookingRescheduled(log.bookingId);
         break;
       case NotificationType.BOOKING_CANCELLATION:
         if (!log.bookingId) {
@@ -311,11 +360,90 @@ export class BookingNotificationService {
     });
   }
 
+  private async deliverBookingRequestReceived(
+    bookingId: string,
+    opts?: { force?: boolean },
+  ): Promise<{ id: string; status: NotificationStatus } | null> {
+    if (
+      !opts?.force &&
+      (await this.logs.hasSuccessfulBookingNotification(
+        bookingId,
+        NotificationType.BOOKING_REQUEST_RECEIVED,
+      ))
+    ) {
+      return null;
+    }
+    const ctx = requireBooking(
+      await this.loadBookingContext(bookingId),
+      bookingId,
+    );
+    const payload = await this.toPayload(ctx);
+    return this.logs.runLoggedDelivery({
+      branchId: ctx.branchId,
+      bookingId,
+      type: NotificationType.BOOKING_REQUEST_RECEIVED,
+      recipientPhoneE164: ctx.client.phone,
+      send: () => this.whatsapp.sendBookingRequestReceived(payload),
+    });
+  }
+
+  private async deliverBookingRejected(
+    bookingId: string,
+    opts?: { force?: boolean },
+  ): Promise<{ id: string; status: NotificationStatus } | null> {
+    if (
+      !opts?.force &&
+      (await this.logs.hasSuccessfulBookingNotification(
+        bookingId,
+        NotificationType.BOOKING_REJECTED,
+      ))
+    ) {
+      return null;
+    }
+    const ctx = requireBooking(
+      await this.loadBookingContext(bookingId),
+      bookingId,
+    );
+    const payload = await this.toPayload(ctx);
+    return this.logs.runLoggedDelivery({
+      branchId: ctx.branchId,
+      bookingId,
+      type: NotificationType.BOOKING_REJECTED,
+      recipientPhoneE164: ctx.client.phone,
+      send: () => this.whatsapp.sendBookingRejected(payload),
+    });
+  }
+
+  private async deliverBookingRescheduled(
+    bookingId: string,
+  ): Promise<{ id: string; status: NotificationStatus } | null> {
+    const ctx = requireBooking(
+      await this.loadBookingContext(bookingId),
+      bookingId,
+    );
+    const payload = await this.toRescheduledPayload(ctx);
+    return this.logs.runLoggedDelivery({
+      branchId: ctx.branchId,
+      bookingId,
+      type: NotificationType.BOOKING_RESCHEDULED,
+      recipientPhoneE164: ctx.client.phone,
+      send: () => this.whatsapp.sendBookingRescheduled(payload),
+    });
+  }
+
   private async deliverBookingCancellation(
     bookingId: string,
     opts?: { force?: boolean },
-  ): Promise<{ id: string; status: NotificationStatus }> {
-    void opts;
+  ): Promise<{ id: string; status: NotificationStatus } | null> {
+    if (
+      !opts?.force &&
+      (await this.logs.hasSuccessfulBookingNotification(
+        bookingId,
+        NotificationType.BOOKING_CANCELLATION,
+      ))
+    ) {
+      return null;
+    }
     const ctx = requireBooking(
       await this.loadBookingContext(bookingId),
       bookingId,
@@ -352,6 +480,10 @@ export class BookingNotificationService {
     const payload = {
       ...(await this.toPayload(ctx)),
       reminderVariant,
+      minutesBeforeFinal:
+        reminderVariant === '90m'
+          ? this.config.getReminderMinutesBeforeFinal()
+          : undefined,
     };
     return this.logs.runLoggedDelivery({
       branchId: ctx.branchId,
@@ -399,12 +531,8 @@ export class BookingNotificationService {
         row.bookingId,
       );
       const payload: ChangeRequestApprovedPayload = {
-        ...(await this.toPayload(base)),
+        ...(await this.toRescheduledPayload(base, slot)),
         changeRequestId,
-        newDateLabel: formatBookingDateLabel(slot.date),
-        newTimeLabel: formatBookingTimeLabel(slot.startTime),
-        bookingDateLabel: formatBookingDateLabel(slot.date),
-        bookingTimeLabel: formatBookingTimeLabel(slot.startTime),
       };
       return this.logs.runLoggedDelivery({
         branchId: base.branchId,
@@ -481,13 +609,7 @@ export class BookingNotificationService {
 
   private async toPayload(ctx: BookingWithRelations) {
     const settings = await this.loadSalonSettings();
-    const serviceNames = ctx.items
-      .map((it) =>
-        it.quantity > 1
-          ? `${it.nameSnapshot} x${it.quantity}`
-          : it.nameSnapshot,
-      )
-      .join(', ');
+    const serviceNames = this.formatServiceNames(ctx);
     return {
       bookingId: ctx.id,
       branchId: ctx.branchId,
@@ -495,11 +617,34 @@ export class BookingNotificationService {
       clientPhoneE164: ctx.client.phone,
       bookingDateLabel: formatBookingDateLabel(ctx.slot.date),
       bookingTimeLabel: formatBookingTimeLabel(ctx.slot.startTime),
-      serviceNames: serviceNames || '—',
+      serviceNames,
       branchName: ctx.branch.name,
       salonName: settings.salonName,
       supportPhone: this.resolveSupportPhone(ctx.branch, settings),
     };
+  }
+
+  private async toRescheduledPayload(
+    ctx: BookingWithRelations,
+    slot: BookingWithRelations['slot'] = ctx.slot,
+  ) {
+    const base = await this.toPayload(ctx);
+    return {
+      ...base,
+      newDateLabel: formatBookingDateLabel(slot.date),
+      newTimeLabel: formatBookingTimeLabel(slot.startTime),
+    };
+  }
+
+  private formatServiceNames(ctx: BookingWithRelations): string {
+    const names = ctx.items
+      .map((it) =>
+        it.quantity > 1
+          ? `${it.nameSnapshot} x${it.quantity}`
+          : it.nameSnapshot,
+      )
+      .join(', ');
+    return names || '—';
   }
 
   private resolveSupportPhone(

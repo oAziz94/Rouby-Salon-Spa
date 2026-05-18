@@ -58,8 +58,11 @@ function statusBadgeClass(status: DashboardNotificationStatus): string {
 function typeLabel(type: DashboardNotificationType): string {
   const labels: Record<DashboardNotificationType, string> = {
     BOOKING_CONFIRMATION: "Confirmation",
+    BOOKING_REQUEST_RECEIVED: "Request received",
+    BOOKING_REJECTED: "Rejected",
+    BOOKING_RESCHEDULED: "Rescheduled",
     APPOINTMENT_REMINDER: "Reminder (24h)",
-    APPOINTMENT_REMINDER_90M: "Reminder (90m)",
+    APPOINTMENT_REMINDER_90M: "Reminder (final)",
     BOOKING_CANCELLATION: "Cancellation",
     CHANGE_REQUEST_UPDATE: "Change request",
   };
@@ -275,8 +278,11 @@ export default function DashboardNotificationLogsPage() {
               >
                 <option value="">All</option>
                 <option value="BOOKING_CONFIRMATION">Confirmation</option>
+                <option value="BOOKING_REQUEST_RECEIVED">Request received</option>
+                <option value="BOOKING_REJECTED">Rejected</option>
+                <option value="BOOKING_RESCHEDULED">Rescheduled</option>
                 <option value="APPOINTMENT_REMINDER">Reminder (24h)</option>
-                <option value="APPOINTMENT_REMINDER_90M">Reminder (90m)</option>
+                <option value="APPOINTMENT_REMINDER_90M">Reminder (final)</option>
                 <option value="BOOKING_CANCELLATION">Cancellation</option>
                 <option value="CHANGE_REQUEST_UPDATE">Change request</option>
               </select>

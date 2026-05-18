@@ -9,6 +9,17 @@ jest.mock('./booking-slot-format', () => ({
   bookingSlotStartUtcMs: jest.fn(),
 }));
 
+jest.mock('../common/cairo-slot-time', () => {
+  const actual = jest.requireActual<typeof import('../common/cairo-slot-time')>(
+    '../common/cairo-slot-time',
+  );
+  return {
+    ...actual,
+    getCairoNowCompositeKey: jest.fn(() => '2026-05-17T12:00:00'),
+    isSlotStartStrictlyInFutureCairo: jest.fn(() => true),
+  };
+});
+
 describe('BookingReminderScheduler', () => {
   let reminderNowMsSpy: jest.SpyInstance;
 

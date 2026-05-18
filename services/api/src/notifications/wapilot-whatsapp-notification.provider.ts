@@ -5,6 +5,9 @@ import {
   buildAppointmentReminderMessage,
   buildBookingCancellationMessage,
   buildBookingConfirmationMessage,
+  buildBookingRejectedMessage,
+  buildBookingRequestReceivedMessage,
+  buildBookingRescheduledMessage,
   buildChangeRequestApprovedMessage,
   buildChangeRequestRejectedMessage,
 } from './booking-notification-messages';
@@ -12,6 +15,9 @@ import type {
   AppointmentReminderPayload,
   BookingCancellationPayload,
   BookingConfirmationPayload,
+  BookingRejectedPayload,
+  BookingRequestReceivedPayload,
+  BookingRescheduledPayload,
   ChangeRequestApprovedPayload,
   ChangeRequestRejectedPayload,
 } from './booking-notification.types';
@@ -26,6 +32,28 @@ export class WapilotWhatsAppNotificationProvider implements WhatsAppNotification
   ): Promise<void> {
     const chatId = this.resolveChatId(payload.clientPhoneE164);
     const text = buildBookingConfirmationMessage(payload);
+    await this.wapilot.sendTextMessage(chatId, text);
+  }
+
+  async sendBookingRequestReceived(
+    payload: BookingRequestReceivedPayload,
+  ): Promise<void> {
+    const chatId = this.resolveChatId(payload.clientPhoneE164);
+    const text = buildBookingRequestReceivedMessage(payload);
+    await this.wapilot.sendTextMessage(chatId, text);
+  }
+
+  async sendBookingRejected(payload: BookingRejectedPayload): Promise<void> {
+    const chatId = this.resolveChatId(payload.clientPhoneE164);
+    const text = buildBookingRejectedMessage(payload);
+    await this.wapilot.sendTextMessage(chatId, text);
+  }
+
+  async sendBookingRescheduled(
+    payload: BookingRescheduledPayload,
+  ): Promise<void> {
+    const chatId = this.resolveChatId(payload.clientPhoneE164);
+    const text = buildBookingRescheduledMessage(payload);
     await this.wapilot.sendTextMessage(chatId, text);
   }
 
