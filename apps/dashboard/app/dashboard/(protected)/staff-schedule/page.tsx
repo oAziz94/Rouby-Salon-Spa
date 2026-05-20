@@ -665,6 +665,7 @@ export default function StaffSchedulePage() {
                           <label className="inline-flex items-center gap-2">
                             <input
                               type="checkbox"
+                              key={`active-${selectedRow.profile.id}-${selectedRow.profile.isActive}`}
                               defaultChecked={selectedRow.profile.isActive}
                               onChange={async (e) => {
                                 if (!token || !profileId) return;
@@ -683,6 +684,7 @@ export default function StaffSchedulePage() {
                           <label className="inline-flex items-center gap-2">
                             <input
                               type="checkbox"
+                              key={`bookable-${selectedRow.profile.id}-${selectedRow.profile.isBookable}`}
                               defaultChecked={selectedRow.profile.isBookable}
                               onChange={async (e) => {
                                 if (!token || !profileId) return;
