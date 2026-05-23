@@ -307,4 +307,56 @@ describe('App (e2e)', () => {
       expect(typeof booking.body.totalAmount).toBe('number');
     },
   );
+
+  it('GET /api/v1/dashboard/reports/staff-services-revenue without token (401)', () => {
+    return request(app.getHttpServer())
+      .get('/api/v1/dashboard/reports/staff-services-revenue')
+      .expect(401);
+  });
+
+  itOwner('Staff services revenue report returns summary shape', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/dashboard/auth/login')
+      .send({
+        email: 'owner@alrouby.local',
+        password: process.env.SEED_OWNER_PASSWORD,
+      });
+    expect(login.status).toBe(200);
+    const token = login.body.accessToken as string;
+
+    const res = await request(app.getHttpServer())
+      .get(
+        '/api/v1/dashboard/reports/staff-services-revenue?dateFrom=2026-01-01&dateTo=2026-12-31',
+      )
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    const body = res.body as {
+      range: { timeZone: string };
+      summary: {
+        totalServicesDone: number;
+        totalRevenue: number;
+        paidRevenue: number;
+        pendingRevenue: number;
+      };
+      staffRows: unknown[];
+      charts: {
+        revenueByStaff: unknown[];
+        servicesCountByStaff: unknown[];
+        revenueTrendByDay: unknown[];
+        serviceMixByStaff: unknown[];
+      };
+    };
+
+    expect(body.range.timeZone).toBe('Africa/Cairo');
+    expect(typeof body.summary.totalServicesDone).toBe('number');
+    expect(typeof body.summary.totalRevenue).toBe('number');
+    expect(typeof body.summary.paidRevenue).toBe('number');
+    expect(typeof body.summary.pendingRevenue).toBe('number');
+    expect(Array.isArray(body.staffRows)).toBe(true);
+    expect(Array.isArray(body.charts.revenueByStaff)).toBe(true);
+    expect(Array.isArray(body.charts.servicesCountByStaff)).toBe(true);
+    expect(Array.isArray(body.charts.revenueTrendByDay)).toBe(true);
+    expect(Array.isArray(body.charts.serviceMixByStaff)).toBe(true);
+  });
 });

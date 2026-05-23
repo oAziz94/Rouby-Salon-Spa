@@ -394,6 +394,93 @@ export type DashboardFinancialReport = {
   hasData: boolean;
 };
 
+export type StaffServicesRevenueSourceFilter = "all" | "booking" | "walkin";
+
+export type StaffServicesRevenueQuery = DashboardReportsQuery & {
+  staffId?: string;
+  serviceId?: string;
+  categoryId?: string;
+  source?: StaffServicesRevenueSourceFilter;
+  paymentStatus?: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "REFUNDED" | "CANCELLED";
+  invoiceStatus?: "FINALIZED" | "CANCELLED";
+};
+
+export type StaffServicesRevenueStaffRow = {
+  staffId: string;
+  staffName: string;
+  servicesDone: number;
+  totalRevenue: number;
+  paidRevenue: number;
+  pendingRevenue: number;
+  averageServiceValue: number;
+  topServiceName: string | null;
+  bookingsCount: number;
+  walkinsCount: number;
+};
+
+export type StaffServicesRevenueReport = {
+  range: { from: string; to: string; timeZone: string };
+  branchId: string | null;
+  hasData: boolean;
+  excludedCancelled: { servicesDone: number; totalRevenue: number };
+  summary: {
+    totalServicesDone: number;
+    totalRevenue: number;
+    paidRevenue: number;
+    pendingRevenue: number;
+    averageRevenuePerService: number;
+    activeStaffCount: number;
+    topStaffByRevenue: StaffServicesRevenueStaffRow | null;
+    topStaffByServiceCount: StaffServicesRevenueStaffRow | null;
+    highestAverageTicketStaff: StaffServicesRevenueStaffRow | null;
+  };
+  staffRows: StaffServicesRevenueStaffRow[];
+  charts: {
+    revenueByStaff: Array<{ staffId: string; staffName: string; revenue: number }>;
+    servicesCountByStaff: Array<{ staffId: string; staffName: string; count: number }>;
+    revenueTrendByDay: Array<{ date: string; revenue: number }>;
+    serviceMixByStaff: Array<{
+      staffId: string;
+      staffName: string;
+      services: Array<{ serviceName: string; count: number }>;
+    }>;
+  };
+};
+
+export type StaffServicesRevenueDetailReport = {
+  staff: { staffId: string; staffName: string; branchId: string } | null;
+  range: { from: string; to: string; timeZone: string };
+  branchId: string | null;
+  hasData: boolean;
+  kpis: {
+    servicesDone: number;
+    totalRevenue: number;
+    paidRevenue: number;
+    pendingRevenue: number;
+    averageServiceValue: number;
+    mostPerformedService: string | null;
+    bestRevenueService: string | null;
+    totalClientsServed: number;
+    repeatClientsInPeriod: number;
+    repeatClientsFromHistory: number;
+  };
+  serviceBreakdown: Array<{
+    serviceId: string | null;
+    serviceName: string;
+    count: number;
+    totalRevenue: number;
+    paidRevenue: number;
+    averageValue: number;
+  }>;
+  dailyBreakdown: Array<{
+    date: string;
+    servicesDone: number;
+    totalRevenue: number;
+    paidRevenue: number;
+  }>;
+  charts: StaffServicesRevenueReport["charts"];
+};
+
 export type DashboardAuditLogSeverity = "INFO" | "WARNING" | "CRITICAL";
 
 export type DashboardAuditLogActor = {
@@ -4641,6 +4728,58 @@ export async function exportDashboardFinancialReport(
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
+    },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return await res.blob();
+}
+
+export async function getDashboardStaffServicesRevenueReport(
+  accessToken: string,
+  query: StaffServicesRevenueQuery = {},
+): Promise<StaffServicesRevenueReport> {
+  const res = await fetch(
+    withQuery("/dashboard/reports/staff-services-revenue", query),
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as StaffServicesRevenueReport;
+}
+
+export async function getDashboardStaffServicesRevenueDetail(
+  accessToken: string,
+  staffId: string,
+  query: StaffServicesRevenueQuery = {},
+): Promise<StaffServicesRevenueDetailReport> {
+  const res = await fetch(
+    withQuery(`/dashboard/reports/staff-services-revenue/${staffId}`, query),
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as StaffServicesRevenueDetailReport;
+}
+
+export async function exportDashboardStaffServicesRevenueReport(
+  accessToken: string,
+  query: StaffServicesRevenueQuery = {},
+): Promise<Blob> {
+  const res = await fetch(
+    withQuery("/dashboard/reports/staff-services-revenue/export.csv", query),
+    {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
     },
   );
   if (!res.ok) {

@@ -239,6 +239,12 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
         permission: "reports.view",
         icon: BarChart3,
       },
+      {
+        label: "Staff Services & Revenue",
+        href: "/dashboard/reports/staff-services-revenue",
+        permission: "reports.view",
+        icon: Users,
+      },
     ],
   },
   {
