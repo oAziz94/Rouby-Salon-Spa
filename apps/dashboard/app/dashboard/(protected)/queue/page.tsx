@@ -3,16 +3,22 @@
 import {
   ApiClientError,
   getDashboardBookingById,
+  getDashboardBookings,
   getDashboardBranches,
   getDashboardClients,
   getDashboardQueue,
   getDashboardStaffAvailability,
+  postDashboardBookingAction,
+  postDashboardBookingQueueCheckIn,
+  postDashboardBookingServiceItemComplete,
+  postDashboardBookingServiceItemStart,
   postDashboardQueueInvoiceFinalize,
   postDashboardQueuePayment,
   postDashboardQueueEntryAction,
   postDashboardQueueEntryAppendBookingItems,
   postDashboardWalkInQueue,
   type DashboardBookingDetail,
+  type DashboardBookingsListItem,
   type DashboardBranch,
   type DashboardClient,
   type DashboardQueueEntry,
@@ -22,13 +28,23 @@ import { cairoTodayYmd, formatDateTimeAmPm } from "@rouby/wall-clock";
 import {
   AlertCircle,
   Building2,
+  CalendarDays,
+  CheckCircle2,
+  ChevronDown,
   ClipboardList,
+  Clock3,
+  CreditCard,
   ExternalLink,
   Loader2,
   Plus,
+  Printer,
+  ReceiptText,
+  Search,
+  X,
   UserRound,
 } from "lucide-react";
 import Link from "next/link";
+import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DashboardServiceVariantLinesBlock,
@@ -37,13 +53,6 @@ import {
 } from "@/components/dashboard-service-variant-lines-block";
 import { PermissionGuard } from "@/components/auth-required";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
-
-function toDateInput(value: Date): string {
-  const y = value.getFullYear();
-  const m = `${value.getMonth() + 1}`.padStart(2, "0");
-  const d = `${value.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
 
 function formatDuration(seconds: number | null): string {
   if (seconds === null || Number.isNaN(seconds) || seconds < 0) {
@@ -67,6 +76,18 @@ function formatBookingRef(id: string): string {
   return `RB-${tail}`;
 }
 
+function formatTimeAmPm(value: string | undefined | null): string {
+  if (!value) return "—";
+  const normalized = value.includes("T") ? value.slice(11, 16) : value.slice(0, 5);
+  const [rawHour, rawMinute] = normalized.split(":");
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return value;
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
 function collectPendingServiceLines(booking: DashboardBookingDetail) {
   return booking.items.filter((it) => {
     const st = it.lineStatus ?? "PENDING";
@@ -74,6 +95,52 @@ function collectPendingServiceLines(booking: DashboardBookingDetail) {
     if (it.itemType !== "SERVICE" && it.itemType !== "SERVICE_VARIANT") return false;
     return Boolean(it.catalogServiceId);
   });
+}
+
+function collectInProgressServiceLines(booking: DashboardBookingDetail) {
+  return booking.items.filter((it) => (it.lineStatus ?? "PENDING") === "IN_PROGRESS");
+}
+
+function serviceWorkLines(booking: DashboardBookingDetail | null | undefined) {
+  return (
+    booking?.items.filter(
+      (item) =>
+        (item.itemType === "SERVICE" || item.itemType === "SERVICE_VARIANT") &&
+        Boolean(item.catalogServiceId),
+    ) ?? []
+  );
+}
+
+function allServicesCompleted(booking: DashboardBookingDetail | null | undefined): boolean {
+  const lines = serviceWorkLines(booking);
+  return lines.length > 0 && lines.every((item) => (item.lineStatus ?? "PENDING") === "COMPLETED");
+}
+
+function staffSummaryFromBooking(booking: DashboardBookingDetail | null | undefined): string {
+  if (!booking) return "Not assigned";
+  const names = Array.from(
+    new Set(
+      booking.items
+        .map((item) => item.staffDisplayName?.trim())
+        .filter((name): name is string => Boolean(name)),
+    ),
+  );
+  return names.length > 0 ? names.join(", ") : "Not assigned";
+}
+
+function serviceSummaryFromBooking(booking: DashboardBookingsListItem | DashboardBookingDetail): string {
+  if ("servicesSummary" in booking && booking.servicesSummary) {
+    return booking.servicesSummary;
+  }
+  if ("itemsPreview" in booking && booking.itemsPreview?.length) {
+    const first = booking.itemsPreview[0]?.nameSnapshot ?? "Service";
+    return booking.itemsPreview.length === 1 ? first : `${first} +${booking.itemsPreview.length - 1} more`;
+  }
+  if ("items" in booking && booking.items.length > 0) {
+    const first = booking.items[0]?.nameSnapshot ?? "Service";
+    return booking.items.length === 1 ? first : `${first} +${booking.items.length - 1} more`;
+  }
+  return "—";
 }
 
 function formatEGP(amount: number): string {
@@ -311,7 +378,7 @@ function QueueCard({
           ) : null}
           {canPrintReceipt ? (
             <Link
-              href={`/dashboard/invoices/${row.invoiceSummary?.invoiceId}/receipt`}
+              href={`/dashboard/invoices/${row.invoiceSummary?.invoiceId}/receipt?print=1`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex w-full items-center justify-center rounded-xl border border-[#062A2D]/35 bg-white px-3 py-2 text-xs font-semibold text-[#062A2D] shadow-sm transition hover:bg-[#F7FBFA]"
@@ -380,6 +447,691 @@ function QueueCard({
   );
 }
 
+void QueueCard;
+
+type QueueStageKey = "expected" | "waiting" | "inService" | "readyToPay" | "completed";
+
+const STAGE_META: Record<QueueStageKey, { label: string; dot: string; tone: string }> = {
+  expected: { label: "Expected Today", dot: "bg-sky-500", tone: "border-sky-100 bg-sky-50/65" },
+  waiting: { label: "Waiting", dot: "bg-amber-500", tone: "border-amber-100 bg-amber-50/70" },
+  inService: { label: "In Service", dot: "bg-emerald-600", tone: "border-emerald-100 bg-emerald-50/65" },
+  readyToPay: { label: "Ready to Pay", dot: "bg-[#7B55C7]", tone: "border-[#E4D8FF] bg-[#F7F1FF]/75" },
+  completed: { label: "Completed Today", dot: "bg-[#8A9B8F]", tone: "border-[#E2E8E0] bg-[#F3F6F1]/80" },
+};
+
+function paymentLabel(row: DashboardQueueEntry): string {
+  if (!row.invoiceSummary) return "No invoice";
+  if (row.invoiceSummary.paymentStatus === "PAID") return "Paid";
+  if (row.invoiceSummary.paymentStatus === "PARTIALLY_PAID") {
+    return `Partial · ${formatEGP(row.invoiceSummary.remainingAmount)} due`;
+  }
+  return `Unpaid · ${formatEGP(row.invoiceSummary.remainingAmount)} due`;
+}
+
+function CommandQueueCard({
+  row,
+  stage,
+  detail,
+  busyId,
+  canManageQueue,
+  canProgressVisit,
+  canAddItems,
+  startVisitModalOpen,
+  onStart,
+  onFinishService,
+  onComplete,
+  onCancel,
+  onAddItems,
+  onCollectPayment,
+  onDiscount,
+  onOpenDetails,
+}: {
+  row: DashboardQueueEntry;
+  stage: Exclude<QueueStageKey, "expected">;
+  detail?: DashboardBookingDetail | null;
+  busyId: string | null;
+  canManageQueue: boolean;
+  canProgressVisit: boolean;
+  canAddItems: boolean;
+  startVisitModalOpen: boolean;
+  onStart: (id: string) => void;
+  onFinishService: (row: DashboardQueueEntry) => void;
+  onComplete: (id: string) => void;
+  onCancel: (id: string) => void;
+  onAddItems: (row: DashboardQueueEntry) => void;
+  onCollectPayment: (row: DashboardQueueEntry) => void;
+  onDiscount: (row: DashboardQueueEntry) => void;
+  onOpenDetails: (row: DashboardQueueEntry) => void;
+}) {
+  const busy = busyId === row.id;
+  const assignedStaff = staffSummaryFromBooking(detail);
+  const delayed = row.status === "WAITING" && (row.waitingDurationSeconds ?? 0) >= 20 * 60;
+  const unpaid = (row.invoiceSummary?.remainingAmount ?? 0) > 0;
+  const noStaff = row.status === "IN_SERVICE" && assignedStaff === "Not assigned";
+  const canFinish = row.status === "IN_SERVICE" && Boolean(row.bookingId) && allServicesCompleted(detail);
+  const canVisitComplete =
+    row.hasFinalizedInvoice && row.paymentSummary?.isPaid === true;
+
+  return (
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpenDetails(row)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenDetails(row);
+        }
+      }}
+      className="rounded-2xl border border-[#E8E0D4]/80 bg-white p-4 text-left shadow-sm ring-1 ring-[#F7F4EE]/80 transition hover:-translate-y-0.5 hover:border-[#D8CBB8] hover:shadow-md"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-[#1F2420]">{row.clientNameSnapshot}</p>
+          <p className="mt-0.5 truncate text-xs text-[#7A6A58]">{row.clientPhoneSnapshot ?? "No phone"}</p>
+        </div>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide ${sourceBadgeClass(row.source)}`}>
+          {row.source === "BOOKING" ? "Booking" : "Walk-in"}
+        </span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {delayed ? <WarningBadge label="Delayed" tone="amber" /> : null}
+        {noStaff ? <WarningBadge label="No staff" tone="red" /> : null}
+        {unpaid ? <WarningBadge label="Unpaid" tone="purple" /> : null}
+      </div>
+
+      <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-[#5E574C]">
+        <span className="font-medium text-[#7A6A58]">Services: </span>
+        {detail ? serviceSummaryFromBooking(detail) : row.serviceSummarySnapshot ?? "—"}
+      </p>
+      <p className="mt-1 truncate text-xs text-[#5E574C]">
+        <span className="font-medium text-[#7A6A58]">Staff: </span>
+        {assignedStaff}
+      </p>
+
+      <dl className="mt-3 grid gap-1 text-[0.7rem] text-[#7A6A58]">
+        <div className="flex justify-between gap-2">
+          <dt>{row.status === "IN_SERVICE" ? "Service time" : "Waiting"}</dt>
+          <dd className="font-medium text-[#4A3C2F]">
+            {row.status === "IN_SERVICE"
+              ? formatDuration(row.inServiceDurationSeconds)
+              : formatDuration(row.waitingDurationSeconds)}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt>Booking</dt>
+          <dd className="font-mono font-semibold text-[#1F2420]">
+            {row.bookingId ? formatBookingRef(row.bookingId) : "—"}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt>Total</dt>
+          <dd className="font-semibold text-[#1F2420]">
+            {formatEGP(row.invoiceSummary?.totalAmount ?? row.bookingSummary?.totalAmount ?? 0)}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt>Payment</dt>
+          <dd className="text-right font-medium text-[#4A3C2F]">{paymentLabel(row)}</dd>
+        </div>
+      </dl>
+
+      <div className="mt-3 space-y-2" onClick={(event) => event.stopPropagation()}>
+        {stage === "waiting" ? (
+          <button
+            type="button"
+            disabled={busy || startVisitModalOpen || (Boolean(row.bookingId) && !canProgressVisit)}
+            onClick={() => onStart(row.id)}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#062A2D] px-3 py-2 text-xs font-semibold text-[#F6F2EA] shadow-sm transition hover:bg-[#0A3F35] disabled:opacity-50"
+          >
+            <Clock3 className="h-3.5 w-3.5" aria-hidden />
+            Start Service
+          </button>
+        ) : null}
+        {stage === "inService" ? (
+          <>
+          <button
+            type="button"
+            disabled={busy || !canFinish}
+            onClick={() => onFinishService(row)}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0A5A45] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0B6B51] disabled:opacity-50"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+            Finish Service
+          </button>
+          {!canFinish ? (
+            <p className="text-center text-[0.65rem] leading-relaxed text-[#9A8B7A]">
+              Complete all service lines from the drawer first.
+            </p>
+          ) : null}
+          </>
+        ) : null}
+        {stage === "readyToPay" ? (
+          <div className="grid gap-2">
+            <button
+              type="button"
+              disabled={busy || !canVisitComplete}
+              onClick={() => onComplete(row.id)}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#062A2D] px-3 py-2 text-xs font-semibold text-[#F6F2EA] shadow-sm transition hover:bg-[#0A3F35] disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+              Complete
+            </button>
+            <button
+              type="button"
+              disabled={busy || !row.invoiceSummary || (row.invoiceSummary.remainingAmount ?? 0) <= 0}
+              onClick={() => onCollectPayment(row)}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#6D4BB0] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#5B3E91] disabled:opacity-50"
+            >
+              <CreditCard className="h-3.5 w-3.5" aria-hidden />
+              Take Payment
+            </button>
+            <button
+              type="button"
+              disabled={busy || !row.bookingId || !row.invoiceSummary}
+              onClick={() => onDiscount(row)}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#B9974A]/55 bg-[#FBF6E8] px-3 py-2 text-xs font-semibold text-[#5C4A18] shadow-sm transition hover:bg-[#F5ECD4] disabled:opacity-50"
+            >
+              <ReceiptText className="h-3.5 w-3.5" aria-hidden />
+              Make Discount
+            </button>
+            {row.invoiceSummary ? (
+              <Link
+                href={`/dashboard/invoices/${row.invoiceSummary.invoiceId}/receipt?print=1`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#D8CBB8] bg-white px-3 py-2 text-xs font-semibold text-[#062A2D] shadow-sm transition hover:bg-[#F7FBFA]"
+              >
+                <ReceiptText className="h-3.5 w-3.5" aria-hidden />
+                Print Receipt
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
+        {stage === "completed" && row.invoiceSummary ? (
+          <Link
+            href={`/dashboard/invoices/${row.invoiceSummary.invoiceId}/receipt?print=1`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#D8CBB8] bg-white px-3 py-2 text-xs font-semibold text-[#062A2D] shadow-sm transition hover:bg-[#F7FBFA]"
+          >
+            <ReceiptText className="h-3.5 w-3.5" aria-hidden />
+            Print Receipt
+          </Link>
+        ) : null}
+
+        {stage !== "readyToPay" && stage !== "completed" ? (
+        <div className="grid grid-cols-2 gap-2">
+          {canAddItems && row.bookingId && (row.status === "WAITING" || row.status === "IN_SERVICE") ? (
+            <button
+              type="button"
+              disabled={busy || row.hasFinalizedInvoice}
+              onClick={() => onAddItems(row)}
+              className="rounded-xl border border-[#B9974A]/45 bg-[#FBF6E8] px-3 py-2 text-xs font-semibold text-[#5C4A18] shadow-sm transition hover:bg-[#F5ECD4] disabled:opacity-50"
+            >
+              Add Service
+            </button>
+          ) : null}
+          {row.invoiceSummary ? (
+            <Link
+              href={`/dashboard/invoices/${row.invoiceSummary.invoiceId}/receipt?print=1`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-xl border border-[#D8CBB8] bg-white px-3 py-2 text-center text-xs font-semibold text-[#062A2D] shadow-sm transition hover:bg-[#F7FBFA]"
+            >
+              Print
+            </Link>
+          ) : null}
+          {canVisitComplete ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onComplete(row.id)}
+              className="rounded-xl bg-[#062A2D] px-3 py-2 text-xs font-semibold text-[#F6F2EA] shadow-sm transition hover:bg-[#0A3F35] disabled:opacity-50"
+            >
+              Complete
+            </button>
+          ) : null}
+          {canManageQueue && row.status !== "COMPLETED" ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onCancel(row.id)}
+              className="rounded-xl border border-[#E7B9A4]/90 bg-[#FFF9F6] px-3 py-2 text-xs font-semibold text-[#8B4428] shadow-sm transition hover:bg-[#FFF1EC] disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          ) : null}
+        </div>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function ExpectedBookingCard({
+  booking,
+  busy,
+  canCheckIn,
+  onCheckIn,
+  onOpenDetails,
+  onCancel,
+  onNoShow,
+}: {
+  booking: DashboardBookingsListItem;
+  busy: boolean;
+  canCheckIn: boolean;
+  onCheckIn: (booking: DashboardBookingsListItem) => void;
+  onOpenDetails: (booking: DashboardBookingsListItem) => void;
+  onCancel: (booking: DashboardBookingsListItem) => void;
+  onNoShow: (booking: DashboardBookingsListItem) => void;
+}) {
+  return (
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpenDetails(booking)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenDetails(booking);
+        }
+      }}
+      className="rounded-2xl border border-[#DDECF8] bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#B8D4EA] hover:shadow-md"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-[#1F2420]">{booking.client?.fullName ?? "Client"}</p>
+          <p className="mt-0.5 truncate text-xs text-[#7A6A58]">{booking.client?.phone ?? "No phone"}</p>
+        </div>
+        <span className="shrink-0 rounded-full border border-[#B8D4EA]/90 bg-[#EEF6FC] px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-[#1E4A6E]">
+          Booking
+        </span>
+      </div>
+      <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-[#5E574C]">
+        <span className="font-medium text-[#7A6A58]">Services: </span>
+        {serviceSummaryFromBooking(booking)}
+      </p>
+      <dl className="mt-3 grid gap-1 text-[0.7rem] text-[#7A6A58]">
+        <div className="flex justify-between gap-2">
+          <dt>Time</dt>
+          <dd className="font-medium text-[#4A3C2F]">{formatTimeAmPm(booking.slot?.startTime)}</dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt>Booking</dt>
+          <dd className="font-mono font-semibold text-[#1F2420]">{formatBookingRef(booking.id)}</dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt>Estimated total</dt>
+          <dd className="font-semibold text-[#1F2420]">{formatEGP(booking.totalAmount)}</dd>
+        </div>
+      </dl>
+      <div className="mt-3 space-y-2" onClick={(event) => event.stopPropagation()}>
+        <button
+          type="button"
+          disabled={busy || !canCheckIn}
+          onClick={() => onCheckIn(booking)}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#0E4E75] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0A3F62] disabled:opacity-50"
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+          Check In
+        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onNoShow(booking)}
+            className="rounded-xl border border-[#E7B9A4]/90 bg-[#FFF9F6] px-3 py-2 text-xs font-semibold text-[#8B4428] shadow-sm transition hover:bg-[#FFF1EC] disabled:opacity-50"
+          >
+            No-show
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onCancel(booking)}
+            className="rounded-xl border border-[#E7B9A4]/90 bg-[#FFF9F6] px-3 py-2 text-xs font-semibold text-[#8B4428] shadow-sm transition hover:bg-[#FFF1EC] disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function WarningBadge({ label, tone }: { label: string; tone: "amber" | "red" | "purple" }) {
+  const classes =
+    tone === "amber"
+      ? "bg-amber-100 text-amber-800"
+      : tone === "red"
+        ? "bg-[#FFF1EC] text-[#8B4428]"
+        : "bg-[#F4EDFF] text-[#5B3E91]";
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide ${classes}`}>
+      {label}
+    </span>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] px-3 py-2">
+      <p className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-[#9A8B7A]">{label}</p>
+      <p className="mt-1 text-base font-semibold text-[#1F2420]">{value}</p>
+    </div>
+  );
+}
+
+function StageSection({
+  stage,
+  count,
+  activeStage,
+  children,
+}: {
+  stage: Exclude<QueueStageKey, "completed">;
+  count: number;
+  activeStage: QueueStageKey;
+  children: React.ReactNode;
+}) {
+  const meta = STAGE_META[stage];
+  return (
+    <section className={`${activeStage === stage ? "block" : "hidden"} space-y-3 lg:block`}>
+      <div className={`rounded-2xl border px-3 py-3 ${meta.tone}`}>
+        <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#5E574C]">
+          <span className={`h-2 w-2 rounded-full ${meta.dot}`} aria-hidden />
+          {meta.label} ({count})
+        </h2>
+      </div>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function QueueDetailsDrawer({
+  open,
+  row,
+  booking,
+  bookingId,
+  loading,
+  error,
+  serviceStartItem,
+  staffOptions,
+  selectedStaffId,
+  staffLoading,
+  serviceBusy,
+  serviceError,
+  onSelectedStaffChange,
+  onStartService,
+  onSubmitStartService,
+  onCancelStartService,
+  onCompleteService,
+  onClose,
+}: {
+  open: boolean;
+  row: DashboardQueueEntry | null;
+  booking: DashboardBookingDetail | null;
+  bookingId: string;
+  loading: boolean;
+  error: string;
+  serviceStartItem: DashboardBookingDetail["items"][number] | null;
+  staffOptions: DashboardStaffAvailabilityResponse["staff"];
+  selectedStaffId: string;
+  staffLoading: boolean;
+  serviceBusy: boolean;
+  serviceError: string;
+  onSelectedStaffChange: (staffId: string) => void;
+  onStartService: (item: DashboardBookingDetail["items"][number]) => void;
+  onSubmitStartService: () => void;
+  onCancelStartService: () => void;
+  onCompleteService: (item: DashboardBookingDetail["items"][number]) => void;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+  const invoice = booking?.finalizedInvoice ?? row?.invoiceSummary ?? null;
+  const payments = booking?.payments ?? [];
+  const timeline = [
+    row?.checkedInAt ? { label: "Checked in", value: formatDateTimeAmPm(row.checkedInAt) } : null,
+    row?.startedAt ? { label: "Service started", value: formatDateTimeAmPm(row.startedAt) } : null,
+    invoice ? { label: "Invoice finalized", value: "finalizedAt" in invoice ? formatDateTimeAmPm(invoice.finalizedAt) : "Finalized" } : null,
+    row?.completedAt ? { label: "Completed", value: formatDateTimeAmPm(row.completedAt) } : null,
+  ].filter((item): item is { label: string; value: string } => Boolean(item));
+
+  return (
+    <div className="fixed inset-0 z-[65]" role="dialog" aria-modal="true">
+      <button
+        type="button"
+        aria-label="Close details"
+        onClick={onClose}
+        className="absolute inset-0 bg-[#062A2D]/35 backdrop-blur-[2px]"
+      />
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-[#E8E0D4] bg-[#FFFCF7] p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-3 border-b border-[#E8E0D4] pb-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#B9974A]">Visit details</p>
+            <h2 className="mt-1 text-xl font-semibold text-[#062A2D]">
+              {booking?.client?.fullName ?? row?.clientNameSnapshot ?? "Booking"}
+            </h2>
+            <p className="mt-1 text-sm text-[#7A6A58]">
+              {booking?.client?.phone ?? row?.clientPhoneSnapshot ?? "No phone"} ·{" "}
+              {bookingId ? formatBookingRef(bookingId) : "No booking"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[#E8E0D4] bg-white p-2 text-[#5E574C] shadow-sm hover:border-[#B9974A]/45"
+            aria-label="Close details"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="mt-6 flex items-center gap-2 text-sm text-[#7A6A58]">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            Loading details…
+          </p>
+        ) : null}
+        {error ? (
+          <p className="mt-4 rounded-xl border border-[#E7B9A4]/70 bg-[#FFF1EC] px-3 py-2 text-xs text-[#8B4428]">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="mt-5 space-y-5">
+          <DetailSection title="Booking Details">
+            <DetailRow label="Status" value={booking?.status ?? row?.status ?? "—"} />
+            <DetailRow label="Source" value={booking?.source ?? row?.source ?? "—"} />
+            <DetailRow label="Date" value={booking?.slot?.date ?? "—"} />
+            <DetailRow label="Time" value={booking?.slot ? `${formatTimeAmPm(booking.slot.startTime)} - ${formatTimeAmPm(booking.slot.endTime)}` : "—"} />
+          </DetailSection>
+
+          <DetailSection title="Services">
+            {serviceError ? (
+              <p className="mb-3 rounded-xl border border-[#E7B9A4]/70 bg-[#FFF1EC] px-3 py-2 text-xs text-[#8B4428]">
+                {serviceError}
+              </p>
+            ) : null}
+            {booking?.items?.length ? (
+              <div className="space-y-2">
+                {booking.items.map((item) => (
+                  <div key={item.id} className="rounded-xl border border-[#F0EBE3] bg-white px-3 py-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-[#1F2420]">{item.nameSnapshot}</p>
+                        <p className="mt-0.5 text-xs text-[#7A6A58]">
+                          {item.lineStatus ?? "PENDING"} · {item.staffDisplayName ?? "No staff assigned"}
+                        </p>
+                      </div>
+                      <span className="text-xs font-semibold text-[#1F2420]">{formatEGP(item.priceSnapshot * item.quantity)}</span>
+                    </div>
+                    {(item.itemType === "SERVICE" || item.itemType === "SERVICE_VARIANT") && item.catalogServiceId ? (
+                      <div className="mt-3 border-t border-[#F0EBE3] pt-3">
+                        {(item.lineStatus ?? "PENDING") === "PENDING" ? (
+                          serviceStartItem?.id === item.id ? (
+                            <div className="space-y-2">
+                              <label className="block text-xs font-medium text-[#7A6A58]">
+                                Staff assignment
+                                <select
+                                  value={selectedStaffId}
+                                  onChange={(event) => onSelectedStaffChange(event.target.value)}
+                                  disabled={staffLoading || serviceBusy}
+                                  className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm"
+                                >
+                                  <option value="">Select staff</option>
+                                  {staffOptions.map((staff) => (
+                                    <option key={staff.staffProfileId} value={staff.staffProfileId}>
+                                      {staff.displayName} ({staff.status}
+                                      {staff.reason ? ` - ${staff.reason}` : ""})
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              {staffLoading ? (
+                                <p className="flex items-center gap-2 text-xs text-[#7A6A58]">
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                                  Loading staff availability...
+                                </p>
+                              ) : null}
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={onCancelStartService}
+                                  disabled={serviceBusy}
+                                  className="rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-xs font-semibold text-[#1F2420]"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={onSubmitStartService}
+                                  disabled={staffLoading || serviceBusy || !selectedStaffId}
+                                  className="rounded-xl bg-[#062A2D] px-3 py-2 text-xs font-semibold text-[#F6F2EA] disabled:opacity-50"
+                                >
+                                  {serviceBusy ? "Starting..." : "Start service"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onStartService(item)}
+                              disabled={serviceBusy || row?.status !== "IN_SERVICE"}
+                              className="rounded-xl bg-[#062A2D] px-3 py-2 text-xs font-semibold text-[#F6F2EA] disabled:opacity-50"
+                            >
+                              Start service
+                            </button>
+                          )
+                        ) : null}
+                        {(item.lineStatus ?? "PENDING") === "IN_PROGRESS" ? (
+                          <button
+                            type="button"
+                            onClick={() => onCompleteService(item)}
+                            disabled={serviceBusy}
+                            className="rounded-xl bg-[#0A5A45] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                          >
+                            {serviceBusy ? "Saving..." : "Mark service done"}
+                          </button>
+                        ) : null}
+                        {(item.lineStatus ?? "PENDING") === "COMPLETED" ? (
+                          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-800">
+                            Done
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-[#7A6A58]">{row?.serviceSummarySnapshot ?? "No services loaded."}</p>
+            )}
+          </DetailSection>
+
+          <DetailSection title="Invoice Summary">
+            <DetailRow label="Invoice" value={invoice ? ("invoiceNumber" in invoice ? invoice.invoiceNumber : "Finalized") : "No finalized invoice"} />
+            <DetailRow label="Total" value={formatEGP(invoice?.totalAmount ?? booking?.totalAmount ?? row?.bookingSummary?.totalAmount ?? 0)} />
+            <DetailRow label="Paid" value={formatEGP(invoice?.paidAmount ?? booking?.paidAmount ?? 0)} />
+            <DetailRow label="Remaining" value={formatEGP(invoice?.remainingAmount ?? booking?.remainingAmount ?? 0)} />
+            {row?.invoiceSummary ? (
+              <Link
+                href={`/dashboard/invoices/${row.invoiceSummary.invoiceId}/receipt?print=1`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-2 rounded-xl border border-[#D8CBB8] bg-white px-3 py-2 text-xs font-semibold text-[#062A2D] shadow-sm transition hover:bg-[#F7FBFA]"
+              >
+                <Printer className="h-3.5 w-3.5" aria-hidden />
+                Print receipt
+              </Link>
+            ) : null}
+          </DetailSection>
+
+          <DetailSection title="Payment History">
+            {payments.length > 0 ? (
+              <div className="space-y-2">
+                {payments.map((payment) => (
+                  <DetailRow
+                    key={payment.id}
+                    label={`${payment.method} · ${payment.status}`}
+                    value={`${formatEGP(payment.amount)} · ${payment.paidAt ? formatDateTimeAmPm(payment.paidAt) : "Pending"}`}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-[#7A6A58]">No payments recorded.</p>
+            )}
+          </DetailSection>
+
+          <DetailSection title="Notes">
+            <p className="text-sm leading-relaxed text-[#5E574C]">
+              {row?.notes ?? booking?.adminNotes ?? booking?.clientNotes ?? "No notes."}
+            </p>
+          </DetailSection>
+
+          <DetailSection title="Visit Timeline">
+            {timeline.length > 0 ? (
+              <div className="space-y-2">
+                {timeline.map((item) => (
+                  <DetailRow key={item.label} label={item.label} value={item.value} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-[#7A6A58]">No queue timeline yet.</p>
+            )}
+          </DetailSection>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-[#B9974A]">{title}</h3>
+      <div className="mt-2 rounded-2xl border border-[#E8E0D4] bg-[#FFFCF7] p-3">{children}</div>
+    </section>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-3 py-1 text-sm">
+      <span className="text-[#7A6A58]">{label}</span>
+      <span className="text-right font-medium text-[#1F2420]">{value}</span>
+    </div>
+  );
+}
+
+function EmptyColumn({ label = "No entries" }: { label?: string }) {
+  return (
+    <p className="rounded-2xl border border-dashed border-[#E8E0D4] bg-white/60 px-4 py-8 text-center text-xs text-[#B5A896]">
+      {label}
+    </p>
+  );
+}
+
 export default function DashboardQueuePage() {
   const { token, user, hasPermission } = useDashboardAuth();
   const canReadBranches = hasPermission("branches.read");
@@ -392,10 +1144,28 @@ export default function DashboardQueuePage() {
   const [branchId, setBranchId] = useState("");
   const [date, setDate] = useState(() => cairoTodayYmd());
   const [rows, setRows] = useState<DashboardQueueEntry[]>([]);
+  const [expectedBookings, setExpectedBookings] = useState<DashboardBookingsListItem[]>([]);
   const [metaDate, setMetaDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [bookingBusyId, setBookingBusyId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [activeStage, setActiveStage] = useState<QueueStageKey>("waiting");
+  const [completedCollapsed, setCompletedCollapsed] = useState(true);
+  const [detailCache, setDetailCache] = useState<Record<string, DashboardBookingDetail>>({});
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedQueueRow, setSelectedQueueRow] = useState<DashboardQueueEntry | null>(null);
+  const [selectedBookingId, setSelectedBookingId] = useState("");
+  const [selectedBooking, setSelectedBooking] = useState<DashboardBookingDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const [drawerServiceItem, setDrawerServiceItem] = useState<DashboardBookingDetail["items"][number] | null>(null);
+  const [drawerServiceStaff, setDrawerServiceStaff] = useState("");
+  const [drawerStaffOptions, setDrawerStaffOptions] = useState<DashboardStaffAvailabilityResponse["staff"]>([]);
+  const [drawerStaffLoading, setDrawerStaffLoading] = useState(false);
+  const [drawerServiceBusy, setDrawerServiceBusy] = useState(false);
+  const [drawerServiceError, setDrawerServiceError] = useState("");
 
   const [walkOpen, setWalkOpen] = useState(false);
   const [walkMode, setWalkMode] = useState<"new" | "existing">("new");
@@ -428,11 +1198,6 @@ export default function DashboardQueuePage() {
   const [addItemsSubmitting, setAddItemsSubmitting] = useState(false);
   const [addItemsError, setAddItemsError] = useState("");
 
-  const [finalizeOpen, setFinalizeOpen] = useState(false);
-  const [finalizeRow, setFinalizeRow] = useState<DashboardQueueEntry | null>(null);
-  const [finalizeSubmitting, setFinalizeSubmitting] = useState(false);
-  const [finalizeError, setFinalizeError] = useState("");
-
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentRow, setPaymentRow] = useState<DashboardQueueEntry | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -442,11 +1207,20 @@ export default function DashboardQueuePage() {
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState("");
 
+  const [discountOpen, setDiscountOpen] = useState(false);
+  const [discountRow, setDiscountRow] = useState<DashboardQueueEntry | null>(null);
+  const [discountDetail, setDiscountDetail] = useState<DashboardBookingDetail | null>(null);
+  const [discountDetailLoading, setDiscountDetailLoading] = useState(false);
+  const [discountType, setDiscountType] = useState<"flat" | "percentage">("flat");
+  const [discountValue, setDiscountValue] = useState("");
+  const [discountReason, setDiscountReason] = useState("");
+  const [discountSubmitting, setDiscountSubmitting] = useState(false);
+  const [discountError, setDiscountError] = useState("");
+
   const [startVisitOpen, setStartVisitOpen] = useState(false);
   const [startVisitEntryId, setStartVisitEntryId] = useState("");
   const [startVisitBranchId, setStartVisitBranchId] = useState("");
   const [startVisitBooking, setStartVisitBooking] = useState<DashboardBookingDetail | null>(null);
-  const [startVisitLoading, setStartVisitLoading] = useState(false);
   const [startVisitAvailLoading, setStartVisitAvailLoading] = useState(false);
   const [startVisitSelections, setStartVisitSelections] = useState<Record<string, string>>({});
   const [startVisitChosenItemId, setStartVisitChosenItemId] = useState("");
@@ -498,12 +1272,6 @@ export default function DashboardQueuePage() {
       });
   }
 
-  function openFinalizeInvoiceModal(row: DashboardQueueEntry) {
-    setFinalizeRow(row);
-    setFinalizeError("");
-    setFinalizeOpen(true);
-  }
-
   function openCollectPaymentModal(row: DashboardQueueEntry) {
     setPaymentRow(row);
     setPaymentAmount(String(row.invoiceSummary?.remainingAmount ?? 0));
@@ -512,6 +1280,32 @@ export default function DashboardQueuePage() {
     setPaymentNotes("");
     setPaymentError("");
     setPaymentOpen(true);
+  }
+
+  function openDiscountModal(row: DashboardQueueEntry) {
+    setDiscountRow(row);
+    setDiscountDetail(row.bookingId ? detailCache[row.bookingId] ?? null : null);
+    setDiscountType("flat");
+    setDiscountValue("");
+    setDiscountReason("");
+    setDiscountError("");
+    setDiscountDetailLoading(false);
+    setDiscountOpen(true);
+    if (!token || !row.bookingId || detailCache[row.bookingId]) {
+      return;
+    }
+    setDiscountDetailLoading(true);
+    void getDashboardBookingById(token, row.bookingId)
+      .then((booking) => {
+        setDiscountDetail(booking);
+        setDetailCache((prev) => ({ ...prev, [booking.id]: booking }));
+      })
+      .catch(() => {
+        setDiscountDetail(null);
+      })
+      .finally(() => {
+        setDiscountDetailLoading(false);
+      });
   }
 
   const canAccessMultipleBranches = useMemo(
@@ -529,19 +1323,33 @@ export default function DashboardQueuePage() {
     setLoading(true);
     setError("");
     try {
-      const res = await getDashboardQueue(token, {
+      const [res, bookingsRes] = await Promise.all([
+        getDashboardQueue(token, {
         date,
         branchId: branchId || undefined,
-      });
+        }),
+        getDashboardBookings(token, {
+          dateFrom: date,
+          dateTo: date,
+          branchId: branchId || undefined,
+          pageSize: 100,
+        }),
+      ]);
       setRows(res.data);
       setMetaDate(res.meta.date);
+      setExpectedBookings(
+        bookingsRes.data.filter((booking) =>
+          ["CONFIRMED", "RESCHEDULED", "ARRIVED"].includes(booking.status),
+        ),
+      );
     } catch (requestError) {
       setError(formatApiError(requestError));
       setRows([]);
+      setExpectedBookings([]);
     } finally {
       setLoading(false);
     }
-  }, [branchId, canAccessMultipleBranches, date, token]);
+  }, [branchId, date, token]);
 
   useEffect(() => {
     if (!token || !canReadBranches) {
@@ -632,9 +1440,201 @@ export default function DashboardQueuePage() {
     return () => window.clearTimeout(timer);
   }, [walkOpen, walkMode, clientSearch, token, canManageQueue]);
 
-  const waiting = useMemo(() => rows.filter((r) => r.status === "WAITING"), [rows]);
-  const inService = useMemo(() => rows.filter((r) => r.status === "IN_SERVICE"), [rows]);
-  const completed = useMemo(() => rows.filter((r) => r.status === "COMPLETED"), [rows]);
+  const checkedInBookingIds = useMemo(
+    () => new Set(rows.map((row) => row.bookingId).filter((id): id is string => Boolean(id))),
+    [rows],
+  );
+  const searchNeedle = search.trim().toLowerCase();
+  const matchesQueueSearch = useCallback(
+    (row: DashboardQueueEntry) => {
+      if (!searchNeedle) return true;
+      return [
+        row.clientNameSnapshot,
+        row.clientPhoneSnapshot,
+        row.bookingId ? formatBookingRef(row.bookingId) : "",
+        row.invoiceSummary?.invoiceNumber ?? "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(searchNeedle);
+    },
+    [searchNeedle],
+  );
+  const matchesBookingSearch = useCallback(
+    (booking: DashboardBookingsListItem) => {
+      if (!searchNeedle) return true;
+      return [
+        booking.client?.fullName ?? "",
+        booking.client?.phone ?? "",
+        formatBookingRef(booking.id),
+        booking.servicesSummary ?? "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(searchNeedle);
+    },
+    [searchNeedle],
+  );
+  const expected = useMemo(
+    () =>
+      expectedBookings
+        .filter((booking) => !checkedInBookingIds.has(booking.id))
+        .filter(matchesBookingSearch)
+        .sort((a, b) => (a.slot?.startTime ?? "").localeCompare(b.slot?.startTime ?? "")),
+    [checkedInBookingIds, expectedBookings, matchesBookingSearch],
+  );
+  const waiting = useMemo(
+    () => rows.filter((r) => r.status === "WAITING").filter(matchesQueueSearch),
+    [matchesQueueSearch, rows],
+  );
+  const readyToPay = useMemo(
+    () =>
+      rows
+        .filter((r) => r.status === "IN_SERVICE")
+        .filter((r) => Boolean(r.invoiceSummary))
+        .filter(matchesQueueSearch),
+    [matchesQueueSearch, rows],
+  );
+  const inService = useMemo(
+    () =>
+      rows
+        .filter((r) => r.status === "IN_SERVICE")
+        .filter((r) => !r.invoiceSummary)
+        .filter(matchesQueueSearch),
+    [matchesQueueSearch, rows],
+  );
+  const completed = useMemo(
+    () => rows.filter((r) => r.status === "COMPLETED").filter(matchesQueueSearch),
+    [matchesQueueSearch, rows],
+  );
+  const revenueToday = useMemo(
+    () =>
+      rows.reduce((sum, row) => {
+        if (row.invoiceSummary?.paymentStatus === "PAID" || row.paymentSummary?.isPaid) {
+          return sum + (row.invoiceSummary?.paidAmount ?? 0);
+        }
+        return sum;
+      }, 0),
+    [rows],
+  );
+
+  async function openQueueDetails(row: DashboardQueueEntry): Promise<void> {
+    setSelectedQueueRow(row);
+    setSelectedBookingId(row.bookingId ?? "");
+    setDetailOpen(true);
+    setDetailError("");
+    if (!token || !row.bookingId) {
+      setSelectedBooking(null);
+      return;
+    }
+    if (detailCache[row.bookingId]) {
+      setSelectedBooking(detailCache[row.bookingId]);
+      return;
+    }
+    setDetailLoading(true);
+    try {
+      const detail = await getDashboardBookingById(token, row.bookingId);
+      setDetailCache((prev) => ({ ...prev, [detail.id]: detail }));
+      setSelectedBooking(detail);
+    } catch (requestError) {
+      setDetailError(formatApiError(requestError));
+      setSelectedBooking(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  async function openBookingDetails(booking: DashboardBookingsListItem): Promise<void> {
+    setSelectedQueueRow(null);
+    setSelectedBookingId(booking.id);
+    setDetailOpen(true);
+    setDetailError("");
+    if (!token) return;
+    if (detailCache[booking.id]) {
+      setSelectedBooking(detailCache[booking.id]);
+      return;
+    }
+    setDetailLoading(true);
+    try {
+      const detail = await getDashboardBookingById(token, booking.id);
+      setDetailCache((prev) => ({ ...prev, [detail.id]: detail }));
+      setSelectedBooking(detail);
+    } catch (requestError) {
+      setDetailError(formatApiError(requestError));
+      setSelectedBooking(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  async function openDrawerStartService(item: DashboardBookingDetail["items"][number]): Promise<void> {
+    if (!token || !selectedBooking || !selectedQueueRow || !item.catalogServiceId) return;
+    setDrawerServiceItem(item);
+    setDrawerServiceStaff("");
+    setDrawerStaffOptions([]);
+    setDrawerServiceError("");
+    setDrawerStaffLoading(true);
+    try {
+      const res = await getDashboardStaffAvailability(token, {
+        branchId: selectedQueueRow.branchId,
+        serviceId: item.catalogServiceId,
+        date: selectedBooking.slot?.date ?? date,
+      });
+      setDrawerStaffOptions(res.staff);
+      setDrawerServiceStaff(
+        res.staff.find((staff) => staff.status === "AVAILABLE")?.staffProfileId ??
+          res.staff[0]?.staffProfileId ??
+          "",
+      );
+    } catch (requestError) {
+      setDrawerServiceError(formatApiError(requestError));
+    } finally {
+      setDrawerStaffLoading(false);
+    }
+  }
+
+  async function submitDrawerStartService(): Promise<void> {
+    if (!token || !selectedBooking || !drawerServiceItem) return;
+    if (!drawerServiceStaff) {
+      setDrawerServiceError("Choose a staff member before starting this service.");
+      return;
+    }
+    setDrawerServiceBusy(true);
+    setDrawerServiceError("");
+    try {
+      const updated = await postDashboardBookingServiceItemStart(
+        token,
+        selectedBooking.id,
+        drawerServiceItem.id,
+        { staffProfileId: drawerServiceStaff },
+      );
+      setDetailCache((prev) => ({ ...prev, [updated.id]: updated }));
+      setSelectedBooking(updated);
+      setDrawerServiceItem(null);
+      setDrawerServiceStaff("");
+      await loadQueue();
+    } catch (requestError) {
+      setDrawerServiceError(formatApiError(requestError));
+    } finally {
+      setDrawerServiceBusy(false);
+    }
+  }
+
+  async function completeDrawerService(item: DashboardBookingDetail["items"][number]): Promise<void> {
+    if (!token || !selectedBooking) return;
+    setDrawerServiceBusy(true);
+    setDrawerServiceError("");
+    try {
+      const updated = await postDashboardBookingServiceItemComplete(token, selectedBooking.id, item.id);
+      setDetailCache((prev) => ({ ...prev, [updated.id]: updated }));
+      setSelectedBooking(updated);
+      await loadQueue();
+    } catch (requestError) {
+      setDrawerServiceError(formatApiError(requestError));
+    } finally {
+      setDrawerServiceBusy(false);
+    }
+  }
 
   async function prepareStartVisit(id: string): Promise<void> {
     if (!token) {
@@ -645,7 +1645,6 @@ export default function DashboardQueuePage() {
       setError("This queue row is not linked to a booking.");
       return;
     }
-    setStartVisitLoading(true);
     setStartVisitError("");
     try {
       const booking = await getDashboardBookingById(token, row.bookingId);
@@ -665,8 +1664,6 @@ export default function DashboardQueuePage() {
       setStartVisitOpen(true);
     } catch (requestError) {
       setError(formatApiError(requestError));
-    } finally {
-      setStartVisitLoading(false);
     }
   }
 
@@ -728,6 +1725,54 @@ export default function DashboardQueuePage() {
     try {
       await postDashboardQueueEntryAction(token, id, action);
       await loadQueue();
+    } catch (requestError) {
+      setError(formatApiError(requestError));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runBookingAction(
+    booking: DashboardBookingsListItem,
+    action: "check-in" | "cancel" | "mark-no-show",
+  ): Promise<void> {
+    if (!token) return;
+    setBookingBusyId(booking.id);
+    setError("");
+    try {
+      if (action === "check-in") {
+        await postDashboardBookingQueueCheckIn(token, booking.id);
+      } else {
+        await postDashboardBookingAction(token, booking.id, action);
+      }
+      await loadQueue();
+    } catch (requestError) {
+      setError(formatApiError(requestError));
+    } finally {
+      setBookingBusyId(null);
+    }
+  }
+
+  async function finishService(row: DashboardQueueEntry): Promise<void> {
+    if (!token || !row.bookingId) return;
+    setBusyId(row.id);
+    setError("");
+    try {
+      const detail = detailCache[row.bookingId] ?? (await getDashboardBookingById(token, row.bookingId));
+      setDetailCache((prev) => ({ ...prev, [detail.id]: detail }));
+      const activeLines = collectInProgressServiceLines(detail);
+      for (const line of activeLines) {
+        await postDashboardBookingServiceItemComplete(token, detail.id, line.id);
+      }
+      if (!row.hasFinalizedInvoice) {
+        await postDashboardQueueInvoiceFinalize(token, row.id);
+      }
+      await loadQueue();
+      const refreshed = await getDashboardBookingById(token, row.bookingId);
+      setDetailCache((prev) => ({ ...prev, [refreshed.id]: refreshed }));
+      if (selectedBookingId === row.bookingId) {
+        setSelectedBooking(refreshed);
+      }
     } catch (requestError) {
       setError(formatApiError(requestError));
     } finally {
@@ -807,31 +1852,28 @@ export default function DashboardQueuePage() {
       await postDashboardQueueEntryAppendBookingItems(token, addItemsEntryId, {
         items: built.items,
       });
+      const bookingIdToRefresh = addItemsBookingId;
       setAddItemsOpen(false);
       setAddItemsEntryId("");
       setAddItemsBookingId("");
       setAddItemsDetail(null);
+      if (bookingIdToRefresh) {
+        setDetailCache((prev) => {
+          const next = { ...prev };
+          delete next[bookingIdToRefresh];
+          return next;
+        });
+        if (selectedBookingId === bookingIdToRefresh) {
+          const refreshedBooking = await getDashboardBookingById(token, bookingIdToRefresh);
+          setDetailCache((prev) => ({ ...prev, [refreshedBooking.id]: refreshedBooking }));
+          setSelectedBooking(refreshedBooking);
+        }
+      }
       await loadQueue();
     } catch (requestError) {
       setAddItemsError(formatApiError(requestError));
     } finally {
       setAddItemsSubmitting(false);
-    }
-  }
-
-  async function submitFinalizeInvoice(): Promise<void> {
-    if (!token || !finalizeRow) return;
-    setFinalizeSubmitting(true);
-    setFinalizeError("");
-    try {
-      await postDashboardQueueInvoiceFinalize(token, finalizeRow.id);
-      setFinalizeOpen(false);
-      setFinalizeRow(null);
-      await loadQueue();
-    } catch (requestError) {
-      setFinalizeError(formatApiError(requestError));
-    } finally {
-      setFinalizeSubmitting(false);
     }
   }
 
@@ -861,25 +1903,116 @@ export default function DashboardQueuePage() {
     }
   }
 
+  async function submitDiscount(): Promise<void> {
+    if (!token || !discountRow?.bookingId) return;
+    const rawValue = Number(discountValue);
+    const reason = discountReason.trim();
+    if (!Number.isFinite(rawValue) || rawValue <= 0) {
+      setDiscountError("Enter a valid discount value.");
+      return;
+    }
+    if (!reason) {
+      setDiscountError("Enter the discount reason.");
+      return;
+    }
+
+    const baseAmount =
+      discountDetail?.subtotal ??
+      discountRow.invoiceSummary?.totalAmount ??
+      discountRow.bookingSummary?.totalAmount ??
+      0;
+    if (baseAmount <= 0) {
+      setDiscountError("This visit has no billable total to discount.");
+      return;
+    }
+    if (discountType === "percentage" && rawValue > 100) {
+      setDiscountError("Percentage discount cannot be more than 100%.");
+      return;
+    }
+
+    const discountAmount =
+      discountType === "percentage"
+        ? Number(((baseAmount * rawValue) / 100).toFixed(2))
+        : Number(rawValue.toFixed(2));
+    if (discountAmount <= 0) {
+      setDiscountError("Enter a valid discount value.");
+      return;
+    }
+    if (discountAmount > baseAmount) {
+      setDiscountError(`Discount cannot exceed ${formatEGP(baseAmount)}.`);
+      return;
+    }
+
+    setDiscountSubmitting(true);
+    setDiscountError("");
+    try {
+      await postDashboardBookingAction(token, discountRow.bookingId, "discount", {
+        discountAmount,
+        reason,
+      });
+      const bookingIdToRefresh = discountRow.bookingId;
+      setDiscountOpen(false);
+      setDiscountRow(null);
+      setDiscountDetail(null);
+      setDetailCache((prev) => {
+        const next = { ...prev };
+        delete next[bookingIdToRefresh];
+        return next;
+      });
+      if (selectedBookingId === bookingIdToRefresh) {
+        const refreshedBooking = await getDashboardBookingById(token, bookingIdToRefresh);
+        setDetailCache((prev) => ({ ...prev, [refreshedBooking.id]: refreshedBooking }));
+        setSelectedBooking(refreshedBooking);
+      }
+      await loadQueue();
+    } catch (requestError) {
+      setDiscountError(formatApiError(requestError));
+    } finally {
+      setDiscountSubmitting(false);
+    }
+  }
+
+  function renderQueueCard(row: DashboardQueueEntry, stage: Exclude<QueueStageKey, "expected">) {
+    const detail = row.bookingId ? detailCache[row.bookingId] : null;
+    return (
+      <CommandQueueCard
+        key={row.id}
+        row={row}
+        stage={stage}
+        detail={detail}
+        canManageQueue={canManageQueue}
+        canProgressVisit={canProgressVisit}
+        canAddItems={canAddQueueItems}
+        onStart={(id) => void runAction(id, "start")}
+        onFinishService={(r) => void finishService(r)}
+        onComplete={(id) => void runAction(id, "complete")}
+        onCancel={(id) => void runAction(id, "cancel")}
+        onAddItems={(r) => openAddItemsModal(r)}
+        onCollectPayment={(r) => openCollectPaymentModal(r)}
+        onDiscount={(r) => openDiscountModal(r)}
+        onOpenDetails={(r) => void openQueueDetails(r)}
+        busyId={busyId}
+        startVisitModalOpen={startVisitOpen}
+      />
+    );
+  }
+
   return (
     <PermissionGuard permission="queue.read">
       <div className="min-h-[calc(100vh-4rem)] bg-[#FBF8F2] px-4 py-8 text-[#1F2420] sm:px-6 lg:px-10">
-        <div className="mx-auto max-w-[1400px] space-y-8">
+        <div className="mx-auto max-w-[1800px] space-y-6">
           <header className="flex flex-col gap-4 border-b border-[#E8E0D4]/80 pb-6 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex items-start gap-3">
               <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#062A2D] text-[#F6F2EA] shadow-lg shadow-[#062A2D]/15">
                 <ClipboardList className="h-5 w-5" strokeWidth={1.75} aria-hidden />
               </span>
               <div>
-                <h1 className="text-2xl font-semibold tracking-tight text-[#062A2D]">Queue</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-[#062A2D]">
+                  Receptionist Command Center
+                </h1>
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-[#7A6A58]">
-                  Live operational board for walk-ins and booking check-ins. Completed visits shown for{" "}
+                  Daily client flow for expected bookings, walk-ins, active service, payment, receipts, and completed visits for{" "}
                   <span className="font-medium text-[#4A3C2F]">{metaDate || date}</span>
-                  {waiting.length + inService.length > 0 ? (
-                    <span className="block text-xs text-[#B5A896]">
-                      Open visits may span earlier check-ins until completed or cancelled.
-                    </span>
-                  ) : null}
                 </p>
               </div>
             </div>
@@ -891,13 +2024,14 @@ export default function DashboardQueuePage() {
                   className="inline-flex items-center gap-2 rounded-xl bg-[#B9974A] px-4 py-2.5 text-sm font-semibold text-[#1F1810] shadow-sm transition hover:bg-[#c9a855]"
                 >
                   <Plus className="h-4 w-4" aria-hidden />
-                  Walk-in
+                  Add Walk-in
                 </button>
               ) : null}
             </div>
           </header>
 
-          <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
+          <div className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
+            <div className="flex flex-wrap items-end gap-4">
             {canAccessMultipleBranches ? (
               <label className="flex min-w-[200px] flex-1 flex-col gap-1 text-xs font-medium text-[#7A6A58]">
                 Branch
@@ -926,14 +2060,56 @@ export default function DashboardQueuePage() {
               </div>
             )}
             <label className="flex min-w-[160px] flex-col gap-1 text-xs font-medium text-[#7A6A58]">
-              Day (completed column)
+              Selected date
+              <span className="flex items-center gap-2 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2">
+                <CalendarDays className="h-4 w-4 text-[#B9974A]" aria-hidden />
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-[#B9974A]/50"
+                  className="w-full bg-transparent text-sm font-medium text-[#1F2420] outline-none"
               />
+              </span>
             </label>
+              <label className="flex min-w-[240px] flex-[1.4] flex-col gap-1 text-xs font-medium text-[#7A6A58]">
+                Search
+                <span className="flex items-center gap-2 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2">
+                  <Search className="h-4 w-4 text-[#B9974A]" aria-hidden />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Name, phone, booking code, invoice"
+                    className="w-full bg-transparent text-sm font-medium text-[#1F2420] outline-none placeholder:text-[#B5A896]"
+                  />
+                </span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {canWalkIn ? (
+                  <button
+                    type="button"
+                    onClick={() => openWalkInModal()}
+                    className="rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA] shadow-sm transition hover:bg-[#0A3F35]"
+                  >
+                    Add Walk-in
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-4 py-2 text-sm font-semibold text-[#062A2D] shadow-sm transition hover:border-[#B9974A]/45"
+                >
+                  Check-in Booking
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
+              <Metric label="Expected" value={expected.length} />
+              <Metric label="Waiting" value={waiting.length} />
+              <Metric label="In Service" value={inService.length} />
+              <Metric label="Ready to Pay" value={readyToPay.length} />
+              <Metric label="Completed" value={completed.length} />
+              <Metric label="Revenue Today" value={formatEGP(revenueToday)} />
+            </div>
           </div>
 
           {error ? (
@@ -943,104 +2119,123 @@ export default function DashboardQueuePage() {
             </p>
           ) : null}
 
+          <div className="lg:hidden">
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {(["waiting", "inService", "readyToPay", "completed"] as QueueStageKey[]).map((stage) => (
+                <button
+                  key={stage}
+                  type="button"
+                  onClick={() => setActiveStage(stage)}
+                  className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold ${
+                    activeStage === stage
+                      ? "border-[#062A2D] bg-[#062A2D] text-white"
+                      : "border-[#E8E0D4] bg-white text-[#5E574C]"
+                  }`}
+                >
+                  {STAGE_META[stage].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {loading ? (
             <div className="flex justify-center py-20">
               <Loader2 className="h-8 w-8 animate-spin text-[#B9974A]" aria-label="Loading" />
             </div>
           ) : (
-            <div className="grid gap-6 lg:grid-cols-3">
+            <div className="space-y-5">
               <section className="space-y-3">
-                <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#B9974A]/85">
-                  <span className="h-2 w-2 rounded-full bg-amber-400" aria-hidden />
-                  Waiting ({waiting.length})
-                </h2>
-                <div className="space-y-3">
-                  {waiting.length === 0 ? (
-                    <EmptyColumn />
-                  ) : (
-                    waiting.map((row) => (
-                      <QueueCard
-                        key={row.id}
-                        row={row}
-                        canManageQueue={canManageQueue}
-                        canProgressVisit={canProgressVisit}
-                        canAddItems={canAddQueueItems}
-                        onStart={(id) => void runAction(id, "start")}
-                        onComplete={(id) => void runAction(id, "complete")}
-                        onCancel={(id) => void runAction(id, "cancel")}
-                        onAddItems={(r) => openAddItemsModal(r)}
-                        onFinalizeInvoice={(r) => openFinalizeInvoiceModal(r)}
-                        onCollectPayment={(r) => openCollectPaymentModal(r)}
-                        busyId={busyId}
-                        startVisitModalOpen={startVisitOpen}
-                      />
-                    ))
-                  )}
+                <div className={`rounded-2xl border px-3 py-3 ${STAGE_META.expected.tone}`}>
+                  <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#5E574C]">
+                    <span className={`h-2 w-2 rounded-full ${STAGE_META.expected.dot}`} aria-hidden />
+                    Expected Today ({expected.length})
+                  </h2>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-2">
+                {expected.length === 0 ? (
+                  <EmptyColumn label="No unchecked bookings" />
+                ) : (
+                  expected.map((booking) => (
+                    <div key={booking.id} className="w-[17.5rem] shrink-0">
+                    <ExpectedBookingCard
+                      booking={booking}
+                      busy={bookingBusyId === booking.id}
+                      canCheckIn={canManageQueue && canProgressVisit}
+                      onCheckIn={(b) => void runBookingAction(b, "check-in")}
+                      onOpenDetails={(b) => void openBookingDetails(b)}
+                      onCancel={(b) => void runBookingAction(b, "cancel")}
+                      onNoShow={(b) => void runBookingAction(b, "mark-no-show")}
+                    />
+                    </div>
+                  ))
+                )}
                 </div>
               </section>
-
-              <section className="space-y-3">
-                <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#B9974A]/85">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
-                  In service ({inService.length})
-                </h2>
-                <div className="space-y-3">
-                  {inService.length === 0 ? (
-                    <EmptyColumn />
-                  ) : (
-                    inService.map((row) => (
-                      <QueueCard
-                        key={row.id}
-                        row={row}
-                        canManageQueue={canManageQueue}
-                        canProgressVisit={canProgressVisit}
-                        canAddItems={canAddQueueItems}
-                        onStart={(id) => void runAction(id, "start")}
-                        onComplete={(id) => void runAction(id, "complete")}
-                        onCancel={(id) => void runAction(id, "cancel")}
-                        onAddItems={(r) => openAddItemsModal(r)}
-                        onFinalizeInvoice={(r) => openFinalizeInvoiceModal(r)}
-                        onCollectPayment={(r) => openCollectPaymentModal(r)}
-                        busyId={busyId}
-                        startVisitModalOpen={startVisitOpen}
-                      />
-                    ))
-                  )}
-                </div>
+              <div className="grid gap-4 lg:grid-cols-4">
+              <StageSection stage="waiting" count={waiting.length} activeStage={activeStage}>
+                {waiting.length === 0 ? <EmptyColumn /> : waiting.map((row) => renderQueueCard(row, "waiting"))}
+              </StageSection>
+              <StageSection stage="inService" count={inService.length} activeStage={activeStage}>
+                {inService.length === 0 ? <EmptyColumn /> : inService.map((row) => renderQueueCard(row, "inService"))}
+              </StageSection>
+              <StageSection stage="readyToPay" count={readyToPay.length} activeStage={activeStage}>
+                {readyToPay.length === 0 ? <EmptyColumn label="No visits waiting for payment" /> : readyToPay.map((row) => renderQueueCard(row, "readyToPay"))}
+              </StageSection>
+              <section className={`${activeStage === "completed" ? "block" : "hidden"} space-y-3 lg:block`}>
+                <button
+                  type="button"
+                  onClick={() => setCompletedCollapsed((v) => !v)}
+                  className={`flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left ${STAGE_META.completed.tone}`}
+                >
+                  <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#5E574C]">
+                    <span className={`h-2 w-2 rounded-full ${STAGE_META.completed.dot}`} aria-hidden />
+                    Completed ({completed.length})
+                  </span>
+                  <ChevronDown className={`h-4 w-4 text-[#7A6A58] transition ${completedCollapsed ? "" : "rotate-180"}`} aria-hidden />
+                </button>
+                {!completedCollapsed || activeStage === "completed" ? (
+                  <div className="space-y-3">
+                    {completed.length === 0 ? <EmptyColumn /> : completed.map((row) => renderQueueCard(row, "completed"))}
+                  </div>
+                ) : null}
               </section>
-
-              <section className="space-y-3">
-                <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#B9974A]/85">
-                  <span className="h-2 w-2 rounded-full bg-[#062A2D]" aria-hidden />
-                  Completed today ({completed.length})
-                </h2>
-                <div className="space-y-3">
-                  {completed.length === 0 ? (
-                    <EmptyColumn />
-                  ) : (
-                    completed.map((row) => (
-                      <QueueCard
-                        key={row.id}
-                        row={row}
-                        canManageQueue={false}
-                        canProgressVisit={false}
-                        canAddItems={false}
-                        onStart={() => {}}
-                        onComplete={() => {}}
-                        onCancel={() => {}}
-                        onAddItems={() => {}}
-                        onFinalizeInvoice={() => {}}
-                        onCollectPayment={() => {}}
-                        busyId={busyId}
-                        startVisitModalOpen={false}
-                      />
-                    ))
-                  )}
-                </div>
-              </section>
+              </div>
             </div>
           )}
         </div>
+
+        <QueueDetailsDrawer
+          open={detailOpen}
+          row={selectedQueueRow}
+          booking={selectedBooking}
+          bookingId={selectedBookingId}
+          loading={detailLoading}
+          error={detailError}
+          serviceStartItem={drawerServiceItem}
+          staffOptions={drawerStaffOptions}
+          selectedStaffId={drawerServiceStaff}
+          staffLoading={drawerStaffLoading}
+          serviceBusy={drawerServiceBusy}
+          serviceError={drawerServiceError}
+          onSelectedStaffChange={setDrawerServiceStaff}
+          onStartService={(item) => void openDrawerStartService(item)}
+          onSubmitStartService={() => void submitDrawerStartService()}
+          onCancelStartService={() => {
+            setDrawerServiceItem(null);
+            setDrawerServiceError("");
+            setDrawerServiceStaff("");
+          }}
+          onCompleteService={(item) => void completeDrawerService(item)}
+          onClose={() => {
+            setDetailOpen(false);
+            setSelectedQueueRow(null);
+            setSelectedBookingId("");
+            setSelectedBooking(null);
+            setDetailError("");
+            setDrawerServiceItem(null);
+            setDrawerServiceError("");
+          }}
+        />
 
         {walkOpen ? (
           <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
@@ -1458,47 +2653,6 @@ export default function DashboardQueuePage() {
           </div>
         ) : null}
 
-        {finalizeOpen && finalizeRow ? (
-          <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-4 sm:items-center">
-            <div className="w-full max-w-md rounded-3xl border border-[#E8E0D4] bg-[#FFFCF7] p-6 shadow-2xl">
-              <h2 className="text-lg font-semibold text-[#062A2D]">Generate invoice</h2>
-              <p className="mt-2 text-xs text-[#7A6A58]">
-                After finalizing the invoice, services can no longer be edited for this visit.
-              </p>
-              {finalizeRow.bookingSummary != null && finalizeRow.bookingSummary.totalAmount !== null ? (
-                <p className="mt-2 text-sm text-[#1F2420]">
-                  Booking total: <span className="font-semibold">{formatEGP(finalizeRow.bookingSummary.totalAmount)}</span>
-                </p>
-              ) : null}
-              {finalizeError ? (
-                <p className="mt-3 rounded-xl border border-[#E7B9A4]/70 bg-[#FFF1EC] px-3 py-2 text-xs text-[#8B4428]">
-                  {finalizeError}
-                </p>
-              ) : null}
-              <div className="mt-5 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFinalizeOpen(false);
-                    setFinalizeRow(null);
-                  }}
-                  className="rounded-xl border border-[#E8E0D4] bg-white px-4 py-2 text-sm font-semibold text-[#1F2420]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={finalizeSubmitting}
-                  onClick={() => void submitFinalizeInvoice()}
-                  className="rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA] disabled:opacity-50"
-                >
-                  {finalizeSubmitting ? "Generating..." : "Generate Invoice"}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         {paymentOpen && paymentRow ? (
           <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-4 sm:items-center">
             <div className="w-full max-w-md rounded-3xl border border-[#E8E0D4] bg-[#FFFCF7] p-6 shadow-2xl">
@@ -1578,15 +2732,86 @@ export default function DashboardQueuePage() {
             </div>
           </div>
         ) : null}
+
+        {discountOpen && discountRow ? (
+          <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-4 sm:items-center">
+            <div className="w-full max-w-md rounded-3xl border border-[#E8E0D4] bg-[#FFFCF7] p-6 shadow-2xl">
+              <h2 className="text-lg font-semibold text-[#062A2D]">Make discount</h2>
+              <p className="mt-1 text-xs text-[#7A6A58]">
+                Current invoice total: {formatEGP(discountRow.invoiceSummary?.totalAmount ?? 0)}
+              </p>
+              {discountDetailLoading ? (
+                <p className="mt-3 flex items-center gap-2 text-xs text-[#7A6A58]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  Loading booking totals...
+                </p>
+              ) : null}
+              <div className="mt-4 space-y-3">
+                <label className="block text-xs font-medium text-[#7A6A58]">
+                  Discount type
+                  <select
+                    value={discountType}
+                    onChange={(event) => setDiscountType(event.target.value as "flat" | "percentage")}
+                    className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="flat">Flat amount</option>
+                    <option value="percentage">Percentage</option>
+                  </select>
+                </label>
+                <label className="block text-xs font-medium text-[#7A6A58]">
+                  Discount value
+                  <input
+                    type="number"
+                    min="0.01"
+                    max={discountType === "percentage" ? "100" : undefined}
+                    step="0.01"
+                    value={discountValue}
+                    onChange={(event) => setDiscountValue(event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm"
+                    placeholder={discountType === "percentage" ? "10" : "100.00"}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-[#7A6A58]">
+                  Reason
+                  <textarea
+                    rows={3}
+                    value={discountReason}
+                    onChange={(event) => setDiscountReason(event.target.value)}
+                    className="mt-1 w-full resize-none rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm"
+                    placeholder="Manager approval, service recovery, loyalty gesture..."
+                  />
+                </label>
+              </div>
+              {discountError ? (
+                <p className="mt-3 rounded-xl border border-[#E7B9A4]/70 bg-[#FFF1EC] px-3 py-2 text-xs text-[#8B4428]">
+                  {discountError}
+                </p>
+              ) : null}
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDiscountOpen(false);
+                    setDiscountRow(null);
+                    setDiscountDetail(null);
+                  }}
+                  className="rounded-xl border border-[#E8E0D4] bg-white px-4 py-2 text-sm font-semibold text-[#1F2420]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={discountSubmitting || discountDetailLoading}
+                  onClick={() => void submitDiscount()}
+                  className="rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA] disabled:opacity-50"
+                >
+                  {discountSubmitting ? "Applying..." : "Apply Discount"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </PermissionGuard>
-  );
-}
-
-function EmptyColumn() {
-  return (
-    <p className="rounded-2xl border border-dashed border-[#E8E0D4] bg-white/60 px-4 py-8 text-center text-xs text-[#B5A896]">
-      No entries
-    </p>
   );
 }

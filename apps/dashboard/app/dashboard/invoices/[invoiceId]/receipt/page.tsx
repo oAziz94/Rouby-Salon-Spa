@@ -7,7 +7,7 @@ import {
 import { formatDateTimeAmPm } from "@rouby/wall-clock";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { AuthRequired, PermissionGuard } from "@/components/auth-required";
+import { AuthRequired } from "@/components/auth-required";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 
 type ReceiptWidth = 58 | 80;
@@ -34,7 +34,8 @@ export default function DashboardInvoiceReceiptPage() {
   const router = useRouter();
   const params = useParams<{ invoiceId: string }>();
   const searchParams = useSearchParams();
-  const { token } = useDashboardAuth();
+  const { token, hasPermission, status } = useDashboardAuth();
+  const canPrintReceipt = hasPermission("invoices.print") || hasPermission("invoices.read");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -56,7 +57,7 @@ export default function DashboardInvoiceReceiptPage() {
   }, [width]);
 
   useEffect(() => {
-    if (!token || !params.invoiceId) {
+    if (!token || !params.invoiceId || !canPrintReceipt) {
       return;
     }
     let cancelled = false;
@@ -85,7 +86,13 @@ export default function DashboardInvoiceReceiptPage() {
     return () => {
       cancelled = true;
     };
-  }, [params.invoiceId, token]);
+  }, [canPrintReceipt, params.invoiceId, token]);
+
+  useEffect(() => {
+    if (status === "authenticated" && !canPrintReceipt) {
+      router.replace("/dashboard/forbidden");
+    }
+  }, [canPrintReceipt, router, status]);
 
   const shouldAutoPrint = useMemo(() => searchParams.get("print") === "1", [searchParams]);
   useEffect(() => {
@@ -100,7 +107,8 @@ export default function DashboardInvoiceReceiptPage() {
 
   return (
     <AuthRequired>
-      <PermissionGuard permission="invoices.read">
+      {canPrintReceipt ? (
+        <>
         <div className="receipt-page" data-width={String(width)}>
           <div className="no-print actions-wrap">
             <button type="button" className="action-btn" onClick={() => window.print()}>
@@ -381,7 +389,8 @@ export default function DashboardInvoiceReceiptPage() {
             }
           }
         `}</style>
-      </PermissionGuard>
+        </>
+      ) : null}
     </AuthRequired>
   );
 }

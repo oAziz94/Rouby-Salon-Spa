@@ -2087,15 +2087,38 @@ export class BookingsService {
     );
 
     const beforeTotal = Number(booking.totalAmount.toString());
-    await this.prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        discountAmount: totals.discountAmount,
-        vatRate: totals.vatRate,
-        vatAmount: totals.vatAmount,
-        totalAmount: totals.totalAmount,
-        subtotal: totals.subtotal,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          discountAmount: totals.discountAmount,
+          vatRate: totals.vatRate,
+          vatAmount: totals.vatAmount,
+          totalAmount: totals.totalAmount,
+          subtotal: totals.subtotal,
+        },
+      });
+
+      const finalizedInvoice = await tx.invoice.findFirst({
+        where: { bookingId, status: InvoiceStatus.FINALIZED },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, paidAmount: true },
+      });
+      if (finalizedInvoice) {
+        await tx.invoice.update({
+          where: { id: finalizedInvoice.id },
+          data: {
+            subtotal: totals.subtotal,
+            discountAmount: totals.discountAmount,
+            vatRate: totals.vatRate,
+            vatAmount: totals.vatAmount,
+            totalAmount: totals.totalAmount,
+            remainingAmount: decimalMaxZero(
+              totals.totalAmount.minus(finalizedInvoice.paidAmount),
+            ),
+          },
+        });
+      }
     });
     const updated = await this.getDashboardBooking(user, bookingId);
     await this.audit.log({
@@ -2110,6 +2133,7 @@ export class BookingsService {
       newValue: {
         totalAmount: updated.totalAmount,
         discountAmount: updated.discountAmount,
+        reason: body.reason?.trim() || null,
       },
     });
     return updated;

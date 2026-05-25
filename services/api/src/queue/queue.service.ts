@@ -807,11 +807,34 @@ export class QueueService {
       dto.items,
     );
 
-    const refreshed = await this.prisma.queueEntry.findUnique({
+    const refreshed = await this.prisma.queueEntry.update({
       where: { id: queueEntryId },
+      data:
+        entry.status === QueueEntryStatus.IN_SERVICE
+          ? {
+              status: QueueEntryStatus.WAITING,
+              updatedByUserId: user.userId,
+            }
+          : {
+              updatedByUserId: user.userId,
+            },
     });
     if (!refreshed) {
       throw new NotFoundException('Queue entry not found');
+    }
+
+    if (entry.status === QueueEntryStatus.IN_SERVICE) {
+      await this.audit.log({
+        userId: user.userId,
+        action: 'queue.returned_to_waiting_after_items_added',
+        module: 'queue',
+        entityId: queueEntryId,
+        newValue: {
+          queueEntryId,
+          bookingId: entry.bookingId,
+          addedItems: dto.items.length,
+        },
+      });
     }
 
     return {
