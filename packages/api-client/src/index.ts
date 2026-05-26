@@ -780,6 +780,7 @@ export type DashboardBookingDetail = {
   appliedPromoCode?: string | null;
   subtotal: number;
   discountAmount: number;
+  discountReason?: string | null;
   vatRate: number;
   vatAmount: number;
   totalAmount: number;
@@ -1179,6 +1180,7 @@ export type DashboardInvoiceListItem = {
   clientId: string;
   subtotal: number;
   discountAmount: number;
+  discountReason?: string | null;
   vatRate: number;
   vatAmount: number;
   totalAmount: number;

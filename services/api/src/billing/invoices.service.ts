@@ -167,6 +167,7 @@ export class InvoicesService {
           clientId: booking.clientId,
           subtotal: booking.subtotal,
           discountAmount: booking.discountAmount,
+          discountReason: booking.discountReason,
           vatRate: booking.vatRate,
           vatAmount: booking.vatAmount,
           totalAmount: booking.totalAmount,
@@ -308,6 +309,7 @@ export class InvoicesService {
         data: {
           subtotal: booking.subtotal,
           discountAmount: booking.discountAmount,
+          discountReason: booking.discountReason,
           vatRate: booking.vatRate,
           vatAmount: booking.vatAmount,
           totalAmount: booking.totalAmount,
@@ -890,6 +892,7 @@ export class InvoicesService {
     clientId: string;
     subtotal: Prisma.Decimal;
     discountAmount: Prisma.Decimal;
+    discountReason: string | null;
     vatRate: Prisma.Decimal;
     vatAmount: Prisma.Decimal;
     totalAmount: Prisma.Decimal;
@@ -913,6 +916,7 @@ export class InvoicesService {
       clientId: inv.clientId,
       subtotal: Number(inv.subtotal.toString()),
       discountAmount: Number(inv.discountAmount.toString()),
+      discountReason: inv.discountReason,
       vatRate: Number(inv.vatRate.toString()),
       vatAmount: Number(inv.vatAmount.toString()),
       totalAmount: Number(inv.totalAmount.toString()),
@@ -935,6 +939,7 @@ export class InvoicesService {
     clientId: string;
     subtotal: Prisma.Decimal;
     discountAmount: Prisma.Decimal;
+    discountReason: string | null;
     vatRate: Prisma.Decimal;
     vatAmount: Prisma.Decimal;
     totalAmount: Prisma.Decimal;
@@ -988,6 +993,7 @@ export class InvoicesService {
     clientId: string;
     subtotal: Prisma.Decimal;
     discountAmount: Prisma.Decimal;
+    discountReason: string | null;
     vatRate: Prisma.Decimal;
     vatAmount: Prisma.Decimal;
     totalAmount: Prisma.Decimal;

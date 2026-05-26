@@ -2087,11 +2087,13 @@ export class BookingsService {
     );
 
     const beforeTotal = Number(booking.totalAmount.toString());
+    const discountReason = body.reason?.trim() || null;
     await this.prisma.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: bookingId },
         data: {
           discountAmount: totals.discountAmount,
+          discountReason,
           vatRate: totals.vatRate,
           vatAmount: totals.vatAmount,
           totalAmount: totals.totalAmount,
@@ -2110,6 +2112,7 @@ export class BookingsService {
           data: {
             subtotal: totals.subtotal,
             discountAmount: totals.discountAmount,
+            discountReason,
             vatRate: totals.vatRate,
             vatAmount: totals.vatAmount,
             totalAmount: totals.totalAmount,
@@ -2133,7 +2136,7 @@ export class BookingsService {
       newValue: {
         totalAmount: updated.totalAmount,
         discountAmount: updated.discountAmount,
-        reason: body.reason?.trim() || null,
+        reason: discountReason,
       },
     });
     return updated;
@@ -2791,6 +2794,7 @@ export class BookingsService {
     appliedPromoCode: string | null;
     subtotal: Prisma.Decimal;
     discountAmount: Prisma.Decimal;
+    discountReason: string | null;
     vatRate: Prisma.Decimal;
     vatAmount: Prisma.Decimal;
     totalAmount: Prisma.Decimal;
@@ -2862,6 +2866,7 @@ export class BookingsService {
       appliedPromoCode: booking.appliedPromoCode,
       subtotal: Number(booking.subtotal.toString()),
       discountAmount: Number(booking.discountAmount.toString()),
+      discountReason: booking.discountReason,
       vatRate: Number(booking.vatRate.toString()),
       vatAmount: Number(booking.vatAmount.toString()),
       totalAmount: Number(booking.totalAmount.toString()),

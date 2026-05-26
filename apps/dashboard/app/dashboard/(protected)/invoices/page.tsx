@@ -1388,6 +1388,14 @@ export default function DashboardInvoicesPage() {
                           <dt className="text-[#7A6A58]">Discount</dt>
                           <dd className="tabular-nums">{formatEGP(detail.discountAmount)}</dd>
                         </div>
+                        {detail.discountAmount > 0 && detail.discountReason ? (
+                          <div className="rounded-lg border border-[#F0EBE3] bg-[#FFFCF7] px-3 py-2">
+                            <dt className="text-xs font-medium text-[#7A6A58]">Discount reason</dt>
+                            <dd className="mt-1 text-sm leading-relaxed text-[#1F2420]">
+                              {detail.discountReason}
+                            </dd>
+                          </div>
+                        ) : null}
                         <div className="flex justify-between gap-4">
                           <dt className="text-[#7A6A58]">VAT ({(detail.vatRate * 100).toFixed(0)}%)</dt>
                           <dd className="tabular-nums">{formatEGP(detail.vatAmount)}</dd>

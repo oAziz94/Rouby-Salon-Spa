@@ -2,12 +2,14 @@
 
 import {
   getDashboardPackages,
+  getDashboardServiceCategories,
   getDashboardServiceEnhancements,
   getDashboardServiceVariants,
   getDashboardServices,
   type DashboardBookingLineInput,
   type DashboardPackage,
   type DashboardService,
+  type DashboardServiceCategory,
   type DashboardServiceEnhancement,
   type DashboardServiceVariant,
 } from "@rouby/api-client";
@@ -21,6 +23,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { DashboardServicePicker } from "./dashboard-service-picker";
 
 function serviceShowsStaffPricingFields(
   service: DashboardService | undefined,
@@ -106,6 +109,7 @@ export const DashboardServiceVariantLinesBlock = forwardRef<
   const [lineVariantLoading, setLineVariantLoading] = useState<Record<string, boolean>>({});
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [services, setServices] = useState<DashboardService[]>([]);
+  const [categories, setCategories] = useState<DashboardServiceCategory[]>([]);
   const [packages, setPackages] = useState<DashboardPackage[]>([]);
   const [enhancements, setEnhancements] = useState<DashboardServiceEnhancement[]>([]);
 
@@ -395,8 +399,9 @@ export const DashboardServiceVariantLinesBlock = forwardRef<
       return collected;
     };
     void (async () => {
-      const [servicesRes, packagesRes, enhancementsRes] = await Promise.allSettled([
+      const [servicesRes, categoriesRes, packagesRes, enhancementsRes] = await Promise.allSettled([
         fetchAllServices(),
+        getDashboardServiceCategories(token, { isActive: true }),
         fetchAllPackages(),
         fetchAllEnhancements(),
       ]);
@@ -404,6 +409,7 @@ export const DashboardServiceVariantLinesBlock = forwardRef<
         return;
       }
       setServices(servicesRes.status === "fulfilled" ? servicesRes.value : []);
+      setCategories(categoriesRes.status === "fulfilled" ? categoriesRes.value.data : []);
       setPackages(packagesRes.status === "fulfilled" ? packagesRes.value : []);
       setEnhancements(enhancementsRes.status === "fulfilled" ? enhancementsRes.value : []);
       setCatalogLoading(false);
@@ -494,11 +500,12 @@ export const DashboardServiceVariantLinesBlock = forwardRef<
                 </select>
 
                 {kind === "service" ? (
-                  <select
+                  <DashboardServicePicker
+                    services={servicesAtBranch}
+                    categories={categories}
                     value={line.serviceId}
                     disabled={disabled}
-                    onChange={(e) => {
-                      const v = e.target.value;
+                    onChange={(v) => {
                       setLines((prev) =>
                         prev.map((row, i) =>
                           i === index
@@ -514,15 +521,7 @@ export const DashboardServiceVariantLinesBlock = forwardRef<
                       );
                       void refreshVariantsForLine(line.key, v);
                     }}
-                    className="min-w-0 flex-1 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50 disabled:opacity-60"
-                  >
-                    <option value="">Select service</option>
-                    {servicesAtBranch.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 ) : null}
 
                 {kind === "package" ? (

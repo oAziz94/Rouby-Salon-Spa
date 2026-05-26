@@ -4,6 +4,7 @@ import {
   ApiClientError,
   getDashboardClients,
   getDashboardPackages,
+  getDashboardServiceCategories,
   getDashboardServices,
   getDashboardServiceEnhancements,
   getDashboardServiceVariants,
@@ -16,6 +17,7 @@ import {
   type DashboardClient,
   type DashboardPackage,
   type DashboardService,
+  type DashboardServiceCategory,
   type DashboardServiceEnhancement,
   type DashboardServiceVariant,
   type DashboardSlot,
@@ -24,6 +26,7 @@ import { formatWallClockRange12h } from "@rouby/wall-clock";
 import { AlertCircle, Loader2, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { DashboardServicePicker } from "./dashboard-service-picker";
 
 const BOOKING_SOURCES = [
   "PHONE",
@@ -169,6 +172,7 @@ export function DashboardCreateBookingDialog({
   const [lineVariantLoading, setLineVariantLoading] = useState<Record<string, boolean>>({});
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [services, setServices] = useState<DashboardService[]>([]);
+  const [categories, setCategories] = useState<DashboardServiceCategory[]>([]);
   const [packages, setPackages] = useState<DashboardPackage[]>([]);
   const [enhancements, setEnhancements] = useState<DashboardServiceEnhancement[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -372,12 +376,14 @@ export function DashboardCreateBookingDialog({
       }
       return collected;
     };
-    const [servicesRes, packagesRes, enhancementsRes] = await Promise.allSettled([
+    const [servicesRes, categoriesRes, packagesRes, enhancementsRes] = await Promise.allSettled([
       fetchAllServices(),
+      getDashboardServiceCategories(token, { isActive: true }),
       fetchAllPackages(),
       fetchAllEnhancements(),
     ]);
     setServices(servicesRes.status === "fulfilled" ? servicesRes.value : []);
+    setCategories(categoriesRes.status === "fulfilled" ? categoriesRes.value.data : []);
     setPackages(packagesRes.status === "fulfilled" ? packagesRes.value : []);
     setEnhancements(enhancementsRes.status === "fulfilled" ? enhancementsRes.value : []);
     setCatalogLoading(false);
@@ -855,10 +861,11 @@ export function DashboardCreateBookingDialog({
                         </select>
 
                         {line.kind === "service" ? (
-                          <select
+                          <DashboardServicePicker
+                            services={servicesAtBranch}
+                            categories={categories}
                             value={line.serviceId}
-                            onChange={(e) => {
-                              const v = e.target.value;
+                            onChange={(v) => {
                               setLines((prev) =>
                                 prev.map((row, i) =>
                                   i === index
@@ -874,15 +881,7 @@ export function DashboardCreateBookingDialog({
                               );
                               void refreshVariantsForLine(line.key, v);
                             }}
-                            className="min-w-0 flex-1 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50"
-                          >
-                            <option value="">Select service</option>
-                            {servicesAtBranch.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         ) : null}
 
                         {line.kind === "package" ? (

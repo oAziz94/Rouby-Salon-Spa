@@ -23,7 +23,6 @@ import {
 import { cairoTodayYmd, formatDateTimeAmPm, formatWallClock12h, formatWallClockRange12h } from "@rouby/wall-clock";
 import {
   AlertCircle,
-  Building2,
   CalendarClock,
   ChevronRight,
   ClipboardList,
@@ -201,6 +200,16 @@ function listRowClientLabel(row: DashboardBookingsListItem): string {
   return "Unknown client";
 }
 
+const TERMINAL_BOOKING_STATUSES = ["CANCELLED", "REJECTED", "COMPLETED", "NO_SHOW"] as const;
+
+function isTerminalBookingStatus(status: string): boolean {
+  return TERMINAL_BOOKING_STATUSES.includes(status as (typeof TERMINAL_BOOKING_STATUSES)[number]);
+}
+
+function canDirectlyChangeBooking(status: string): boolean {
+  return !isTerminalBookingStatus(status) && status !== "IN_PROGRESS";
+}
+
 type DrawerAction =
   | "confirm"
   | "reject"
@@ -284,6 +293,25 @@ export default function DashboardBookingsPage() {
   const canCreateBooking = hasPermission("bookings.create");
   const canStartServiceLine = hasPermission("bookingServiceItems.start");
   const canCompleteServiceLine = hasPermission("bookingServiceItems.complete");
+
+  const drawerCanRequestDecision = detail?.status === "PENDING";
+  const drawerCanMarkArrived = detail ? ["CONFIRMED", "RESCHEDULED"].includes(detail.status) : false;
+  const drawerCanMarkInProgress = detail ? ["ARRIVED", "CONFIRMED", "RESCHEDULED"].includes(detail.status) : false;
+  const drawerCanMarkNoShow = detail
+    ? ["PENDING", "CONFIRMED", "RESCHEDULED", "ARRIVED"].includes(detail.status)
+    : false;
+  const drawerCanDirectChange = detail ? canDirectlyChangeBooking(detail.status) : false;
+  const drawerCanQueueCheckIn =
+    detail != null &&
+    canQueueManage &&
+    canProgress &&
+    ["CONFIRMED", "RESCHEDULED", "ARRIVED"].includes(detail.status);
+  const drawerHasPrimaryActions =
+    detail != null &&
+    ((canConfirm && drawerCanRequestDecision) ||
+      (canReject && drawerCanRequestDecision) ||
+      (canProgress && (drawerCanMarkArrived || drawerCanMarkInProgress || drawerCanMarkNoShow)) ||
+      drawerCanQueueCheckIn);
 
   const branchNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -1226,6 +1254,82 @@ export default function DashboardBookingsPage() {
                     Close
                   </button>
                 </div>
+                {detail ? (
+                  <div className="mt-4 rounded-2xl border border-[#E8E0D4]/80 bg-[#FFFCF7] p-3">
+                    <div className="grid gap-2 text-xs text-[#5E574C] sm:grid-cols-2">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-[#1F2420]">{detail.client?.fullName ?? "Unknown client"}</p>
+                        <p className="mt-0.5 truncate">{detail.client?.phone ?? "No phone"}</p>
+                      </div>
+                      <div className="min-w-0 sm:text-right">
+                        <p className="font-semibold text-[#1F2420]">{formatAppointmentFromDetail(detail)}</p>
+                        <p className="mt-0.5 truncate">{branchNameById.get(detail.branchId) ?? detail.branchId}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#F0EBE3] pt-3">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A6A58]">Remaining</p>
+                        <p className="text-base font-semibold tabular-nums text-[#8B4428]">
+                          {formatEGP(detail.remainingAmount)}
+                        </p>
+                      </div>
+                      {drawerHasPrimaryActions ? (
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {canConfirm && drawerCanRequestDecision ? (
+                            <button
+                              type="button"
+                              onClick={() => void triggerAction("confirm")}
+                              disabled={actionLoading !== null}
+                              className={primaryActionClass}
+                            >
+                              Confirm
+                            </button>
+                          ) : null}
+                          {drawerCanQueueCheckIn ? (
+                            <button
+                              type="button"
+                              onClick={() => void checkInToQueue()}
+                              disabled={checkInLoading || actionLoading !== null || Boolean(detail.activeQueueEntryId)}
+                              className={secondaryActionClass}
+                            >
+                              {checkInLoading ? "Checking in..." : detail.activeQueueEntryId ? "In queue" : "Check in"}
+                            </button>
+                          ) : null}
+                          {canProgress && drawerCanMarkArrived ? (
+                            <button
+                              type="button"
+                              onClick={() => void triggerAction("mark-arrived")}
+                              disabled={actionLoading !== null}
+                              className={secondaryActionClass}
+                            >
+                              Arrived
+                            </button>
+                          ) : null}
+                          {canProgress && drawerCanMarkInProgress ? (
+                            <button
+                              type="button"
+                              onClick={() => void triggerAction("mark-in-progress")}
+                              disabled={actionLoading !== null}
+                              className={secondaryActionClass}
+                            >
+                              In progress
+                            </button>
+                          ) : null}
+                          {canReject && drawerCanRequestDecision ? (
+                            <button
+                              type="button"
+                              onClick={() => void triggerAction("reject")}
+                              disabled={actionLoading !== null}
+                              className={dangerOutlineClass}
+                            >
+                              Reject
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-5">
@@ -1247,38 +1351,30 @@ export default function DashboardBookingsPage() {
                     <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
                       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
                         <UserRound className="h-4 w-4 text-[#B9974A]" aria-hidden />
-                        Client
+                        Booking summary
                       </div>
-                      <p className="mt-2 text-base font-semibold text-[#1F2420]">
-                        {detail.client?.fullName ?? "—"}
-                      </p>
-                      <div className="mt-2 space-y-1 text-sm text-[#5E574C]">
-                        <p>{detail.client?.phone ? `Phone: ${detail.client.phone}` : "Phone: —"}</p>
-                        <p>{detail.client?.email ? `Email: ${detail.client.email}` : "Email: —"}</p>
+                      <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                        <div className="min-w-0 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
+                          <p className="text-xs font-semibold text-[#7A6A58]">Client</p>
+                          <p className="mt-1 truncate font-semibold text-[#1F2420]">
+                            {detail.client?.fullName ?? "—"}
+                          </p>
+                          <p className="mt-1 truncate text-[#5E574C]">{detail.client?.phone ?? "Phone: —"}</p>
+                          {detail.client?.email ? (
+                            <p className="mt-1 truncate text-xs text-[#7A6A58]">{detail.client.email}</p>
+                          ) : null}
+                        </div>
+                        <div className="min-w-0 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
+                          <p className="text-xs font-semibold text-[#7A6A58]">Appointment</p>
+                          <p className="mt-1 font-semibold text-[#1F2420]">{formatAppointmentFromDetail(detail)}</p>
+                          <p className="mt-1 truncate text-[#5E574C]">
+                            {branchNameById.get(detail.branchId) ?? detail.branchId}
+                          </p>
+                        </div>
                       </div>
-                    </section>
-
-                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
-                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
-                        <CalendarClock className="h-4 w-4 text-[#B9974A]" aria-hidden />
-                        Appointment
-                      </div>
-                      <p className="mt-2 text-sm font-medium text-[#1F2420]">
-                        {formatAppointmentFromDetail(detail)}
-                      </p>
-                      <p className="mt-1 text-xs text-[#7A6A58]">
+                      <p className="mt-3 text-xs text-[#7A6A58]">
                         Created {formatDateTimeAmPm(detail.createdAt)} · Updated{" "}
                         {formatDateTimeAmPm(detail.updatedAt)}
-                      </p>
-                    </section>
-
-                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
-                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
-                        <Building2 className="h-4 w-4 text-[#B9974A]" aria-hidden />
-                        Branch
-                      </div>
-                      <p className="mt-2 text-sm font-medium text-[#1F2420]">
-                        {branchNameById.get(detail.branchId) ?? detail.branchId}
                       </p>
                     </section>
 
@@ -1291,9 +1387,7 @@ export default function DashboardBookingsPage() {
                         <p className="mt-2 text-sm text-[#7A6A58]">No items on this booking.</p>
                       ) : (
                         (() => {
-                          const removeBlockedByStatus = ["CANCELLED", "REJECTED", "COMPLETED", "NO_SHOW"].includes(
-                            detail.status,
-                          );
+                          const removeBlockedByStatus = isTerminalBookingStatus(detail.status);
                           const removeBlockedByInvoice = Boolean(detail.finalizedInvoice);
                           const removeBlockedByLastItem = detail.items.length <= 1;
                           const canRemoveAny =
@@ -1307,7 +1401,7 @@ export default function DashboardBookingsPage() {
                                   const showLineOps =
                                     isBookableServiceLine(item) &&
                                     Boolean(sid) &&
-                                    !["CANCELLED", "REJECTED", "COMPLETED", "NO_SHOW"].includes(detail.status);
+                                    !isTerminalBookingStatus(detail.status);
                                   return (
                                     <li
                                       key={item.id}
@@ -1429,6 +1523,14 @@ export default function DashboardBookingsPage() {
                           <dt className="text-[#7A6A58]">Discount</dt>
                           <dd className="font-medium tabular-nums">{formatEGP(detail.discountAmount)}</dd>
                         </div>
+                        {detail.discountAmount > 0 && detail.discountReason ? (
+                          <div className="rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] px-3 py-2">
+                            <dt className="text-xs font-medium text-[#7A6A58]">Discount reason</dt>
+                            <dd className="mt-1 text-sm leading-relaxed text-[#1F2420]">
+                              {detail.discountReason}
+                            </dd>
+                          </div>
+                        ) : null}
                         <div className="flex justify-between gap-4">
                           <dt className="text-[#7A6A58]">VAT ({(detail.vatRate * 100).toFixed(0)}%)</dt>
                           <dd className="font-medium tabular-nums">{formatEGP(detail.vatAmount)}</dd>
@@ -1491,10 +1593,10 @@ export default function DashboardBookingsPage() {
                       <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
                           <ListTodo className="h-4 w-4 text-[#B9974A]" aria-hidden />
-                          Change request (queue)
+                          Request cancellation / reschedule
                         </div>
                         <p className="mt-1 text-xs leading-relaxed text-[#B5A896]">
-                          Record a pending cancellation or reschedule for this client. It appears on{" "}
+                          Use this when reception needs approval before changing the booking. It appears on{" "}
                           <Link
                             href="/dashboard/booking-change-requests"
                             className="font-semibold text-[#062A2D] underline-offset-2 hover:underline"
@@ -1589,14 +1691,14 @@ export default function DashboardBookingsPage() {
 
                     <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
-                        Lifecycle actions
+                        More actions
                       </h3>
                       <p className="mt-1 text-xs leading-relaxed text-[#B5A896]">
-                        Actions stay the same as before; they are grouped for faster scanning. The API still enforces
-                        valid transitions.
+                        Secondary actions for this booking. The top of the drawer keeps the next most likely action
+                        visible.
                       </p>
 
-                      {canConfirm || canReject ? (
+                      {(canConfirm || canReject) && drawerCanRequestDecision ? (
                         <div className="mt-4 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
                           <p className="text-xs font-semibold text-[#1F2420]">Request handling</p>
                           <div className="mt-2 flex flex-wrap gap-2">
@@ -1615,7 +1717,7 @@ export default function DashboardBookingsPage() {
                                 type="button"
                                 onClick={() => void triggerAction("reject")}
                                 disabled={actionLoading !== null}
-                                className={secondaryActionClass}
+                                className={dangerOutlineClass}
                               >
                                 Reject
                               </button>
@@ -1624,42 +1726,45 @@ export default function DashboardBookingsPage() {
                         </div>
                       ) : null}
 
-                      {canProgress ? (
+                      {canProgress && (drawerCanMarkArrived || drawerCanMarkInProgress || drawerCanMarkNoShow) ? (
                         <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
                           <p className="text-xs font-semibold text-[#1F2420]">Appointment progress</p>
                           <div className="mt-2 flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void triggerAction("mark-arrived")}
-                              disabled={actionLoading !== null}
-                              className={secondaryActionClass}
-                            >
-                              Arrived
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void triggerAction("mark-in-progress")}
-                              disabled={actionLoading !== null}
-                              className={secondaryActionClass}
-                            >
-                              In progress
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void triggerAction("mark-no-show")}
-                              disabled={actionLoading !== null}
-                              className={dangerOutlineClass}
-                            >
-                              No-show
-                            </button>
+                            {drawerCanMarkArrived ? (
+                              <button
+                                type="button"
+                                onClick={() => void triggerAction("mark-arrived")}
+                                disabled={actionLoading !== null}
+                                className={secondaryActionClass}
+                              >
+                                Arrived
+                              </button>
+                            ) : null}
+                            {drawerCanMarkInProgress ? (
+                              <button
+                                type="button"
+                                onClick={() => void triggerAction("mark-in-progress")}
+                                disabled={actionLoading !== null}
+                                className={secondaryActionClass}
+                              >
+                                In progress
+                              </button>
+                            ) : null}
+                            {drawerCanMarkNoShow ? (
+                              <button
+                                type="button"
+                                onClick={() => void triggerAction("mark-no-show")}
+                                disabled={actionLoading !== null}
+                                className={dangerOutlineClass}
+                              >
+                                No-show
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       ) : null}
 
-                      {detail &&
-                      canQueueManage &&
-                      canProgress &&
-                      ["CONFIRMED", "RESCHEDULED", "ARRIVED"].includes(detail.status) ? (
+                      {detail && drawerCanQueueCheckIn ? (
                         <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
                           <p className="text-xs font-semibold text-[#1F2420]">Queue</p>
                           <p className="mt-1 text-[0.7rem] leading-relaxed text-[#B5A896]">
@@ -1692,9 +1797,9 @@ export default function DashboardBookingsPage() {
                         </div>
                       ) : null}
 
-                      {canReschedule || canCancel ? (
+                      {(canReschedule || canCancel) && drawerCanDirectChange ? (
                         <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
-                          <p className="text-xs font-semibold text-[#1F2420]">Changes</p>
+                          <p className="text-xs font-semibold text-[#1F2420]">Apply booking change now</p>
                           {canReschedule ? (
                             <div className="mt-2 space-y-2">
                               <label className="block text-xs font-medium text-[#7A6A58]">New slot</label>
@@ -1716,12 +1821,12 @@ export default function DashboardBookingsPage() {
                                 <button
                                   type="button"
                                   onClick={() => void triggerAction("reschedule")}
-                                  disabled={actionLoading !== null}
+                                  disabled={actionLoading !== null || !rescheduleSlotId}
                                   className={secondaryActionClass}
                                 >
                                   Reschedule
                                 </button>
-                                {canConfirm ? (
+                                {canConfirm && detail.status === "RESCHEDULED" ? (
                                   <button
                                     type="button"
                                     onClick={() => void triggerAction("confirm-reschedule")}
