@@ -845,7 +845,17 @@ export async function buildDashboardOverview(
         where: {
           staffProfileId: { not: null },
           lineStatus: BookingItemLineStatus.IN_PROGRESS,
-          booking: { branchId: { in: branchIdsForOps } },
+          booking: {
+            branchId: { in: branchIdsForOps },
+            status: {
+              notIn: [
+                BookingStatus.CANCELLED,
+                BookingStatus.REJECTED,
+                BookingStatus.COMPLETED,
+                BookingStatus.NO_SHOW,
+              ],
+            },
+          },
         },
         _count: { _all: true },
       });
@@ -881,7 +891,17 @@ export async function buildDashboardOverview(
         where: {
           staffProfileId: { not: null },
           lineStatus: BookingItemLineStatus.IN_PROGRESS,
-          booking: { branchId: { in: branchIdsForOps } },
+          booking: {
+            branchId: { in: branchIdsForOps },
+            status: {
+              notIn: [
+                BookingStatus.CANCELLED,
+                BookingStatus.REJECTED,
+                BookingStatus.COMPLETED,
+                BookingStatus.NO_SHOW,
+              ],
+            },
+          },
         },
         select: { staffProfileId: true, durationMinutesSnapshot: true },
       });

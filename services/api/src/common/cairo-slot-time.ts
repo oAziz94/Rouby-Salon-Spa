@@ -52,7 +52,7 @@ export function getCairoNowCompositeKey(): string {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
   });
   const parts = formatter.formatToParts(new Date());
   const byType = new Map(parts.map((part) => [part.type, part.value]));
@@ -115,7 +115,7 @@ function zonedTimeParts(date: Date, timeZone: string) {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: false,
+    hourCycle: 'h23',
   });
   const parts = fmt.formatToParts(date);
   const pick = (t: Intl.DateTimeFormatPartTypes) =>

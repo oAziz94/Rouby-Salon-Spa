@@ -2579,6 +2579,18 @@ export class BookingsService {
       await this.slots.releaseOneSlotCapacityTx(tx, booking.slotId);
       await this.slots.syncBookingSlotFilledFromCapacityTx(tx, booking.slotId);
     }
+    await tx.bookingItem.updateMany({
+      where: {
+        bookingId: booking.id,
+        lineStatus: {
+          in: [
+            BookingItemLineStatus.PENDING,
+            BookingItemLineStatus.IN_PROGRESS,
+          ],
+        },
+      },
+      data: { lineStatus: BookingItemLineStatus.CANCELLED },
+    });
     await tx.booking.update({
       where: { id: booking.id },
       data: { status: BookingStatus.CANCELLED },

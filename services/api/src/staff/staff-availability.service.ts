@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   BookingItemLineStatus,
+  BookingStatus,
   StaffScheduleExceptionType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -113,6 +114,16 @@ export class StaffAvailabilityService {
       where: {
         staffProfileId,
         lineStatus: BookingItemLineStatus.IN_PROGRESS,
+        booking: {
+          status: {
+            notIn: [
+              BookingStatus.CANCELLED,
+              BookingStatus.REJECTED,
+              BookingStatus.COMPLETED,
+              BookingStatus.NO_SHOW,
+            ],
+          },
+        },
         ...(excludeBookingItemId ? { id: { not: excludeBookingItemId } } : {}),
       },
     });
