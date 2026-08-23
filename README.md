@@ -1,138 +1,185 @@
-# Alrouby Salon & Spa — monorepo
+# Alrouby Salon & Spa
 
-Booking and management system for Alrouby Salon & Spa. Product requirements live in [`docs/SRS.md`](docs/SRS.md). This repository implements the stack described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Alrouby Salon & Spa is a full-stack booking and management platform for a salon and spa business. It gives clients a public website to browse services and book appointments, and gives staff a protected dashboard to manage bookings, scheduling, billing, and content — built for salon owners and operations staff who need a single system to run day-to-day front-desk and back-office work.
 
-**Sprint 0 (current):** npm workspaces, NestJS API skeleton, two Next.js apps (public + dashboard), Prisma + PostgreSQL for local dev, Swagger in development, shared `api-client` placeholder, seed hook, and CI.
+## Features
 
-## Requirements
+**Public website**
+- Service catalog with categories, variants, and benefits, plus individual service detail pages
+- Packages, bundles, and promotional offers
+- Slot-based online booking flow with confirmation
+- Client accounts secured by WhatsApp OTP sign-in/registration, with booking history
+- Gallery, testimonials, about, and contact pages
 
-- **Node.js** 20+ and **npm** 10+ (see [`package.json`](package.json) `engines` and [`.nvmrc`](.nvmrc))
-- **PostgreSQL** reachable from your machine — either a [free hosted database](#using-a-free-hosted-postgresql-database) (no local server or Docker) or [local PostgreSQL via Docker Compose](#local-postgresql-with-docker-compose-optional)
-- **Docker** (optional — only if you use Compose for a local database)
+**Staff dashboard**
+- Bookings, calendar, booking change requests, and walk-in queue management
+- Client CRM with client groups
+- Staff scheduling, including exceptions, holidays, and branch closures
+- Multi-branch support
+- Catalog management for services, service enhancements, packages, bundles, and offers
+- Booking slot configuration
+- Payments, invoices, cash drawer sessions, and daily closing (point-of-sale style finance)
+- Revenue reporting, including staff/services revenue reports
+- Loyalty program and review/testimonial curation
+- Website CMS for gallery, homepage content, and site content sections
+- WhatsApp transactional notifications (confirmations, reminders, cancellations, change requests) with delivery logs and retry
+- Role-based access control (roles, permissions) with an audit log
+- System settings, including payment policy and VAT configuration
 
-## Repository layout
+## Tech Stack
 
-| Path | Description |
-|------|-------------|
-| [`apps/web`](apps/web) | Next.js — public website (Sprint 10+ UI) |
-| [`apps/dashboard`](apps/dashboard) | Next.js — staff dashboard (Sprint 11+ UI) |
-| [`services/api`](services/api) | NestJS REST API (`/api/v1`, plus unversioned `/health`) |
-| [`packages/api-client`](packages/api-client) | Typed helpers for API base URL (placeholder) |
-| [`prisma`](prisma) | Prisma schema, migrations, and seed |
+**Frontend**
+- [Next.js](https://nextjs.org/) 15 (App Router) — two apps: public website and staff dashboard
+- [React](https://react.dev/) 19
+- [Tailwind CSS](https://tailwindcss.com/) 4
+- [Lucide](https://lucide.dev/) / [react-icons](https://react-icons.github.io/react-icons/) for iconography
 
-## Quick start
+**Backend**
+- [NestJS](https://nestjs.com/) 11 — REST API (`/api/v1`)
+- [Passport](https://www.passportjs.org/) + `@nestjs/jwt` — staff JWT authentication
+- [class-validator](https://github.com/typestack/class-validator) / [class-transformer](https://github.com/typestack/class-transformer) — request validation
+- [@nestjs/throttler](https://docs.nestjs.com/security/rate-limiting) — rate limiting
+- [@nestjs/schedule](https://docs.nestjs.com/techniques/task-scheduling) — cron jobs (booking reminders)
+- [@nestjs/swagger](https://docs.nestjs.com/openapi/introduction) — API documentation
+- [argon2](https://github.com/ranisalt/node-argon2) — password/OTP hashing
+- [libphonenumber-js](https://github.com/catamphetamine/libphonenumber-js) — phone number normalization
 
-1. **Clone** and install from the repository root:
+**Database**
+- [PostgreSQL](https://www.postgresql.org/)
+- [Prisma](https://www.prisma.io/) ORM (schema, migrations, seeding)
 
-   ```bash
-   npm ci
-   ```
+**Other**
+- npm workspaces monorepo (`apps/*`, `services/*`, `packages/*`)
+- [Cloudinary](https://cloudinary.com/) — optional media storage (local disk by default)
+- WAPilot — WhatsApp API integration for client OTP login and transactional booking notifications
+- GitHub Actions — CI (lint, test, build)
+- TypeScript across all workspaces
 
-   (`npm install` is fine for local iteration; CI uses `npm ci`.)
+## Architecture
 
-2. **Environment:** copy the example env file and adjust if needed:
+This is an npm-workspaces monorepo with two Next.js frontends talking to a single NestJS API, backed by PostgreSQL via Prisma:
 
-   ```bash
-   cp .env.example .env
-   ```
+- **`apps/web`** — the public marketing and booking site. Server components fetch data from the API for the service catalog, packages/bundles, and gallery; client booking and account flows (OTP sign-in, booking, booking history) call the API directly.
+- **`apps/dashboard`** — the staff-facing admin app, with all operational screens behind a protected route group. It consumes the API through the shared `@rouby/api-client` package for typed requests.
+- **`services/api`** — the NestJS backend, organized as one module per domain (auth, bookings, catalog, staff, billing, finance, reports, notifications, etc.), exposing a versioned REST API at `/api/v1` plus an unversioned `/health` check. Swagger docs are available in development at `/docs`.
+- **`prisma/`** — the single source of truth for the data model, shared by the API. Migrations are applied via `prisma migrate`, and the schema models every domain in the system (branches, users/roles/permissions, catalog, bookings, staff scheduling, queue, billing/finance, notifications, content).
+- **`packages/api-client`** and **`packages/wall-clock`** — shared code: a typed API client consumed by the dashboard, and a timezone/date utility (the business operates on `Africa/Cairo` time) consumed by both frontends.
 
-3. **PostgreSQL:** choose one:
+There are two independent authentication paths: staff authenticate with JWTs issued by the API (via Passport), while clients authenticate with a WhatsApp OTP flow (delivered through WAPilot in production, or a dummy/dev-code provider locally) that also issues a client JWT. Booking-related WhatsApp messages (confirmations, reminders, cancellations, change-request updates) reuse the same WAPilot integration and are tracked in a notification log with retry support for failed deliveries. Access control throughout the dashboard is enforced via a role/permission model with an audit trail. This is a single-tenant system with multi-branch support baked into the data model (branches, per-branch service/package availability, staff-branch access) rather than a multi-tenant or delivery/partner-routing platform.
 
-   - **[Using a free hosted PostgreSQL database](#using-a-free-hosted-postgresql-database)** — works without Docker or a local PostgreSQL installation.
-   - **[Local PostgreSQL with Docker Compose](#local-postgresql-with-docker-compose-optional)** — if you use Docker for a dev database on your machine.
+## Getting Started
 
-4. **Migrations:**
+### Prerequisites
 
-   ```bash
-   npm run db:migrate
-   ```
+- [Node.js](https://nodejs.org/) 20+ and npm 10+ (see `.nvmrc` and the `engines` field in `package.json`)
+- A reachable PostgreSQL database — either a local instance via Docker Compose, or a free hosted instance (e.g. [Neon](https://neon.tech))
+- [Docker](https://www.docker.com/) (optional, only needed for a local PostgreSQL via Compose)
 
-5. **Seed (placeholder + `schema_version` row):**
-
-   ```bash
-   npm run db:seed
-   ```
-
-6. **Prisma schema check (optional):** `npx prisma validate` requires `DATABASE_URL` in the environment (use the same value as in `.env`).
-
-7. **Run services** (separate terminals):
-
-   ```bash
-   npm run dev:api
-   npm run dev:web
-   npm run dev:dashboard
-   ```
-
-   Defaults:
-
-   - API: [http://localhost:4000](http://localhost:4000) — `GET /health`, Swagger UI at [http://localhost:4000/docs](http://localhost:4000/docs), OpenAPI JSON at [http://localhost:4000/docs-json](http://localhost:4000/docs-json) (dev / when Swagger is enabled), smoke `GET /api/v1/smoke`
-   - Web: [http://localhost:3000](http://localhost:3000)
-   - Dashboard: [http://localhost:3001](http://localhost:3001)
-
-## Using a free hosted PostgreSQL database
-
-For development you do **not** need Docker or PostgreSQL installed locally. A free hosted PostgreSQL instance is enough.
-
-**Preferred option:** [Neon](https://neon.tech) — serverless PostgreSQL with a generous free tier and straightforward connection strings. It fits this repo’s Prisma + NestJS workflow well.
-
-Other common choices include [Supabase](https://supabase.com) and [Aiven](https://aiven.io); any hosted PostgreSQL that allows connections from your machine works the same way.
-
-If you use Neon, Supabase, Aiven, or another hosted provider for your dev database, you can **skip** `docker compose up -d` entirely. You only need `DATABASE_URL` in `.env` pointing at that instance.
-
-### Hosted database quick start
-
-1. Create a free PostgreSQL database on [Neon](https://neon.tech) (or your chosen provider).
-2. Copy the PostgreSQL connection string from the provider’s dashboard.
-3. Paste it into the repository root `.env` as `DATABASE_URL` (see [`.env.example`](.env.example)).
-4. Ensure the URL includes **`sslmode=require`** (Neon and most cloud providers require TLS; add `?sslmode=require` or `&sslmode=require` if it is missing).
-5. From the repository root, run:
-
-   ```bash
-   npm run db:migrate
-   npm run db:seed
-   npm run dev:api
-   ```
-
-   Then start the frontends as in [Quick start](#quick-start) step 7 if you need them.
-
-## Local PostgreSQL with Docker Compose (optional)
-
-If you prefer a database on your machine and have Docker installed:
+### Clone
 
 ```bash
-docker compose up -d
+git clone https://github.com/<your-org>/rouby-salon.git
+cd rouby-salon
 ```
 
-After the container is healthy, continue with **Quick start** from step 4 (`npm run db:migrate`).
+### Install
 
-## Client OTP (API)
+```bash
+npm ci
+```
 
-Local development uses **`OTP_PROVIDER=dummy`** in [`.env.example`](.env.example) so `POST /client/auth/otp/request` can return **`devCode`** when `NODE_ENV` is not production. Production should use **`OTP_PROVIDER=whatsapp`** with **WAPilot** (`WHATSAPP_PROVIDER=wapilot`, `WAPILOT_API_TOKEN`, `WAPILOT_INSTANCE_ID`). Transactional booking WhatsApp messages (confirmation, reminder, cancellation, change-request updates) use the same WAPilot client when **`NOTIFICATIONS_ENABLED=true`**; keep it **`false`** locally unless testing live delivery. Reminders are sent twice: **`BOOKING_REMINDER_HOURS_BEFORE=24`** (~24h before, via cron) and **`BOOKING_REMINDER_MINUTES_BEFORE_FINAL=90`** (any time the appointment is within 90 minutes, including immediately on same-day confirm). Egyptian numbers are accepted as `010…`, `+2010…`, or `2010…`; WAPilot `chat_id` uses international digits without `+` (e.g. `201001234567`). See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+### Environment variables
 
-Staff with **`notifications.read`** can open **Admin → Notification Logs** in the dashboard (`/dashboard/notification-logs`) to review every transactional WhatsApp attempt (filters, booking context, failure reasons for authorized roles). Users with **`notifications.retry`** can retry **FAILED** deliveries from the list or detail drawer; each retry creates a new log entry for audit history. Re-run **`npm run db:seed`** (or assign the new permissions manually) after upgrading an existing database so roles receive `notifications.read` / `notifications.retry`.
+Copy the example env file and fill in your own values:
 
-## Root scripts
+```bash
+cp .env.example .env
+```
 
-| Script | Purpose |
-|--------|---------|
-| `npm run lint` | Lint all workspaces that define `lint` |
-| `npm run test` | Run tests in workspaces that define `test` |
-| `npm run build` | Build `api-client`, API, web, and dashboard |
-| `npm run db:generate` | `prisma generate` |
-| `npm run db:migrate` | `prisma migrate dev` |
-| `npm run db:push` | `prisma db push` (prototyping only) |
-| `npm run db:seed` | Run `prisma/seed.ts` |
+Required/available variables (names only — see `.env.example` for local defaults and comments):
 
-`postinstall` runs `prisma generate` so the Prisma Client is available after install.
+```
+DATABASE_URL
+DIRECT_URL
+PORT
+NODE_ENV
+API_URL
+CORS_ORIGIN
+DEFAULT_TIMEZONE
+DEFAULT_CURRENCY
+JWT_SECRET
+JWT_EXPIRES_IN
+CLIENT_JWT_EXPIRES_IN
+CLIENT_OTP_TTL_SECONDS
+CLIENT_OTP_MAX_ATTEMPTS
+CLIENT_OTP_REQUEST_COOLDOWN_SECONDS
+OTP_CODE_SECRET
+OTP_PROVIDER
+OTP_ENABLED
+OTP_DUMMY_EXPOSE_CODE
+WHATSAPP_PROVIDER
+WAPILOT_API_BASE_URL
+WAPILOT_API_TOKEN
+WAPILOT_INSTANCE_ID
+NOTIFICATIONS_ENABLED
+BOOKING_REMINDER_HOURS_BEFORE
+BOOKING_REMINDER_MINUTES_BEFORE_FINAL
+SWAGGER_ENABLED
+MEDIA_STORAGE
+MEDIA_STORAGE_ROOT
+PUBLIC_MEDIA_BASE_URL
+CLOUDINARY_CLOUD_NAME
+CLOUDINARY_API_KEY
+CLOUDINARY_API_SECRET
+CLOUDINARY_FOLDER
+NEXT_PUBLIC_API_URL
+NEXT_PUBLIC_WEB_URL
+NEXT_PUBLIC_DASHBOARD_URL
+SEED_OWNER_PASSWORD
+```
 
-## Sprint plan
+Replace secret-bearing values (`JWT_SECRET`, `WAPILOT_API_TOKEN`, `CLOUDINARY_API_SECRET`, `SEED_OWNER_PASSWORD`, etc.) with your own — never commit real values. For example: `JWT_SECRET=YOUR_JWT_SECRET_HERE`.
 
-Delivery sequencing: [`docs/SPRINT_PLAN.md`](docs/SPRINT_PLAN.md). Sprint 0 stops at foundation; auth, RBAC, catalog, and bookings start in Sprint 1+.
+### Database
 
-## CI
+```bash
+npm run db:migrate
+npm run db:seed
+```
 
-GitHub Actions workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `npm ci`, `lint`, `test`, and `build` on pushes and pull requests to `main`/`master`.
+### Run locally
+
+Start each app in a separate terminal:
+
+```bash
+npm run dev:api        # NestJS API → http://localhost:4000 (Swagger at /docs)
+npm run dev:web        # Public website → http://localhost:3000
+npm run dev:dashboard  # Staff dashboard → http://localhost:3001
+```
+
+## Project Structure
+
+```
+rouby-salon/
+├── apps/
+│   ├── web/              # Next.js public website (booking, catalog, account, content)
+│   └── dashboard/        # Next.js staff dashboard (protected admin/operations screens)
+├── services/
+│   └── api/               # NestJS REST API, one module per domain (bookings, catalog, billing, ...)
+├── packages/
+│   ├── api-client/        # Shared typed API client, consumed by the dashboard
+│   └── wall-clock/        # Shared timezone/date utility
+├── prisma/                # Prisma schema, migrations, and seed scripts
+├── docs/                  # Architecture, API contract, DB schema, deployment, and RBAC docs
+├── scripts/                # One-off maintenance scripts (e.g. Cloudinary media migration)
+├── docker-compose.yml      # Local PostgreSQL for development
+└── package.json            # npm workspaces root
+```
+
+## Live Demo
+
+Not yet publicly deployed — the project is currently in active development. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the intended production setup (API on Render, frontends on a Next.js-capable host, Cloudinary for media, Cloudflare for DNS/SSL).
 
 ## License
 
-Private / unlicensed unless otherwise specified by the project owner.
+Private / unlicensed. All rights reserved unless otherwise specified by the project owner.
