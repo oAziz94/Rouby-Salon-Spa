@@ -1,6 +1,13 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsArray, IsUUID, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 
 export class QueueStartServiceLineDto {
   @ApiProperty()
@@ -10,6 +17,14 @@ export class QueueStartServiceLineDto {
   @ApiProperty()
   @IsUUID()
   staffProfileId!: string;
+
+  @ApiPropertyOptional({
+    description: 'Reason when overriding a SOFT staff check.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  overrideReason?: string;
 }
 
 export class StartQueueEntryDto {
@@ -27,4 +42,12 @@ export class StartQueueEntryDto {
   @ValidateNested({ each: true })
   @Type(() => QueueStartServiceLineDto)
   starts: QueueStartServiceLineDto[] = [];
+
+  @ApiPropertyOptional({
+    description: 'Reason applied to every line in starts[].',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  overrideReason?: string;
 }

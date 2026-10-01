@@ -53,7 +53,12 @@ export const PERMISSION_SEED_ROWS: Array<{
   {
     key: "bookings.discount.apply",
     module: "bookings",
-    description: "Apply manual discount",
+    description: "Apply manual discount (capped by settings unless apply_unlimited)",
+  },
+  {
+    key: "bookings.discount.apply_unlimited",
+    module: "bookings",
+    description: "Apply discounts above the reception limit (manager)",
   },
 
   {
@@ -479,6 +484,7 @@ export const BRANCH_MANAGER_PERMISSION_KEYS = [
   "bookings.reschedule",
   "bookings.status.progress",
   "bookings.discount.apply",
+  "bookings.discount.apply_unlimited",
   "queue.read",
   "queue.manage",
   "slots.read",
@@ -559,6 +565,7 @@ export const RECEPTIONIST_PERMISSION_KEYS = [
   "bookings.cancel",
   "bookings.reschedule",
   "bookings.status.progress",
+  "bookings.discount.apply",
   "queue.read",
   "queue.manage",
   "slots.read",
@@ -606,6 +613,7 @@ export const STAFF_ROLE_PERMISSION_KEYS = [
   "overview.read",
   "bookings.read",
   "bookingServiceItems.read",
+  "bookingServiceItems.complete",
   "slots.read",
   "clients.read",
   "services.read",

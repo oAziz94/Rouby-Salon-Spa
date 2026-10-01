@@ -2077,12 +2077,22 @@ export type ReorderReviewsInput = {
 export class ApiClientError extends Error {
   statusCode: number;
   code?: string;
+  /** SOFT rule refusal: the same request succeeds when sent with an override reason. */
+  overridable: boolean;
+  details?: Record<string, unknown>;
 
-  constructor(message: string, statusCode: number, code?: string) {
+  constructor(
+    message: string,
+    statusCode: number,
+    code?: string,
+    options?: { overridable?: boolean; details?: Record<string, unknown> },
+  ) {
     super(message);
     this.name = "ApiClientError";
     this.statusCode = statusCode;
     this.code = code;
+    this.overridable = options?.overridable ?? false;
+    this.details = options?.details;
   }
 }
 
@@ -2173,12 +2183,16 @@ export async function postDashboardAuthLogin(
 async function parseApiError(res: Response): Promise<ApiClientError> {
   let message = `Request failed (${res.status})`;
   let code: string | undefined;
+  let overridable = false;
+  let details: Record<string, unknown> | undefined;
 
   try {
     const body = (await res.json()) as unknown;
     if (typeof body === "object" && body !== null) {
       const maybeMessage = (body as { message?: unknown }).message;
       const maybeCode = (body as { code?: unknown }).code;
+      overridable = (body as { overridable?: unknown }).overridable === true;
+      details = body as Record<string, unknown>;
 
       if (typeof maybeMessage === "string") {
         message = maybeMessage;
@@ -2194,7 +2208,7 @@ async function parseApiError(res: Response): Promise<ApiClientError> {
     // Ignore JSON parsing errors and keep fallback message.
   }
 
-  return new ApiClientError(message, res.status, code);
+  return new ApiClientError(message, res.status, code, { overridable, details });
 }
 
 export async function getDashboardAuthMe(
@@ -2909,17 +2923,26 @@ export async function postDashboardQueueEntryAppendBookingItems(
   );
 }
 
+export type DashboardQueueActionBody = {
+  /** start: one or more service lines to begin now. */
+  starts?: { bookingItemId: string; staffProfileId: string; overrideReason?: string }[];
+  /** start: reason applied to every line (SOFT staff checks). */
+  overrideReason?: string;
+  /** complete: reason to close the visit while a balance remains (SOFT). */
+  closeWithBalanceReason?: string;
+};
+
 export async function postDashboardQueueEntryAction(
   accessToken: string,
   queueEntryId: string,
   action: "start" | "complete" | "cancel",
-  body?: { starts: { bookingItemId: string; staffProfileId: string }[] },
+  body?: DashboardQueueActionBody,
 ): Promise<DashboardQueueEntry> {
   return jsonMutation<DashboardQueueEntry>(
     accessToken,
     `/dashboard/queue/${queueEntryId}/${action}`,
     "POST",
-    action === "start" ? body : undefined,
+    action === "cancel" ? undefined : (body ?? {}),
   );
 }
 

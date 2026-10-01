@@ -21,6 +21,7 @@ import { QueueListQueryDto } from './dto/queue-list-query.dto';
 import { WalkInQueueDto } from './dto/walk-in-queue.dto';
 import { QueueService } from './queue.service';
 import { CreateInvoicePaymentDto } from '../billing/dto/create-invoice-payment.dto';
+import { CompleteQueueEntryDto } from './dto/complete-queue-entry.dto';
 import { StartQueueEntryDto } from './dto/start-queue-entry.dto';
 
 @ApiTags('dashboard-queue')
@@ -138,8 +139,9 @@ export class DashboardQueueController {
   complete(
     @CurrentDashboardUser() user: DashboardJwtUser,
     @Param('queueEntryId') queueEntryId: string,
+    @Body() body: CompleteQueueEntryDto,
   ) {
-    return this.queue.completeQueueEntry(user, queueEntryId);
+    return this.queue.completeQueueEntry(user, queueEntryId, body);
   }
 
   @Post(':queueEntryId/cancel')

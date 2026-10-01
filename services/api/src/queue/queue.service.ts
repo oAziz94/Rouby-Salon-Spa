@@ -38,6 +38,8 @@ import { SlotsService } from '../slots/slots.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { PaymentsService } from '../billing/payments.service';
 import { AppendQueueBookingItemsDto } from './dto/append-queue-booking-items.dto';
+import type { CompleteQueueEntryDto } from './dto/complete-queue-entry.dto';
+import { overridableException } from '../common/overridable.exception';
 import type { CreateInvoicePaymentDto } from '../billing/dto/create-invoice-payment.dto';
 import type { PatchQueueNotesDto } from './dto/patch-queue-notes.dto';
 import type { QueueListQueryDto } from './dto/queue-list-query.dto';
@@ -1072,18 +1074,15 @@ export class QueueService {
       );
     }
 
-    if (entry.bookingId && dto.starts.length !== 1) {
-      const empty = dto.starts.length === 0;
+    // Spec v2 §3: any number of service lines may start together.
+    if (entry.bookingId && dto.starts.length === 0) {
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_REQUEST,
-          message: empty
-            ? 'When a queue visit is linked to a booking, provide exactly one starts[] entry with staff for the service line you are beginning now'
-            : 'Start one catalog service at a time — provide exactly one starts[] entry with staff for this visit',
+          message:
+            'Provide at least one starts[] entry with staff for the service line(s) you are beginning now',
           error: 'Bad Request',
-          code: empty
-            ? 'QUEUE_START_REQUIRES_SERVICE_STARTS'
-            : 'QUEUE_START_SINGLE_SERVICE_ONLY',
+          code: 'QUEUE_START_REQUIRES_SERVICE_STARTS',
         },
         HttpStatus.BAD_REQUEST,
       );
@@ -1097,6 +1096,7 @@ export class QueueService {
           entry.bookingId,
           s.bookingItemId,
           s.staffProfileId,
+          s.overrideReason ?? dto.overrideReason ?? null,
         );
       }
       await this.bookings.markInProgress(user, entry.bookingId);
@@ -1123,8 +1123,15 @@ export class QueueService {
     return this.getQueueEntryWithFinancialState(user, updated.id);
   }
 
-  async completeQueueEntry(user: DashboardJwtUser, queueEntryId: string) {
+  async completeQueueEntry(
+    user: DashboardJwtUser,
+    queueEntryId: string,
+    dto?: CompleteQueueEntryDto,
+  ) {
     const entry = await this.requireQueueEntry(user, queueEntryId);
+    const balanceReason = dto?.closeWithBalanceReason?.trim() || null;
+    let closedWithBalance: { reason: string; remainingAmount: number } | null =
+      null;
     if (
       entry.status !== QueueEntryStatus.WAITING &&
       entry.status !== QueueEntryStatus.IN_SERVICE
@@ -1176,30 +1183,18 @@ export class QueueService {
         );
       }
       if (finalizedInvoice.remainingAmount.greaterThan(0)) {
-        await this.audit.log({
-          userId: user.userId,
-          action: 'queue.completion_blocked_payment_required',
-          module: 'queue',
-          entityId: queueEntryId,
-          newValue: {
-            queueEntryId,
-            bookingId: entry.bookingId,
-            invoiceId: finalizedInvoice.id,
-            paidAmount: Number(finalizedInvoice.paidAmount.toString()),
-            remainingAmount: Number(
-              finalizedInvoice.remainingAmount.toString(),
-            ),
-          },
-        });
-        throw new HttpException(
-          {
-            statusCode: HttpStatus.BAD_REQUEST,
-            message: 'Collect full payment before completing visit',
-            error: 'Bad Request',
-            code: 'PAYMENT_REQUIRED',
-          },
-          HttpStatus.BAD_REQUEST,
+        const remainingAmount = Number(
+          finalizedInvoice.remainingAmount.toString(),
         );
+        // Spec v2 §4: closing with a balance is SOFT — needs a reason, audited.
+        if (!balanceReason) {
+          throw overridableException(
+            'PAYMENT_REQUIRED',
+            `EGP ${remainingAmount.toFixed(2)} is still unpaid — close the visit with this balance?`,
+            { remainingAmount },
+          );
+        }
+        closedWithBalance = { reason: balanceReason, remainingAmount };
       }
       await this.bookings.markCompleted(user, entry.bookingId);
     }
@@ -1212,6 +1207,7 @@ export class QueueService {
         ...(entry.startedAt === null ? { startedAt: now } : {}),
         completedAt: now,
         updatedByUserId: user.userId,
+        closedWithBalanceReason: closedWithBalance?.reason ?? null,
       },
     });
 
@@ -1222,6 +1218,15 @@ export class QueueService {
       entityId: queueEntryId,
       newValue: { bookingId: entry.bookingId },
     });
+    if (closedWithBalance) {
+      await this.audit.log({
+        userId: user.userId,
+        action: 'visit.closed_with_balance',
+        module: 'queue',
+        entityId: queueEntryId,
+        newValue: { bookingId: entry.bookingId, ...closedWithBalance },
+      });
+    }
 
     return this.getQueueEntryWithFinancialState(user, updated.id);
   }

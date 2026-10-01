@@ -70,6 +70,8 @@ model SystemSettings {
   showPaymentBreakdown    Boolean              @default(true) @map("show_payment_breakdown")
   showCashierName         Boolean              @default(true) @map("show_cashier_name")
   paymentDepositPolicy    PaymentDepositPolicy @map("payment_deposit_policy")
+  /// Max discount (% of subtotal) a user without `bookings.discount.apply_unlimited` may apply.
+  discountLimitPercentWithoutApproval Decimal @default(15) @map("discount_limit_percent_without_approval") @db.Decimal(5, 2)
   /// Global defaults for dashboard "generate week slots" (JSON: schemaVersion, workingDays, times, etc.).
   slotGenerationDefaults  Json?                @map("slot_generation_defaults")
   updatedByUserId         String?              @map("updated_by_user_id") @db.Uuid
@@ -859,6 +861,8 @@ model QueueEntry {
   serviceSummarySnapshot String?          @map("service_summary_snapshot")
   itemsSnapshot          Json?            @map("items_snapshot")
   notes                  String?
+  /// Set when the visit was closed while the invoice still had a balance (spec v2 §4, SOFT rule).
+  closedWithBalanceReason String?         @map("closed_with_balance_reason")
   checkedInAt            DateTime         @map("checked_in_at")
   startedAt              DateTime?        @map("started_at")
   completedAt            DateTime?        @map("completed_at")

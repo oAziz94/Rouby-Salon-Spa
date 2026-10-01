@@ -28,6 +28,11 @@ import {
   buildDashboardBookingBranchWhere,
 } from '../billing/dashboard-branch-scope';
 import { isAtLeast24HoursBeforeSlotStartCairo } from '../common/cairo-slot-time';
+import {
+  slotStartCompositeKey,
+  getCairoNowCompositeKey,
+} from '../common/cairo-slot-time';
+import { overridableException } from '../common/overridable.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { SlotsService } from '../slots/slots.service';
 import { AuditService } from '../audit/audit.service';
@@ -1115,7 +1120,13 @@ export class BookingsService {
     });
   }
 
-  async confirmBooking(user: DashboardJwtUser, bookingId: string) {
+  async confirmBooking(
+    user: DashboardJwtUser,
+    bookingId: string,
+    overrideReason?: string | null,
+  ) {
+    const capacityReason = overrideReason?.trim() || null;
+    let overrodeCapacity = false;
     await this.mutateBookingStatus(user, bookingId, async (tx, booking) => {
       if (booking.status !== BookingStatus.PENDING) {
         throw new HttpException(
@@ -1143,15 +1154,18 @@ export class BookingsService {
           booking.slotId,
         );
         if (!ok) {
-          throw new HttpException(
-            {
-              statusCode: HttpStatus.BAD_REQUEST,
-              message: 'Slot is at capacity',
-              error: 'Bad Request',
-              code: 'SLOT_AT_CAPACITY',
-            },
-            HttpStatus.BAD_REQUEST,
-          );
+          // Spec v2 §2: confirming into a full slot is SOFT.
+          if (!capacityReason) {
+            throw overridableException(
+              'SLOT_AT_CAPACITY',
+              'This slot is already full — confirm anyway?',
+            );
+          }
+          await tx.bookingSlot.update({
+            where: { id: booking.slotId },
+            data: { bookedCount: { increment: 1 } },
+          });
+          overrodeCapacity = true;
         }
         await tx.booking.update({
           where: { id: booking.id },
@@ -1163,6 +1177,15 @@ export class BookingsService {
         );
       }
     });
+    if (overrodeCapacity) {
+      await this.audit.log({
+        userId: user.userId,
+        action: 'override.slot_full',
+        module: 'bookings',
+        entityId: bookingId,
+        newValue: { reason: capacityReason },
+      });
+    }
     const updated = await this.getDashboardBooking(user, bookingId);
     await this.audit.log({
       userId: user.userId,
@@ -1381,6 +1404,26 @@ export class BookingsService {
   }
 
   async markNoShow(user: DashboardJwtUser, bookingId: string) {
+    // Spec v2 §6 (Fresha rule): no-show only once the appointment start has passed.
+    const slotRow = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { slot: { select: { date: true, startTime: true } } },
+    });
+    if (
+      slotRow?.slot &&
+      slotStartCompositeKey(slotRow.slot) > getCairoNowCompositeKey()
+    ) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message:
+            'No-show can be marked only after the appointment start time',
+          error: 'Bad Request',
+          code: 'NO_SHOW_TOO_EARLY',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     await this.transitionProgress(user, bookingId, {
       from: new Set([BookingStatus.CONFIRMED, BookingStatus.RESCHEDULED]),
       to: BookingStatus.NO_SHOW,
@@ -1626,6 +1669,7 @@ export class BookingsService {
     bookingId: string,
     itemId: string,
     staffProfileId: string,
+    overrideReason?: string | null,
   ) {
     if (!user.permissions.includes('bookingServiceItems.start')) {
       throw new ForbiddenException('Insufficient permissions');
@@ -1652,28 +1696,7 @@ export class BookingsService {
       );
     }
 
-    const otherInProgress = await this.prisma.bookingItem.count({
-      where: {
-        bookingId,
-        id: { not: itemId },
-        itemType: {
-          in: [BookingItemType.SERVICE, BookingItemType.SERVICE_VARIANT],
-        },
-        lineStatus: BookingItemLineStatus.IN_PROGRESS,
-      },
-    });
-    if (otherInProgress > 0) {
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.BAD_REQUEST,
-          message:
-            'Another service on this booking is already in progress — complete it before starting the next',
-          error: 'Bad Request',
-          code: 'BOOKING_SERVICE_ALREADY_IN_PROGRESS',
-        },
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    // Spec v2 §3: several services of one visit may run at once (FREE).
 
     const catalogServiceId =
       await this.staffAvailability.resolveCatalogServiceIdForBookingItem(item);
@@ -1710,37 +1733,39 @@ export class BookingsService {
       );
     }
 
+    // Spec v2 §3: qualification, shift and busy checks are SOFT — refused
+    // without a reason, accepted and audited with one.
     const capable = await this.staffAvailability.hasCapability(
       staffProfileId,
       catalogServiceId,
     );
-    if (!capable) {
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: 'Staff member is not qualified for this service',
-          error: 'Bad Request',
-          code: 'STAFF_NOT_QUALIFIED',
-        },
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
     const whenKey = this.staffAvailability.cairoNowKey();
-    const ok = await this.staffAvailability.evaluateStaffForInstant(
+    const avail = await this.staffAvailability.evaluateStaffForInstant(
       staffProfileId,
       item.booking.branchId,
       whenKey,
     );
-    if (!ok.ok) {
-      throw new HttpException(
-        {
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: ok.reason,
-          error: 'Bad Request',
-          code: 'STAFF_NOT_AVAILABLE',
-        },
-        HttpStatus.BAD_REQUEST,
+    const softIssues: Array<{ code: string; message: string }> = [];
+    if (!capable) {
+      softIssues.push({
+        code: 'STAFF_NOT_QUALIFIED',
+        message: `${profile.displayName} is not listed for this service`,
+      });
+    }
+    if (!avail.ok) {
+      softIssues.push({
+        code: avail.reason.toLowerCase().includes('in progress')
+          ? 'STAFF_BUSY'
+          : 'STAFF_NOT_AVAILABLE',
+        message: `${profile.displayName}: ${avail.reason}`,
+      });
+    }
+    const reason = overrideReason?.trim() || null;
+    if (softIssues.length > 0 && !reason) {
+      throw overridableException(
+        softIssues[0].code,
+        `${softIssues.map((x) => x.message).join('; ')} — assign anyway?`,
+        { issues: softIssues },
       );
     }
 
@@ -1765,6 +1790,21 @@ export class BookingsService {
         updatedByUserId: user.userId,
       },
     });
+
+    if (softIssues.length > 0 && reason) {
+      await this.audit.log({
+        userId: user.userId,
+        action: 'override.staff_start',
+        module: 'bookings',
+        entityId: bookingId,
+        newValue: {
+          bookingItemId: itemId,
+          staffProfileId,
+          reason,
+          issues: softIssues,
+        },
+      });
+    }
 
     if (item.booking.status === BookingStatus.ARRIVED) {
       await this.markInProgress(user, bookingId);
@@ -1794,12 +1834,24 @@ export class BookingsService {
     }
     const item = await this.prisma.bookingItem.findFirst({
       where: { id: itemId, bookingId },
-      include: { booking: { select: { branchId: true } } },
+      include: {
+        booking: { select: { branchId: true } },
+        staffProfile: { select: { userId: true } },
+      },
     });
     if (!item?.booking) {
       throw new NotFoundException('Booking item not found');
     }
     assertDashboardBranchAccess(user, item.booking.branchId);
+    // Staff without front-desk rights may only mark their own lines done.
+    const frontDesk =
+      user.permissions.includes('queue.manage') ||
+      user.permissions.includes('bookings.status.progress');
+    if (!frontDesk && item.staffProfile?.userId !== user.userId) {
+      throw new ForbiddenException(
+        'You can only mark your own services as done',
+      );
+    }
     if (item.lineStatus !== BookingItemLineStatus.IN_PROGRESS) {
       throw new HttpException(
         {
@@ -2088,6 +2140,42 @@ export class BookingsService {
 
     const beforeTotal = Number(booking.totalAmount.toString());
     const discountReason = body.reason?.trim() || null;
+    // Spec v2 §4: reception discounts need a reason and stay under the limit.
+    if (!user.permissions.includes('bookings.discount.apply_unlimited')) {
+      if (!discountReason) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: 'A reason is required for discounts',
+            error: 'Bad Request',
+            code: 'DISCOUNT_REASON_REQUIRED',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      const limitRow = await this.prisma.systemSettings.findFirst({
+        select: { discountLimitPercentWithoutApproval: true },
+      });
+      const limitPct = Number(
+        limitRow?.discountLimitPercentWithoutApproval?.toString() ?? '15',
+      );
+      const subtotal = Number(totals.subtotal.toString());
+      if (
+        subtotal > 0 &&
+        body.discountAmount > (subtotal * limitPct) / 100 + 0.005
+      ) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.FORBIDDEN,
+            message: `Discounts above ${limitPct}% of the subtotal need a manager`,
+            error: 'Forbidden',
+            code: 'DISCOUNT_ABOVE_LIMIT',
+            limitPercent: limitPct,
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+    }
     await this.prisma.$transaction(async (tx) => {
       await tx.booking.update({
         where: { id: bookingId },
@@ -2653,7 +2741,8 @@ export class BookingsService {
 
     await tx.booking.update({
       where: { id: booking.id },
-      data: { slotId: newSlot.id, status: BookingStatus.RESCHEDULED },
+      // Spec v2 §6: a staff reschedule lands directly on CONFIRMED.
+      data: { slotId: newSlot.id, status: BookingStatus.CONFIRMED },
     });
   }
 

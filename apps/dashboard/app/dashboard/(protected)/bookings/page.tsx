@@ -229,6 +229,24 @@ const secondaryActionClass =
 const dangerOutlineClass =
   "inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#E7B9A4]/90 bg-[#FFF9F6] px-3.5 py-2 text-xs font-semibold text-[#8B4428] shadow-sm transition hover:bg-[#FFF1EC] disabled:cursor-not-allowed disabled:opacity-50";
 
+/** True once the appointment's slot start (Cairo wall clock) is now or in the past. */
+function slotStartHasPassed(slot?: { date?: string | null; startTime?: string | null } | null): boolean {
+  if (!slot?.date || !slot.startTime) return true;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  const nowKey = `${g("year")}-${g("month")}-${g("day")}T${g("hour")}:${g("minute")}:${g("second")}`;
+  return `${slot.date.slice(0, 10)}T${slot.startTime.slice(0, 8)}` <= nowKey;
+}
+
 export default function DashboardBookingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -295,10 +313,11 @@ export default function DashboardBookingsPage() {
   const canCompleteServiceLine = hasPermission("bookingServiceItems.complete");
 
   const drawerCanRequestDecision = detail?.status === "PENDING";
-  const drawerCanMarkArrived = detail ? ["CONFIRMED", "RESCHEDULED"].includes(detail.status) : false;
-  const drawerCanMarkInProgress = detail ? ["ARRIVED", "CONFIRMED", "RESCHEDULED"].includes(detail.status) : false;
+  // Spec v2 §1: Arrived / In progress / Completed are derived from the visit (check-in, start, close).
+  // Spec v2 §6: No-show is offered only once the appointment start time has passed.
   const drawerCanMarkNoShow = detail
-    ? ["PENDING", "CONFIRMED", "RESCHEDULED", "ARRIVED"].includes(detail.status)
+    ? ["PENDING", "CONFIRMED", "RESCHEDULED", "ARRIVED"].includes(detail.status) &&
+      slotStartHasPassed(detail.slot)
     : false;
   const drawerCanDirectChange = detail ? canDirectlyChangeBooking(detail.status) : false;
   const drawerCanQueueCheckIn =
@@ -310,7 +329,7 @@ export default function DashboardBookingsPage() {
     detail != null &&
     ((canConfirm && drawerCanRequestDecision) ||
       (canReject && drawerCanRequestDecision) ||
-      (canProgress && (drawerCanMarkArrived || drawerCanMarkInProgress || drawerCanMarkNoShow)) ||
+      (canProgress && drawerCanMarkNoShow) ||
       drawerCanQueueCheckIn);
 
   const branchNameById = useMemo(() => {
@@ -1295,26 +1314,6 @@ export default function DashboardBookingsPage() {
                               {checkInLoading ? "Checking in..." : detail.activeQueueEntryId ? "In queue" : "Check in"}
                             </button>
                           ) : null}
-                          {canProgress && drawerCanMarkArrived ? (
-                            <button
-                              type="button"
-                              onClick={() => void triggerAction("mark-arrived")}
-                              disabled={actionLoading !== null}
-                              className={secondaryActionClass}
-                            >
-                              Arrived
-                            </button>
-                          ) : null}
-                          {canProgress && drawerCanMarkInProgress ? (
-                            <button
-                              type="button"
-                              onClick={() => void triggerAction("mark-in-progress")}
-                              disabled={actionLoading !== null}
-                              className={secondaryActionClass}
-                            >
-                              In progress
-                            </button>
-                          ) : null}
                           {canReject && drawerCanRequestDecision ? (
                             <button
                               type="button"
@@ -1726,30 +1725,10 @@ export default function DashboardBookingsPage() {
                         </div>
                       ) : null}
 
-                      {canProgress && (drawerCanMarkArrived || drawerCanMarkInProgress || drawerCanMarkNoShow) ? (
+                      {canProgress && drawerCanMarkNoShow ? (
                         <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
                           <p className="text-xs font-semibold text-[#1F2420]">Appointment progress</p>
                           <div className="mt-2 flex flex-wrap gap-2">
-                            {drawerCanMarkArrived ? (
-                              <button
-                                type="button"
-                                onClick={() => void triggerAction("mark-arrived")}
-                                disabled={actionLoading !== null}
-                                className={secondaryActionClass}
-                              >
-                                Arrived
-                              </button>
-                            ) : null}
-                            {drawerCanMarkInProgress ? (
-                              <button
-                                type="button"
-                                onClick={() => void triggerAction("mark-in-progress")}
-                                disabled={actionLoading !== null}
-                                className={secondaryActionClass}
-                              >
-                                In progress
-                              </button>
-                            ) : null}
                             {drawerCanMarkNoShow ? (
                               <button
                                 type="button"

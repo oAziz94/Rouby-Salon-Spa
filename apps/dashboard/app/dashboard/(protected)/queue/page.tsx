@@ -522,8 +522,8 @@ function CommandQueueCard({
     row.status === "IN_SERVICE" &&
     Boolean(row.bookingId) &&
     (lineCounts.total > 0 ? lineCounts.pending === 0 : allServicesCompleted(detail));
-  const canVisitComplete =
-    row.hasFinalizedInvoice && row.paymentSummary?.isPaid === true;
+  const canVisitComplete = row.hasFinalizedInvoice;
+  const completeLabel = row.paymentSummary?.isPaid === true ? "Complete" : "Close with balance";
 
   return (
     <article
@@ -659,7 +659,7 @@ function CommandQueueCard({
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#062A2D] px-3 py-2 text-xs font-semibold text-[#F6F2EA] shadow-sm transition hover:bg-[#0A3F35] disabled:opacity-50"
             >
               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-              Complete
+              {completeLabel}
             </button>
             <button
               type="button"
@@ -860,6 +860,67 @@ function QueueToast({ message, onClose }: { message: string; onClose: () => void
       <button type="button" onClick={onClose} aria-label="Dismiss" className="rounded-md px-1 text-[#8B4428] hover:bg-[#F7DED3]">
         ×
       </button>
+    </div>
+  );
+}
+
+function OverrideReasonDialog({
+  request,
+  onClose,
+}: {
+  request: { message: string; resolve: (reason: string | null) => void } | null;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  useEffect(() => {
+    setReason("");
+  }, [request]);
+  if (!request) return null;
+  const submit = () => {
+    const r = reason.trim();
+    if (!r) return;
+    request.resolve(r);
+    onClose();
+  };
+  return (
+    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/40 p-4 sm:items-center">
+      <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+        <p className="text-base font-semibold text-[#1F2420]">Proceed anyway?</p>
+        <p className="mt-2 text-sm leading-relaxed text-[#5E574C]">{request.message}</p>
+        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+          Reason (recorded in the audit log)
+          <input
+            autoFocus
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+            }}
+            placeholder="e.g. stylist agreed to stay late"
+            className="mt-1 w-full rounded-xl border border-[#E8E0D4] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#1F2420]"
+          />
+        </label>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              request.resolve(null);
+              onClose();
+            }}
+            className="rounded-xl border border-[#D8CBB8] bg-white px-4 py-2 text-sm font-semibold text-[#1F2420]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!reason.trim()}
+            onClick={submit}
+            className="rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA] disabled:opacity-50"
+          >
+            Proceed
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1214,6 +1275,17 @@ export default function DashboardQueuePage() {
   const [error, setError] = useState("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [refreshFailed, setRefreshFailed] = useState(false);
+  const [overrideRequest, setOverrideRequest] = useState<{
+    message: string;
+    resolve: (reason: string | null) => void;
+  } | null>(null);
+  const askOverride = useCallback(
+    (message: string) =>
+      new Promise<string | null>((resolve) => {
+        setOverrideRequest({ message, resolve });
+      }),
+    [],
+  );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bookingBusyId, setBookingBusyId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -1781,10 +1853,23 @@ export default function DashboardQueuePage() {
       setStartVisitError(`Choose a staff member for “${it.nameSnapshot}”.`);
       return;
     }
-    const starts = [{ bookingItemId: it.id, staffProfileId: picked }];
+    const starts: { bookingItemId: string; staffProfileId: string; overrideReason?: string }[] = [
+      { bookingItemId: it.id, staffProfileId: picked },
+    ];
     setStartVisitSubmitting(true);
     try {
-      await postDashboardQueueEntryAction(token, startVisitEntryId, "start", { starts });
+      try {
+        await postDashboardQueueEntryAction(token, startVisitEntryId, "start", { starts });
+      } catch (firstError) {
+        if (!(firstError instanceof ApiClientError) || !firstError.overridable) throw firstError;
+        const reason = await askOverride(firstError.message);
+        if (!reason) {
+          setStartVisitSubmitting(false);
+          return;
+        }
+        starts[0].overrideReason = reason;
+        await postDashboardQueueEntryAction(token, startVisitEntryId, "start", { starts });
+      }
       setStartVisitOpen(false);
       setStartVisitBooking(null);
       setStartVisitEntryId("");
@@ -1820,7 +1905,20 @@ export default function DashboardQueuePage() {
     }
     setBusyId(id);
     try {
-      await postDashboardQueueEntryAction(token, id, action);
+      try {
+        await postDashboardQueueEntryAction(token, id, action);
+      } catch (firstError) {
+        if (
+          action !== "complete" ||
+          !(firstError instanceof ApiClientError) ||
+          !firstError.overridable
+        ) {
+          throw firstError;
+        }
+        const reason = await askOverride(firstError.message);
+        if (!reason) return;
+        await postDashboardQueueEntryAction(token, id, action, { closeWithBalanceReason: reason });
+      }
       await loadQueue();
     } catch (requestError) {
       setError(formatApiError(requestError));
@@ -2027,7 +2125,7 @@ export default function DashboardQueuePage() {
       return;
     }
     if (!reason) {
-      setDiscountError("Enter the discount reason.");
+      setDiscountError("Enter the discount reason (required; discounts above the reception limit need a manager).");
       return;
     }
 
@@ -2116,6 +2214,7 @@ export default function DashboardQueuePage() {
   return (
     <PermissionGuard permission="queue.read">
       <QueueToast message={error} onClose={() => setError("")} />
+      <OverrideReasonDialog request={overrideRequest} onClose={() => setOverrideRequest(null)} />
       <div className="min-h-[calc(100vh-4rem)] bg-[#FBF8F2] px-4 py-8 text-[#1F2420] sm:px-6 lg:px-10">
         <div className="mx-auto max-w-[1800px] space-y-6">
           <header className="flex flex-col gap-4 border-b border-[#E8E0D4]/80 pb-6 sm:flex-row sm:items-end sm:justify-between">

@@ -20,6 +20,7 @@ import { DashboardCreateBookingDto } from './dto/dashboard-create-booking.dto';
 import { DashboardCreateChangeRequestDto } from './dto/dashboard-create-change-request.dto';
 import { DiscountBodyDto } from './dto/discount-body.dto';
 import { RescheduleBodyDto } from './dto/reschedule-body.dto';
+import { ConfirmBookingDto } from './dto/confirm-booking.dto';
 import { StartBookingServiceItemDto } from './dto/start-booking-service-item.dto';
 import { AppendBookingServiceItemsDto } from './dto/append-booking-service-items.dto';
 
@@ -80,8 +81,9 @@ export class DashboardBookingsController {
   confirm(
     @CurrentDashboardUser() user: DashboardJwtUser,
     @Param('bookingId') bookingId: string,
+    @Body() body: ConfirmBookingDto,
   ) {
-    return this.bookings.confirmBooking(user, bookingId);
+    return this.bookings.confirmBooking(user, bookingId, body?.overrideReason);
   }
 
   @Post(':bookingId/reject')
@@ -191,6 +193,7 @@ export class DashboardBookingsController {
       bookingId,
       itemId,
       body.staffProfileId,
+      body.overrideReason,
     );
   }
 
