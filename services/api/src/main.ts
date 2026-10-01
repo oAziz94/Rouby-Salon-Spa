@@ -10,6 +10,7 @@ import { resolveUploadsRoot } from './media/uploads-root';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.enableShutdownHooks();
   const configService = app.get(ConfigService);
   const uploadsRoot = resolveUploadsRoot(configService);
   mkdirSync(join(uploadsRoot, 'media'), { recursive: true });

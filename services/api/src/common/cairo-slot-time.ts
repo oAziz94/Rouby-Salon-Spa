@@ -220,9 +220,9 @@ export function cairoZonedDayUtcRange(ymd: string): {
 }
 
 export function addDaysToYmdInCairo(ymd: string, deltaDays: number): string {
-  const base = startOfZonedDayUtc(ymd, CAIRO_TIME_ZONE);
-  const t = new Date(base.getTime() + deltaDays * 86400000);
-  return ymdInCairo(t);
+  // Civil-calendar arithmetic. Adding 24h in ms never advances on 25h DST fall-back days.
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + deltaDays)).toISOString().slice(0, 10);
 }
 
 /** Monday–Sunday week (Monday first) containing `ymd`, Cairo calendar. */
