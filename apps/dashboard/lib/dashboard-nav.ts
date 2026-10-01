@@ -12,7 +12,6 @@ import {
   Bell,
   FileSearch,
   FileText,
-  Gift,
   Image,
   LayoutDashboard,
   LayoutTemplate,
@@ -27,7 +26,6 @@ import {
   Star,
   Tag,
   Users,
-  UsersRound,
   Wallet,
 } from "lucide-react";
 
@@ -114,18 +112,6 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
         href: "/dashboard/clients",
         permission: "clients.read",
         icon: Users,
-      },
-      {
-        label: "Client Groups",
-        href: "/dashboard/client-groups",
-        permission: "clients.read",
-        icon: UsersRound,
-      },
-      {
-        label: "Loyalty",
-        href: "/dashboard/loyalty",
-        permission: "clients.read",
-        icon: Gift,
       },
     ],
   },

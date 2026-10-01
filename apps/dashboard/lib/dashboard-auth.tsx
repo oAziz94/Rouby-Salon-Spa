@@ -20,7 +20,7 @@ import {
 const TOKEN_KEY = "dashboard_access_token";
 const TOKEN_BRIDGE_KEY = "dashboard_access_token_bridge";
 
-type AuthStatus = "loading" | "authenticated" | "unauthenticated";
+type AuthStatus = "loading" | "authenticated" | "unauthenticated" | "error";
 
 type DashboardAuthContextType = {
   status: AuthStatus;
@@ -32,6 +32,8 @@ type DashboardAuthContextType = {
   logout: () => void;
   hasPermission: (permission?: string) => boolean;
   refreshUser: () => Promise<void>;
+  /** Re-run session bootstrap after a network/server error (keeps the token). */
+  retry: () => void;
 };
 
 const DashboardAuthContext = createContext<DashboardAuthContextType | null>(null);
@@ -141,7 +143,8 @@ export function DashboardAuthProvider({
           return;
         }
 
-        logout();
+        // Network error, timeout, or 5xx: keep the token and let the user retry.
+        setStatus("error");
       }
     },
     [logout, pathname, router],
@@ -168,6 +171,16 @@ export function DashboardAuthProvider({
     [bootstrap, router],
   );
 
+  const retry = useCallback(() => {
+    const existingToken = readToken();
+    if (!existingToken) {
+      setStatus("unauthenticated");
+      return;
+    }
+    setStatus("loading");
+    void bootstrap(existingToken);
+  }, [bootstrap]);
+
   const hasPermission = useCallback(
     (permission?: string) => {
       if (!permission) {
@@ -189,8 +202,9 @@ export function DashboardAuthProvider({
       logout,
       hasPermission,
       refreshUser,
+      retry,
     }),
-    [authError, hasPermission, login, logout, permissions, refreshUser, status, token, user],
+    [authError, hasPermission, login, logout, permissions, refreshUser, retry, status, token, user],
   );
 
   return (

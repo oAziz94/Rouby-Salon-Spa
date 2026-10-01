@@ -184,6 +184,9 @@ function formatApiError(error: unknown): string {
     }
     if (error.statusCode === 403) {
       const msg = error.message?.trim();
+      if (!msg || msg === "Insufficient permissions") {
+        return "Your role doesn't allow this action. Ask a manager to do it or to update your permissions.";
+      }
       if (msg && !/^forbidden$/i.test(msg)) {
         return msg;
       }
@@ -485,6 +488,7 @@ function CommandQueueCard({
   onCollectPayment,
   onDiscount,
   onOpenDetails,
+  onCompleteLine,
 }: {
   row: DashboardQueueEntry;
   stage: Exclude<QueueStageKey, "expected">;
@@ -502,13 +506,22 @@ function CommandQueueCard({
   onCollectPayment: (row: DashboardQueueEntry) => void;
   onDiscount: (row: DashboardQueueEntry) => void;
   onOpenDetails: (row: DashboardQueueEntry) => void;
+  onCompleteLine: (row: DashboardQueueEntry, lineId: string) => void;
 }) {
   const busy = busyId === row.id;
-  const assignedStaff = staffSummaryFromBooking(detail);
+  const assignedStaff = row.assignedStaffNames?.length
+    ? row.assignedStaffNames.join(", ")
+    : staffSummaryFromBooking(detail);
   const delayed = row.status === "WAITING" && (row.waitingDurationSeconds ?? 0) >= 20 * 60;
   const unpaid = (row.invoiceSummary?.remainingAmount ?? 0) > 0;
   const noStaff = row.status === "IN_SERVICE" && assignedStaff === "Not assigned";
-  const canFinish = row.status === "IN_SERVICE" && Boolean(row.bookingId) && allServicesCompleted(detail);
+  const lineCounts = row.serviceLineCounts ?? { total: 0, pending: 0, inProgress: 0, completed: 0 };
+  const lines = row.lines ?? [];
+  const pendingLineNames = lines.filter((l) => l.lineStatus === "PENDING").map((l) => l.name);
+  const canFinish =
+    row.status === "IN_SERVICE" &&
+    Boolean(row.bookingId) &&
+    (lineCounts.total > 0 ? lineCounts.pending === 0 : allServicesCompleted(detail));
   const canVisitComplete =
     row.hasFinalizedInvoice && row.paymentSummary?.isPaid === true;
 
@@ -549,6 +562,34 @@ function CommandQueueCard({
         <span className="font-medium text-[#7A6A58]">Staff: </span>
         {assignedStaff}
       </p>
+      {stage === "inService" && lines.length > 0 ? (
+        <ul className="mt-2 space-y-1" onClick={(event) => event.stopPropagation()}>
+          {lines.map((line) => (
+            <li
+              key={line.id}
+              className="flex items-center justify-between gap-2 rounded-lg bg-[#FBF8F2] px-2 py-1 text-[0.7rem]"
+            >
+              <span className="min-w-0 truncate text-[#4A3C2F]">
+                {line.lineStatus === "COMPLETED" ? "✓ " : line.lineStatus === "IN_PROGRESS" ? "● " : "○ "}
+                {line.name}
+                {line.staffDisplayName ? <span className="text-[#9A8B7A]"> · {line.staffDisplayName}</span> : null}
+              </span>
+              {line.lineStatus === "IN_PROGRESS" && canProgressVisit ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onCompleteLine(row, line.id)}
+                  className="shrink-0 rounded-md border border-[#0A5A45]/40 bg-white px-2 py-0.5 font-semibold text-[#0A5A45] hover:bg-[#EEF7F3] disabled:opacity-50"
+                >
+                  Done
+                </button>
+              ) : line.lineStatus === "PENDING" ? (
+                <span className="shrink-0 text-[#9A8B7A]">not started</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       <dl className="mt-3 grid gap-1 text-[0.7rem] text-[#7A6A58]">
         <div className="flex justify-between gap-2">
@@ -602,7 +643,9 @@ function CommandQueueCard({
           </button>
           {!canFinish ? (
             <p className="text-center text-[0.65rem] leading-relaxed text-[#9A8B7A]">
-              Complete all service lines from the drawer first.
+              {pendingLineNames.length > 0
+                ? `Start first: ${pendingLineNames.join(", ")}`
+                : "No service lines to finish."}
             </p>
           ) : null}
           </>
@@ -797,6 +840,27 @@ function ExpectedBookingCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function QueueToast({ message, onClose }: { message: string; onClose: () => void }) {
+  useEffect(() => {
+    if (!message) return;
+    const id = window.setTimeout(onClose, 10_000);
+    return () => window.clearTimeout(id);
+  }, [message, onClose]);
+  if (!message) return null;
+  return (
+    <div
+      role="alert"
+      className="fixed inset-x-4 bottom-4 z-[80] mx-auto flex max-w-xl items-start gap-3 rounded-2xl border border-[#E7B9A4] bg-[#FFF1EC] px-4 py-3 text-sm text-[#8B4428] shadow-lg"
+    >
+      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+      <span className="flex-1">{message}</span>
+      <button type="button" onClick={onClose} aria-label="Dismiss" className="rounded-md px-1 text-[#8B4428] hover:bg-[#F7DED3]">
+        ×
+      </button>
+    </div>
   );
 }
 
@@ -1148,6 +1212,8 @@ export default function DashboardQueuePage() {
   const [metaDate, setMetaDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bookingBusyId, setBookingBusyId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -1313,15 +1379,17 @@ export default function DashboardQueuePage() {
     [canReadBranches, user?.branchId],
   );
 
-  const loadQueue = useCallback(async () => {
+  const loadQueue = useCallback(async (opts?: { silent?: boolean }) => {
     if (!token) {
       return;
     }
     if (!branchId) {
       return;
     }
-    setLoading(true);
-    setError("");
+    if (!opts?.silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const [res, bookingsRes] = await Promise.all([
         getDashboardQueue(token, {
@@ -1337,17 +1405,26 @@ export default function DashboardQueuePage() {
       ]);
       setRows(res.data);
       setMetaDate(res.meta.date);
+      setLastUpdatedAt(new Date());
       setExpectedBookings(
         bookingsRes.data.filter((booking) =>
           ["CONFIRMED", "RESCHEDULED", "ARRIVED"].includes(booking.status),
         ),
       );
+      setRefreshFailed(false);
     } catch (requestError) {
+      if (opts?.silent) {
+        // Background refresh: keep the board as it was and flag it quietly.
+        setRefreshFailed(true);
+        return;
+      }
       setError(formatApiError(requestError));
       setRows([]);
       setExpectedBookings([]);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) {
+        setLoading(false);
+      }
     }
   }, [branchId, date, token]);
 
@@ -1375,6 +1452,26 @@ export default function DashboardQueuePage() {
   useEffect(() => {
     void loadQueue();
   }, [loadQueue]);
+
+  const anyModalOpen =
+    walkOpen || addItemsOpen || paymentOpen || discountOpen || startVisitOpen;
+  useEffect(() => {
+    if (!token || !branchId) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible" || anyModalOpen) return;
+      void loadQueue({ silent: true });
+    }, 15_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && !anyModalOpen) {
+        void loadQueue({ silent: true });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [anyModalOpen, branchId, loadQueue, token]);
 
   useEffect(() => {
     if (!startVisitOpen || !token || !startVisitBooking || !startVisitBranchId || !startVisitChosenItemId) {
@@ -1753,6 +1850,24 @@ export default function DashboardQueuePage() {
     }
   }
 
+  async function completeLine(row: DashboardQueueEntry, lineId: string): Promise<void> {
+    if (!token || !row.bookingId) return;
+    setBusyId(row.id);
+    setError("");
+    try {
+      const refreshed = await postDashboardBookingServiceItemComplete(token, row.bookingId, lineId);
+      setDetailCache((prev) => ({ ...prev, [refreshed.id]: refreshed }));
+      if (selectedBookingId === row.bookingId) {
+        setSelectedBooking(refreshed);
+      }
+      await loadQueue({ silent: true });
+    } catch (requestError) {
+      setError(formatApiError(requestError));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function finishService(row: DashboardQueueEntry): Promise<void> {
     if (!token || !row.bookingId) return;
     setBusyId(row.id);
@@ -1991,6 +2106,7 @@ export default function DashboardQueuePage() {
         onCollectPayment={(r) => openCollectPaymentModal(r)}
         onDiscount={(r) => openDiscountModal(r)}
         onOpenDetails={(r) => void openQueueDetails(r)}
+        onCompleteLine={(r, lineId) => void completeLine(r, lineId)}
         busyId={busyId}
         startVisitModalOpen={startVisitOpen}
       />
@@ -1999,6 +2115,7 @@ export default function DashboardQueuePage() {
 
   return (
     <PermissionGuard permission="queue.read">
+      <QueueToast message={error} onClose={() => setError("")} />
       <div className="min-h-[calc(100vh-4rem)] bg-[#FBF8F2] px-4 py-8 text-[#1F2420] sm:px-6 lg:px-10">
         <div className="mx-auto max-w-[1800px] space-y-6">
           <header className="flex flex-col gap-4 border-b border-[#E8E0D4]/80 pb-6 sm:flex-row sm:items-end sm:justify-between">
@@ -2013,6 +2130,12 @@ export default function DashboardQueuePage() {
                 <p className="mt-1 max-w-xl text-sm leading-relaxed text-[#7A6A58]">
                   Daily client flow for expected bookings, walk-ins, active service, payment, receipts, and completed visits for{" "}
                   <span className="font-medium text-[#4A3C2F]">{metaDate || date}</span>
+                  {lastUpdatedAt ? (
+                    <span className={refreshFailed ? "text-[#8B4428]" : "text-[#B5A896]"}>
+                      {" "}· Updated {lastUpdatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                      {refreshFailed ? " (last refresh failed, retrying)" : ""}
+                    </span>
+                  ) : null}
                 </p>
               </div>
             </div>
@@ -2302,10 +2425,7 @@ export default function DashboardQueuePage() {
                   Existing client
                 </button>
               </div>
-              <p className="mt-2 text-[0.65rem] leading-relaxed text-[#B5A896]">
-                Search uses the same branch rules as Clients. Phone/email on results follow your{" "}
-                <span className="font-medium text-[#7A6A58]">clients.contact.view</span> permission.
-              </p>
+              
 
               <div className="mt-4 space-y-3">
                 {walkMode === "existing" ? (

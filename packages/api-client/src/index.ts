@@ -892,6 +892,35 @@ export type DashboardQueueEntry = {
     lastPaymentMethod: string | null;
     lastPaymentAt: string | null;
   } | null;
+  /** Service work lines of the linked booking (SERVICE / SERVICE_VARIANT only). */
+  lines: Array<{
+    id: string;
+    name: string;
+    lineStatus: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+    staffDisplayName: string | null;
+  }>;
+  assignedStaffNames: string[];
+  serviceLineCounts: {
+    total: number;
+    pending: number;
+    inProgress: number;
+    completed: number;
+  };
+  allServiceLinesDone: boolean;
+};
+
+export type DashboardOverviewTodayResponse = {
+  todayYmd: string;
+  branchId: string | null;
+  generatedAt: string;
+  queue: {
+    expected: number;
+    waiting: number;
+    inService: number;
+    completed: number;
+  };
+  unpaidInvoicesToday: number;
+  upcomingAppointments: DashboardOverviewAppointment[];
 };
 
 export type DashboardQueueListResponse = {
@@ -2224,6 +2253,21 @@ export async function getDashboardAuthPermissions(
   }
 
   return (await res.json()) as DashboardPermissionsResponse;
+}
+
+/** GET /dashboard/overview/today — light front-desk summary (needs `overview.read` only). */
+export async function getDashboardOverviewToday(
+  accessToken: string,
+  query: { branchId?: string } = {},
+): Promise<DashboardOverviewTodayResponse> {
+  const res = await fetch(withQuery("/dashboard/overview/today", query), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardOverviewTodayResponse;
 }
 
 export async function getDashboardReportsOverview(

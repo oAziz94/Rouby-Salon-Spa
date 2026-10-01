@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Bell, ChevronDown, LogOut, Sparkles, UserRound, X } from "lucide-react";
-import { getDashboardReportsOverview } from "@rouby/api-client";
+import { getDashboardOverviewToday, getDashboardReportsOverview } from "@rouby/api-client";
 import {
   DASHBOARD_NAV_GROUPS,
   type DashboardNavGroup,
@@ -290,6 +290,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const canSalonSettings =
     hasPermission("settings.system.read") || hasPermission("settings.read");
   const canViewReports = hasPermission("reports.view");
+  const canOverviewToday = !canViewReports && hasPermission("overview.read");
   const notifications = useMemo(() => {
     const fromActivity: DashboardNotification[] = recentActivity
       .filter((activity) => RING_ACTIONS.has((activity.action ?? "").toLowerCase()))
@@ -354,13 +355,25 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const hasNotifDot = unreadNotifications.length > 0;
 
   useEffect(() => {
-    if (status !== "authenticated" || !token || !canViewReports) {
+    if (status !== "authenticated" || !token || (!canViewReports && !canOverviewToday)) {
       return;
     }
 
     let cancelled = false;
     const refresh = async () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
       try {
+        if (canOverviewToday) {
+          const today = await getDashboardOverviewToday(token);
+          if (cancelled) {
+            return;
+          }
+          setOverviewRecentActivity([]);
+          setOverviewUpcomingAppointments(today.upcomingAppointments ?? []);
+          return;
+        }
         const data = await getDashboardReportsOverview(token);
         if (cancelled) {
           return;
@@ -382,6 +395,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       window.clearInterval(id);
     };
   }, [
+    canOverviewToday,
     canViewReports,
     setOverviewRecentActivity,
     setOverviewUpcomingAppointments,

@@ -2,7 +2,9 @@
 
 import {
   getDashboardBranches,
+  getDashboardOverviewToday,
   getDashboardReportsOverview,
+  type DashboardOverviewTodayResponse,
   type DashboardBranch,
   type DashboardOverviewAttentionItem,
   type DashboardOverviewRecentBookingRow,
@@ -29,6 +31,7 @@ import {
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState } from "react";
 import { DashboardCreateBookingDialog } from "@/components/dashboard-create-booking-dialog";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
@@ -224,6 +227,7 @@ function CompactTrendChart({
 export default function DashboardHomePage() {
   const trendFillId = useId().replace(/:/g, "");
   const { status, token, hasPermission, user } = useDashboardAuth();
+  const router = useRouter();
   const { setOverviewRecentActivity, setOverviewUpcomingAppointments } = useDashboardShellFeed();
   const [data, setData] = useState<DashboardReportsOverviewResponse | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -239,6 +243,14 @@ export default function DashboardHomePage() {
   const canCreateBooking = hasPermission("bookings.create");
   const canViewClientContact = hasPermission("clients.contact.view");
   const canReadClients = hasPermission("clients.read");
+  const canReadQueue = hasPermission("queue.read");
+
+  // Front-desk roles have no reports: their working screen is the Queue.
+  useEffect(() => {
+    if (status === "authenticated" && !canViewReports && canReadQueue) {
+      router.replace("/dashboard/queue");
+    }
+  }, [canReadQueue, canViewReports, router, status]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -338,14 +350,10 @@ export default function DashboardHomePage() {
   }, [canViewFinancial, data?.revenue]);
 
   if (!canViewReports) {
-    return (
-      <section className="rounded-2xl bg-white p-6 shadow-[0_8px_30px_rgba(31,36,32,0.06)] ring-1 ring-[#E8E0D4]/60 md:p-8">
-        <p className="text-sm leading-relaxed text-[#7A6A58]">
-          You do not have permission to view overview reports. You can still use other sections from the
-          sidebar your role allows.
-        </p>
-      </section>
-    );
+    if (canReadQueue) {
+      return null; // redirecting to the Queue
+    }
+    return <FrontDeskToday token={token} canReadBookings={canReadBookings} />;
   }
 
   if (loadState === "loading") {
@@ -1117,6 +1125,62 @@ export default function DashboardHomePage() {
           branchSelectDisabled={branches.length === 1}
           onCreated={() => setCreateOpen(false)}
         />
+      ) : null}
+    </section>
+  );
+}
+
+function FrontDeskToday({ token, canReadBookings }: { token: string | null; canReadBookings: boolean }) {
+  const [data, setData] = useState<DashboardOverviewTodayResponse | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    getDashboardOverviewToday(token)
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {
+        if (!cancelled) setError("We couldn't load today's summary. Please try again.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+  const tiles = data
+    ? [
+        ["Expected", data.queue.expected],
+        ["Waiting", data.queue.waiting],
+        ["In service", data.queue.inService],
+        ["Completed", data.queue.completed],
+      ]
+    : [];
+  return (
+    <section className="rounded-2xl bg-white p-6 shadow-[0_8px_30px_rgba(31,36,32,0.06)] ring-1 ring-[#E8E0D4]/60 md:p-8">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#B9974A]">Today</p>
+      <h2 className="mt-1 text-xl font-semibold text-[#062A2D]">Front desk summary</h2>
+      {error ? <p className="mt-3 text-sm text-[#8B4428]">{error}</p> : null}
+      {data ? (
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {tiles.map(([label, value]) => (
+            <div key={String(label)} className="rounded-xl border border-[#E8E0D4] bg-[#FBF8F2] p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">{label}</p>
+              <p className="mt-1 text-2xl font-semibold text-[#1F2420]">{value}</p>
+            </div>
+          ))}
+        </div>
+      ) : !error ? (
+        <p className="mt-3 text-sm text-[#7A6A58]">Loading…</p>
+      ) : null}
+      {canReadBookings ? (
+        <div className="mt-5 flex flex-wrap gap-3">
+          <Link href="/dashboard/calendar" className="rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA]">
+            Open calendar
+          </Link>
+          <Link href="/dashboard/bookings" className="rounded-xl border border-[#D8CBB8] bg-white px-4 py-2 text-sm font-semibold text-[#1F2420]">
+            Bookings
+          </Link>
+        </div>
       ) : null}
     </section>
   );

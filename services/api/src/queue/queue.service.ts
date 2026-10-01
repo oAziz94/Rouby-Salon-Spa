@@ -6,6 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  BookingItemLineStatus,
+  BookingItemType,
   BookingSource,
   BookingStatus,
   InvoiceStatus,
@@ -87,6 +89,16 @@ function deriveInvoicePaymentStatus(
   }
   return 'UNPAID';
 }
+
+type QueueBookingLine = {
+  id: string;
+  itemType: BookingItemType;
+  nameSnapshot: string;
+  lineStatus: BookingItemLineStatus;
+  serviceId: string | null;
+  serviceVariantId: string | null;
+  staffDisplayName: string | null;
+};
 
 @Injectable()
 export class QueueService {
@@ -216,8 +228,35 @@ export class QueueService {
       method: string;
       paidAt: Date | null;
     } | null;
+    lines?: QueueBookingLine[];
   }) {
     const now = Date.now();
+    const workLines = (row.lines ?? []).filter(
+      (l) =>
+        (l.itemType === BookingItemType.SERVICE ||
+          l.itemType === BookingItemType.SERVICE_VARIANT) &&
+        (l.serviceId !== null || l.serviceVariantId !== null) &&
+        l.lineStatus !== BookingItemLineStatus.CANCELLED,
+    );
+    const assignedStaffNames = Array.from(
+      new Set(
+        workLines
+          .map((l) => l.staffDisplayName?.trim())
+          .filter((n): n is string => Boolean(n)),
+      ),
+    );
+    const serviceLineCounts = {
+      total: workLines.length,
+      pending: workLines.filter(
+        (l) => l.lineStatus === BookingItemLineStatus.PENDING,
+      ).length,
+      inProgress: workLines.filter(
+        (l) => l.lineStatus === BookingItemLineStatus.IN_PROGRESS,
+      ).length,
+      completed: workLines.filter(
+        (l) => l.lineStatus === BookingItemLineStatus.COMPLETED,
+      ).length,
+    };
     let waitingDurationSeconds: number | null = null;
     let inServiceDurationSeconds: number | null = null;
 
@@ -285,6 +324,17 @@ export class QueueService {
                   : Number(row.bookingTotalAmount.toString()),
             },
       hasFinalizedInvoice: Boolean(row.invoice),
+      lines: workLines.map((l) => ({
+        id: l.id,
+        name: l.nameSnapshot,
+        lineStatus: l.lineStatus,
+        staffDisplayName: l.staffDisplayName ?? null,
+      })),
+      assignedStaffNames,
+      serviceLineCounts,
+      allServiceLinesDone:
+        serviceLineCounts.total > 0 &&
+        serviceLineCounts.completed === serviceLineCounts.total,
       invoiceSummary: row.invoice
         ? {
             invoiceId: row.invoice.id,
@@ -343,7 +393,7 @@ export class QueueService {
       return rows.map((r) => this.mapQueueEntry(r));
     }
 
-    const [bookings, invoices, paidPayments] = await Promise.all([
+    const [bookings, invoices, paidPayments, bookingItems] = await Promise.all([
       this.prisma.booking.findMany({
         where: { id: { in: bookingIds } },
         select: { id: true, totalAmount: true },
@@ -375,6 +425,20 @@ export class QueueService {
           createdAt: true,
         },
       }),
+      this.prisma.bookingItem.findMany({
+        where: { bookingId: { in: bookingIds } },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          bookingId: true,
+          itemType: true,
+          nameSnapshot: true,
+          lineStatus: true,
+          serviceId: true,
+          serviceVariantId: true,
+          staffProfile: { select: { displayName: true } },
+        },
+      }),
     ]);
 
     const bookingById = new Map(bookings.map((b) => [b.id, b]));
@@ -391,6 +455,21 @@ export class QueueService {
       }
     }
 
+    const linesByBookingId = new Map<string, QueueBookingLine[]>();
+    for (const it of bookingItems) {
+      const list = linesByBookingId.get(it.bookingId) ?? [];
+      list.push({
+        id: it.id,
+        itemType: it.itemType,
+        nameSnapshot: it.nameSnapshot,
+        lineStatus: it.lineStatus,
+        serviceId: it.serviceId,
+        serviceVariantId: it.serviceVariantId,
+        staffDisplayName: it.staffProfile?.displayName ?? null,
+      });
+      linesByBookingId.set(it.bookingId, list);
+    }
+
     return rows.map((row) => {
       const booking = row.bookingId
         ? bookingById.get(row.bookingId)
@@ -405,6 +484,7 @@ export class QueueService {
         ...row,
         bookingTotalAmount: booking?.totalAmount ?? null,
         invoice,
+        lines: row.bookingId ? (linesByBookingId.get(row.bookingId) ?? []) : [],
         lastPaidPayment: payment
           ? {
               method: payment.method,

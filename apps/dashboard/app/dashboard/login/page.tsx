@@ -6,7 +6,8 @@ import { useEffect, useId, useState } from "react";
 
 const REMEMBER_DRAFTS_KEY = "dashboard_login_remember_drafts";
 const REMEMBER_EMAIL_KEY = "dashboard_login_email";
-const REMEMBER_PASSWORD_KEY = "dashboard_login_password";
+/** Legacy key: older builds stored the password here. Always cleared, never written. */
+const LEGACY_PASSWORD_KEY = "dashboard_login_password";
 
 export default function DashboardLoginPage() {
   const { login } = useDashboardAuth();
@@ -30,13 +31,13 @@ export default function DashboardLoginPage() {
     }
     const queryReason = new URLSearchParams(window.location.search).get("reason");
     setReason(queryReason);
+    window.localStorage.removeItem(LEGACY_PASSWORD_KEY);
 
     const shouldRestoreDrafts =
       window.localStorage.getItem(REMEMBER_DRAFTS_KEY) === "1";
     if (shouldRestoreDrafts) {
       setRememberMe(true);
       setEmail(window.localStorage.getItem(REMEMBER_EMAIL_KEY) ?? "");
-      setPassword(window.localStorage.getItem(REMEMBER_PASSWORD_KEY) ?? "");
     }
   }, []);
 
@@ -47,13 +48,11 @@ export default function DashboardLoginPage() {
     if (!rememberMe) {
       window.localStorage.removeItem(REMEMBER_DRAFTS_KEY);
       window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
-      window.localStorage.removeItem(REMEMBER_PASSWORD_KEY);
       return;
     }
     window.localStorage.setItem(REMEMBER_DRAFTS_KEY, "1");
     window.localStorage.setItem(REMEMBER_EMAIL_KEY, email);
-    window.localStorage.setItem(REMEMBER_PASSWORD_KEY, password);
-  }, [email, password, rememberMe]);
+  }, [email, rememberMe]);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -65,7 +64,6 @@ export default function DashboardLoginPage() {
       if (typeof window !== "undefined" && !rememberMe) {
         window.localStorage.removeItem(REMEMBER_DRAFTS_KEY);
         window.localStorage.removeItem(REMEMBER_EMAIL_KEY);
-        window.localStorage.removeItem(REMEMBER_PASSWORD_KEY);
       }
     } catch (submitError) {
       setError(
