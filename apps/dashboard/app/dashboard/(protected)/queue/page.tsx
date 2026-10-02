@@ -52,6 +52,7 @@ import {
   type ServiceLineRow,
 } from "@/components/dashboard-service-variant-lines-block";
 import { PermissionGuard } from "@/components/auth-required";
+import { OverrideReasonDialog } from "@/components/override-reason-dialog";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 
 function formatDuration(seconds: number | null): string {
@@ -860,67 +861,6 @@ function QueueToast({ message, onClose }: { message: string; onClose: () => void
       <button type="button" onClick={onClose} aria-label="Dismiss" className="rounded-md px-1 text-[#8B4428] hover:bg-[#F7DED3]">
         ×
       </button>
-    </div>
-  );
-}
-
-function OverrideReasonDialog({
-  request,
-  onClose,
-}: {
-  request: { message: string; resolve: (reason: string | null) => void } | null;
-  onClose: () => void;
-}) {
-  const [reason, setReason] = useState("");
-  useEffect(() => {
-    setReason("");
-  }, [request]);
-  if (!request) return null;
-  const submit = () => {
-    const r = reason.trim();
-    if (!r) return;
-    request.resolve(r);
-    onClose();
-  };
-  return (
-    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/40 p-4 sm:items-center">
-      <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
-        <p className="text-base font-semibold text-[#1F2420]">Proceed anyway?</p>
-        <p className="mt-2 text-sm leading-relaxed text-[#5E574C]">{request.message}</p>
-        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
-          Reason (recorded in the audit log)
-          <input
-            autoFocus
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
-            }}
-            placeholder="e.g. stylist agreed to stay late"
-            className="mt-1 w-full rounded-xl border border-[#E8E0D4] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#1F2420]"
-          />
-        </label>
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              request.resolve(null);
-              onClose();
-            }}
-            className="rounded-xl border border-[#D8CBB8] bg-white px-4 py-2 text-sm font-semibold text-[#1F2420]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={!reason.trim()}
-            onClick={submit}
-            className="rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA] disabled:opacity-50"
-          >
-            Proceed
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -1771,12 +1711,22 @@ export default function DashboardQueuePage() {
     setDrawerServiceBusy(true);
     setDrawerServiceError("");
     try {
-      const updated = await postDashboardBookingServiceItemStart(
-        token,
-        selectedBooking.id,
-        drawerServiceItem.id,
-        { staffProfileId: drawerServiceStaff },
-      );
+      const body: { staffProfileId: string; overrideReason?: string } = {
+        staffProfileId: drawerServiceStaff,
+      };
+      let updated: DashboardBookingDetail;
+      try {
+        updated = await postDashboardBookingServiceItemStart(token, selectedBooking.id, drawerServiceItem.id, body);
+      } catch (firstError) {
+        if (!(firstError instanceof ApiClientError) || !firstError.overridable) throw firstError;
+        const reason = await askOverride(firstError.message);
+        if (!reason) {
+          setDrawerServiceBusy(false);
+          return;
+        }
+        body.overrideReason = reason;
+        updated = await postDashboardBookingServiceItemStart(token, selectedBooking.id, drawerServiceItem.id, body);
+      }
       setDetailCache((prev) => ({ ...prev, [updated.id]: updated }));
       setSelectedBooking(updated);
       setDrawerServiceItem(null);

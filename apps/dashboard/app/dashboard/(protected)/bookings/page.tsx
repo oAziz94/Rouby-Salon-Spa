@@ -41,6 +41,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
 import { DashboardCreateBookingDialog } from "@/components/dashboard-create-booking-dialog";
+import { OverrideReasonDialog, useOverrideReason } from "@/components/override-reason-dialog";
 import { useSystemDialog } from "@/components/system-dialog-provider";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 
@@ -296,6 +297,7 @@ export default function DashboardBookingsPage() {
   const [lineStartLoading, setLineStartLoading] = useState(false);
   const [lineStartSubmitting, setLineStartSubmitting] = useState(false);
   const [lineStartError, setLineStartError] = useState("");
+  const override = useOverrideReason();
   const [lineCompleteBusyId, setLineCompleteBusyId] = useState<string | null>(null);
 
   const canRead = hasPermission("bookings.read");
@@ -553,9 +555,21 @@ export default function DashboardBookingsPage() {
     setLineStartSubmitting(true);
     setLineStartError("");
     try {
-      await postDashboardBookingServiceItemStart(token, selectedBookingId, lineStartItemId, {
+      const body: { staffProfileId: string; overrideReason?: string } = {
         staffProfileId: lineStartStaffPick,
-      });
+      };
+      try {
+        await postDashboardBookingServiceItemStart(token, selectedBookingId, lineStartItemId, body);
+      } catch (firstError) {
+        if (!(firstError instanceof ApiClientError) || !firstError.overridable) throw firstError;
+        const reason = await override.ask(firstError.message);
+        if (!reason) {
+          setLineStartSubmitting(false);
+          return;
+        }
+        body.overrideReason = reason;
+        await postDashboardBookingServiceItemStart(token, selectedBookingId, lineStartItemId, body);
+      }
       setLineStartItemId(null);
       await loadDetail(selectedBookingId);
     } catch (e) {
@@ -1967,6 +1981,7 @@ export default function DashboardBookingsPage() {
             }}
           />
         ) : null}
+        <OverrideReasonDialog request={override.request} onClose={override.close} />
       </section>
     </PermissionGuard>
   );

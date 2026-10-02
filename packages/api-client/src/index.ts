@@ -2451,7 +2451,7 @@ export async function postDashboardBookingServiceItemStart(
   accessToken: string,
   bookingId: string,
   itemId: string,
-  body: { staffProfileId: string },
+  body: { staffProfileId: string; overrideReason?: string },
 ): Promise<DashboardBookingDetail> {
   return jsonMutation<DashboardBookingDetail>(
     accessToken,
