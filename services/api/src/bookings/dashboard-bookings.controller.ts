@@ -23,6 +23,7 @@ import { RescheduleBodyDto } from './dto/reschedule-body.dto';
 import { ConfirmBookingDto } from './dto/confirm-booking.dto';
 import { StartBookingServiceItemDto } from './dto/start-booking-service-item.dto';
 import { AppendBookingServiceItemsDto } from './dto/append-booking-service-items.dto';
+import { RemoveBookingItemQueryDto } from './dto/remove-booking-item-query.dto';
 
 @ApiTags('dashboard-bookings')
 @ApiBearerAuth('dashboard-jwt')
@@ -251,7 +252,13 @@ export class DashboardBookingsController {
     @CurrentDashboardUser() user: DashboardJwtUser,
     @Param('bookingId') bookingId: string,
     @Param('itemId') itemId: string,
+    @Query() query: RemoveBookingItemQueryDto,
   ) {
-    return this.bookings.removeBookingItem(user, bookingId, itemId);
+    return this.bookings.removeBookingItem(
+      user,
+      bookingId,
+      itemId,
+      query.reason,
+    );
   }
 }

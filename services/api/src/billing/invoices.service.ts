@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  BookingItemLineStatus,
   BookingSource,
   InvoiceStatus,
   PaymentMethod,
@@ -132,7 +133,12 @@ export class InvoicesService {
     const created = await this.prisma.$transaction(async (tx) => {
       const booking = await tx.booking.findUnique({
         where: { id: bookingId },
-        include: { items: { orderBy: { createdAt: 'asc' } } },
+        include: {
+          items: {
+            where: { lineStatus: { not: BookingItemLineStatus.CANCELLED } },
+            orderBy: { createdAt: 'asc' },
+          },
+        },
       });
       if (!booking) {
         throw new NotFoundException('Booking not found');
@@ -228,7 +234,12 @@ export class InvoicesService {
   ): Promise<void> {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
-      include: { items: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        items: {
+          where: { lineStatus: { not: BookingItemLineStatus.CANCELLED } },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
     if (!booking) {
       throw new NotFoundException('Booking not found');

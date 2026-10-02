@@ -1611,7 +1611,10 @@ export class BookingsService {
         });
 
         const allItems = await tx.bookingItem.findMany({
-          where: { bookingId },
+          where: {
+            bookingId,
+            lineStatus: { not: BookingItemLineStatus.CANCELLED },
+          },
           orderBy: { createdAt: 'asc' },
           select: {
             itemType: true,
@@ -1894,10 +1897,18 @@ export class BookingsService {
     return this.appendItemsAndReprice(user, bookingId, items);
   }
 
+  /**
+   * Remove one line from an active booking (spec v2 §3):
+   * - PENDING line → hard delete (FREE).
+   * - IN_PROGRESS line → SOFT: refused without `reason`; with a reason the line is
+   *   kept as CANCELLED (not charged, stylist freed) for the record.
+   * - COMPLETED line → blocked; the dispute is handled with a discount instead.
+   */
   async removeBookingItem(
     user: DashboardJwtUser,
     bookingId: string,
     itemId: string,
+    reason?: string | null,
   ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
@@ -1953,14 +1964,51 @@ export class BookingsService {
         itemType: true,
         priceSnapshot: true,
         quantity: true,
+        lineStatus: true,
+        staffProfile: { select: { displayName: true } },
       },
     });
     if (!target) {
       throw new NotFoundException('Booking item not found on this booking');
     }
+    if (target.lineStatus === BookingItemLineStatus.COMPLETED) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: `"${target.nameSnapshot}" is already done and cannot be removed — apply a discount instead`,
+          error: 'Bad Request',
+          code: 'LINE_COMPLETED',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (target.lineStatus === BookingItemLineStatus.CANCELLED) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: `"${target.nameSnapshot}" was already removed`,
+          error: 'Bad Request',
+          code: 'LINE_ALREADY_CANCELLED',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const stopInProgress =
+      target.lineStatus === BookingItemLineStatus.IN_PROGRESS;
+    const overrideReason = reason?.trim() || null;
+    if (stopInProgress && !overrideReason) {
+      const who = target.staffProfile?.displayName;
+      throw overridableException(
+        'LINE_IN_PROGRESS',
+        `"${target.nameSnapshot}" is in progress${who ? ` with ${who}` : ''} — stop and remove it? It will not be charged.`,
+      );
+    }
 
     const totalItemCount = await this.prisma.bookingItem.count({
-      where: { bookingId },
+      where: {
+        bookingId,
+        lineStatus: { not: BookingItemLineStatus.CANCELLED },
+      },
     });
     if (totalItemCount <= 1) {
       throw new HttpException(
@@ -1989,10 +2037,23 @@ export class BookingsService {
 
     await this.prisma.$transaction(
       async (tx) => {
-        await tx.bookingItem.delete({ where: { id: target.id } });
+        if (stopInProgress) {
+          await tx.bookingItem.update({
+            where: { id: target.id },
+            data: {
+              lineStatus: BookingItemLineStatus.CANCELLED,
+              completedAt: new Date(),
+            },
+          });
+        } else {
+          await tx.bookingItem.delete({ where: { id: target.id } });
+        }
 
         const remainingItems = await tx.bookingItem.findMany({
-          where: { bookingId },
+          where: {
+            bookingId,
+            lineStatus: { not: BookingItemLineStatus.CANCELLED },
+          },
           include: {
             service: true,
             serviceVariant: { include: { service: true } },
@@ -2087,7 +2148,9 @@ export class BookingsService {
     const updated = await this.getDashboardBooking(user, bookingId);
     await this.audit.log({
       userId: user.userId,
-      action: 'booking.item_removed',
+      action: stopInProgress
+        ? 'booking.item_cancelled_in_progress'
+        : 'booking.item_removed',
       module: 'bookings',
       entityId: bookingId,
       oldValue: {
@@ -2096,8 +2159,11 @@ export class BookingsService {
         nameSnapshot: target.nameSnapshot,
         priceSnapshot: Number(target.priceSnapshot.toString()),
         quantity: target.quantity,
+        lineStatus: target.lineStatus,
+        staffDisplayName: target.staffProfile?.displayName ?? null,
       },
       newValue: {
+        reason: overrideReason,
         subtotal: updated.subtotal,
         discountAmount: updated.discountAmount,
         vatAmount: updated.vatAmount,
@@ -2548,7 +2614,10 @@ export class BookingsService {
     bookingId: string,
   ): Promise<BookingItemInputDto[]> {
     const items = await this.prisma.bookingItem.findMany({
-      where: { bookingId },
+      where: {
+        bookingId,
+        lineStatus: { not: BookingItemLineStatus.CANCELLED },
+      },
       orderBy: { createdAt: 'asc' },
     });
     return items.map((it) => {
@@ -2583,7 +2652,10 @@ export class BookingsService {
     bookingId: string,
   ): Promise<ResolvedBookingLine[]> {
     const items = await this.prisma.bookingItem.findMany({
-      where: { bookingId },
+      where: {
+        bookingId,
+        lineStatus: { not: BookingItemLineStatus.CANCELLED },
+      },
       include: {
         service: true,
         serviceVariant: { include: { service: true } },

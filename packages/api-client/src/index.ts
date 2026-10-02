@@ -3273,14 +3273,21 @@ export async function postDashboardBookingAction(
   );
 }
 
+/**
+ * Remove a line from an active booking. A PENDING line is deleted; an IN_PROGRESS
+ * line answers 409 `overridable` until `reason` is supplied, then it is kept as
+ * CANCELLED (not charged). COMPLETED lines cannot be removed.
+ */
 export async function deleteDashboardBookingItem(
   accessToken: string,
   bookingId: string,
   itemId: string,
+  opts?: { reason?: string },
 ): Promise<DashboardBookingDetail> {
+  const qs = opts?.reason ? `?reason=${encodeURIComponent(opts.reason)}` : "";
   return jsonMutation<DashboardBookingDetail>(
     accessToken,
-    `/dashboard/bookings/${bookingId}/items/${itemId}`,
+    `/dashboard/bookings/${bookingId}/items/${itemId}${qs}`,
     "DELETE",
   );
 }

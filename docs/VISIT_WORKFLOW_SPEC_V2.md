@@ -54,6 +54,7 @@ Proposed:
 | Staff already busy with another client | **SOFT** (warn, show who) | Hair-colour processing time: one stylist legitimately runs two clients. |
 | Several services of one visit **in progress at once** | **FREE** | Manicure during colour processing is the normal case. |
 | Add a service mid-visit | FREE until closed; after invoice finalised → adds a new invoice line and re-totals (no "finalised invoice blocks items"). | — |
+| Remove a service mid-visit (client changed her mind) | **Not started** → remove, re-total (**FREE**, confirm only). **In progress** → "Stop & remove": **SOFT** (reason required); the line is kept as *Removed · not charged* for the record, the stylist is freed. **Already done** → **HARD** block; handle a dispute with a discount. Blocked once the invoice is finalised, and the last remaining line cannot be removed (cancel the visit instead). Available on the queue card, the visit drawer and the Bookings page. | Stylist's time was spent; the record must show it. Implemented 2 Oct 2026. |
 | Mark a service done | From the card (one tap per line) **or** "Mark all done" on the card. Stylists with a dashboard login may mark **their own** line done from their phone (**[DECISION 2]** default: yes, Staff role gets `bookingServiceItems.complete` on own lines). | FREE |
 | Service running > expected duration + 30 min | Card shows amber "running long"; nothing blocks. | — |
 | Visit in service > 4 h with no activity | Card shows red "stale — check"; manager can cancel/close with reason. | SOFT |

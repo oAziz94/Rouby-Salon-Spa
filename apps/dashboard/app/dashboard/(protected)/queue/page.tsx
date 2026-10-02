@@ -2,6 +2,7 @@
 
 import {
   ApiClientError,
+  deleteDashboardBookingItem,
   getDashboardBookingById,
   getDashboardBookings,
   getDashboardBranches,
@@ -53,6 +54,7 @@ import {
 } from "@/components/dashboard-service-variant-lines-block";
 import { PermissionGuard } from "@/components/auth-required";
 import { OverrideReasonDialog } from "@/components/override-reason-dialog";
+import { useSystemDialog } from "@/components/system-dialog-provider";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 
 function formatDuration(seconds: number | null): string {
@@ -107,7 +109,8 @@ function serviceWorkLines(booking: DashboardBookingDetail | null | undefined) {
     booking?.items.filter(
       (item) =>
         (item.itemType === "SERVICE" || item.itemType === "SERVICE_VARIANT") &&
-        Boolean(item.catalogServiceId),
+        Boolean(item.catalogServiceId) &&
+        (item.lineStatus ?? "PENDING") !== "CANCELLED",
     ) ?? []
   );
 }
@@ -490,6 +493,7 @@ function CommandQueueCard({
   onDiscount,
   onOpenDetails,
   onCompleteLine,
+  onRemoveLine,
 }: {
   row: DashboardQueueEntry;
   stage: Exclude<QueueStageKey, "expected">;
@@ -508,6 +512,7 @@ function CommandQueueCard({
   onDiscount: (row: DashboardQueueEntry) => void;
   onOpenDetails: (row: DashboardQueueEntry) => void;
   onCompleteLine: (row: DashboardQueueEntry, lineId: string) => void;
+  onRemoveLine: (row: DashboardQueueEntry, line: { id: string; name: string; lineStatus: string }) => void;
 }) {
   const busy = busyId === row.id;
   const assignedStaff = row.assignedStaffNames?.length
@@ -575,18 +580,32 @@ function CommandQueueCard({
                 {line.name}
                 {line.staffDisplayName ? <span className="text-[#9A8B7A]"> · {line.staffDisplayName}</span> : null}
               </span>
-              {line.lineStatus === "IN_PROGRESS" && canProgressVisit ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onCompleteLine(row, line.id)}
-                  className="shrink-0 rounded-md border border-[#0A5A45]/40 bg-white px-2 py-0.5 font-semibold text-[#0A5A45] hover:bg-[#EEF7F3] disabled:opacity-50"
-                >
-                  Done
-                </button>
-              ) : line.lineStatus === "PENDING" ? (
-                <span className="shrink-0 text-[#9A8B7A]">not started</span>
-              ) : null}
+              <span className="flex shrink-0 items-center gap-1">
+                {line.lineStatus === "IN_PROGRESS" && canProgressVisit ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onCompleteLine(row, line.id)}
+                    className="rounded-md border border-[#0A5A45]/40 bg-white px-2 py-0.5 font-semibold text-[#0A5A45] hover:bg-[#EEF7F3] disabled:opacity-50"
+                  >
+                    Done
+                  </button>
+                ) : line.lineStatus === "PENDING" ? (
+                  <span className="text-[#9A8B7A]">not started</span>
+                ) : null}
+                {canAddItems && !row.hasFinalizedInvoice && lines.length > 1 && (line.lineStatus === "PENDING" || line.lineStatus === "IN_PROGRESS") ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onRemoveLine(row, line)}
+                    aria-label={`Remove ${line.name}`}
+                    title={line.lineStatus === "IN_PROGRESS" ? "Stop & remove (not charged)" : "Remove"}
+                    className="rounded-md border border-[#E7B9A4]/70 bg-white px-1.5 py-0.5 text-[#8B4428] hover:bg-[#FFF1EC] disabled:opacity-50"
+                  >
+                    <X className="h-3 w-3" aria-hidden />
+                  </button>
+                ) : null}
+              </span>
             </li>
           ))}
         </ul>
@@ -931,6 +950,8 @@ function QueueDetailsDrawer({
   onSubmitStartService,
   onCancelStartService,
   onCompleteService,
+  onRemoveService,
+  canRemoveService,
   onClose,
 }: {
   open: boolean;
@@ -950,9 +971,18 @@ function QueueDetailsDrawer({
   onSubmitStartService: () => void;
   onCancelStartService: () => void;
   onCompleteService: (item: DashboardBookingDetail["items"][number]) => void;
+  onRemoveService: (item: DashboardBookingDetail["items"][number]) => void;
+  canRemoveService: boolean;
   onClose: () => void;
 }) {
   if (!open) return null;
+  const activeItemCount = (booking?.items ?? []).filter((it) => (it.lineStatus ?? "PENDING") !== "CANCELLED").length;
+  const removeAllowed =
+    canRemoveService &&
+    !row?.hasFinalizedInvoice &&
+    !booking?.finalizedInvoice &&
+    activeItemCount > 1 &&
+    (row?.status === "WAITING" || row?.status === "IN_SERVICE");
   const invoice = booking?.finalizedInvoice ?? row?.invoiceSummary ?? null;
   const payments = booking?.payments ?? [];
   const timeline = [
@@ -1021,17 +1051,38 @@ function QueueDetailsDrawer({
             {booking?.items?.length ? (
               <div className="space-y-2">
                 {booking.items.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-[#F0EBE3] bg-white px-3 py-2">
+                  <div
+                    key={item.id}
+                    className={`rounded-xl border border-[#F0EBE3] px-3 py-2 ${(item.lineStatus ?? "PENDING") === "CANCELLED" ? "bg-[#F7F4EE] opacity-70" : "bg-white"}`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold text-[#1F2420]">{item.nameSnapshot}</p>
+                        <p className={`text-sm font-semibold ${(item.lineStatus ?? "PENDING") === "CANCELLED" ? "text-[#7A6A58] line-through" : "text-[#1F2420]"}`}>
+                          {item.nameSnapshot}
+                        </p>
                         <p className="mt-0.5 text-xs text-[#7A6A58]">
-                          {item.lineStatus ?? "PENDING"} · {item.staffDisplayName ?? "No staff assigned"}
+                          {(item.lineStatus ?? "PENDING") === "CANCELLED"
+                            ? `Removed · not charged${item.staffDisplayName ? ` · ${item.staffDisplayName}` : ""}`
+                            : `${item.lineStatus ?? "PENDING"} · ${item.staffDisplayName ?? "No staff assigned"}`}
                         </p>
                       </div>
-                      <span className="text-xs font-semibold text-[#1F2420]">{formatEGP(item.priceSnapshot * item.quantity)}</span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className={`text-xs font-semibold ${(item.lineStatus ?? "PENDING") === "CANCELLED" ? "text-[#9A8B7A] line-through" : "text-[#1F2420]"}`}>
+                          {formatEGP(item.priceSnapshot * item.quantity)}
+                        </span>
+                        {removeAllowed && ((item.lineStatus ?? "PENDING") === "PENDING" || item.lineStatus === "IN_PROGRESS") ? (
+                          <button
+                            type="button"
+                            disabled={serviceBusy}
+                            onClick={() => onRemoveService(item)}
+                            className="rounded-lg border border-[#E7B9A4]/70 bg-white px-2 py-1 text-[0.65rem] font-semibold text-[#8B4428] hover:bg-[#FFF1EC] disabled:opacity-50"
+                          >
+                            {item.lineStatus === "IN_PROGRESS" ? "Stop & remove" : "Remove"}
+                          </button>
+                        ) : null}
+                      </span>
                     </div>
-                    {(item.itemType === "SERVICE" || item.itemType === "SERVICE_VARIANT") && item.catalogServiceId ? (
+                    {(item.itemType === "SERVICE" || item.itemType === "SERVICE_VARIANT") && item.catalogServiceId && (item.lineStatus ?? "PENDING") !== "CANCELLED" ? (
                       <div className="mt-3 border-t border-[#F0EBE3] pt-3">
                         {(item.lineStatus ?? "PENDING") === "PENDING" ? (
                           serviceStartItem?.id === item.id ? (
@@ -1226,6 +1277,7 @@ export default function DashboardQueuePage() {
       }),
     [],
   );
+  const { confirm } = useSystemDialog();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bookingBusyId, setBookingBusyId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -1898,6 +1950,75 @@ export default function DashboardQueuePage() {
     }
   }
 
+  /**
+   * Remove a service line during a visit. PENDING → plain confirm + delete.
+   * IN_PROGRESS → the API answers with an overridable 409; we ask for a reason and retry,
+   * and the line is kept as CANCELLED (not charged).
+   */
+  async function removeBookingLine(
+    bookingId: string,
+    line: { id: string; name: string; lineStatus: string },
+  ): Promise<DashboardBookingDetail | null> {
+    if (!token) return null;
+    if (line.lineStatus === "PENDING") {
+      const ok = await confirm({
+        title: "Remove service?",
+        message: `Remove “${line.name}” from this visit? The total will be recalculated.`,
+        tone: "danger",
+        confirmLabel: "Remove",
+      });
+      if (!ok) return null;
+    }
+    try {
+      return await deleteDashboardBookingItem(token, bookingId, line.id);
+    } catch (firstError) {
+      if (!(firstError instanceof ApiClientError) || !firstError.overridable) throw firstError;
+      const reason = await askOverride(firstError.message);
+      if (!reason) return null;
+      return await deleteDashboardBookingItem(token, bookingId, line.id, { reason });
+    }
+  }
+
+  async function removeLine(row: DashboardQueueEntry, line: { id: string; name: string; lineStatus: string }): Promise<void> {
+    if (!token || !row.bookingId) return;
+    setBusyId(row.id);
+    setError("");
+    try {
+      const refreshed = await removeBookingLine(row.bookingId, line);
+      if (refreshed) {
+        setDetailCache((prev) => ({ ...prev, [refreshed.id]: refreshed }));
+        if (selectedBookingId === row.bookingId) setSelectedBooking(refreshed);
+        await loadQueue({ silent: true });
+      }
+    } catch (requestError) {
+      setError(formatApiError(requestError));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function removeDrawerService(item: DashboardBookingDetail["items"][number]): Promise<void> {
+    if (!token || !selectedBooking) return;
+    setDrawerServiceBusy(true);
+    setDrawerServiceError("");
+    try {
+      const refreshed = await removeBookingLine(selectedBooking.id, {
+        id: item.id,
+        name: item.nameSnapshot,
+        lineStatus: item.lineStatus ?? "PENDING",
+      });
+      if (refreshed) {
+        setDetailCache((prev) => ({ ...prev, [refreshed.id]: refreshed }));
+        setSelectedBooking(refreshed);
+        await loadQueue({ silent: true });
+      }
+    } catch (requestError) {
+      setDrawerServiceError(formatApiError(requestError));
+    } finally {
+      setDrawerServiceBusy(false);
+    }
+  }
+
   async function completeLine(row: DashboardQueueEntry, lineId: string): Promise<void> {
     if (!token || !row.bookingId) return;
     setBusyId(row.id);
@@ -2155,6 +2276,7 @@ export default function DashboardQueuePage() {
         onDiscount={(r) => openDiscountModal(r)}
         onOpenDetails={(r) => void openQueueDetails(r)}
         onCompleteLine={(r, lineId) => void completeLine(r, lineId)}
+        onRemoveLine={(r, line) => void removeLine(r, line)}
         busyId={busyId}
         startVisitModalOpen={startVisitOpen}
       />
@@ -2398,6 +2520,8 @@ export default function DashboardQueuePage() {
             setDrawerServiceStaff("");
           }}
           onCompleteService={(item) => void completeDrawerService(item)}
+          onRemoveService={(item) => void removeDrawerService(item)}
+          canRemoveService={canAddQueueItems}
           onClose={() => {
             setDetailOpen(false);
             setSelectedQueueRow(null);

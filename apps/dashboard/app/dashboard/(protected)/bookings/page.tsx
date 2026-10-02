@@ -744,24 +744,37 @@ export default function DashboardBookingsPage() {
     }
   }
 
-  async function removeItem(itemId: string, itemName: string) {
+  async function removeItem(itemId: string, itemName: string, lineStatus?: string | null) {
     if (!token || !detail) {
       return;
     }
-    const confirmed = await confirm({
-      title: "Remove line item?",
-      message: `Remove “${itemName}” from this booking? Pricing will be recalculated automatically.`,
-      tone: "danger",
-      confirmLabel: "Remove",
-      cancelLabel: "Cancel",
-    });
-    if (!confirmed) {
-      return;
+    const inProgress = lineStatus === "IN_PROGRESS";
+    if (!inProgress) {
+      const confirmed = await confirm({
+        title: "Remove line item?",
+        message: `Remove “${itemName}” from this booking? Pricing will be recalculated automatically.`,
+        tone: "danger",
+        confirmLabel: "Remove",
+        cancelLabel: "Cancel",
+      });
+      if (!confirmed) {
+        return;
+      }
     }
     setRemovingItemId(itemId);
     setActionError("");
     try {
-      await deleteDashboardBookingItem(token, detail.id, itemId);
+      try {
+        await deleteDashboardBookingItem(token, detail.id, itemId);
+      } catch (firstError) {
+        if (!(firstError instanceof ApiClientError) || !firstError.overridable) throw firstError;
+        const reason = await override.ask(firstError.message);
+        if (!reason) {
+          setRemovingItemId("");
+          return;
+        }
+        await deleteDashboardBookingItem(token, detail.id, itemId, { reason });
+      }
       await Promise.all([loadList(), loadDetail(detail.id)]);
     } catch (requestError) {
       setActionError(formatApiError(requestError));
@@ -1402,7 +1415,8 @@ export default function DashboardBookingsPage() {
                         (() => {
                           const removeBlockedByStatus = isTerminalBookingStatus(detail.status);
                           const removeBlockedByInvoice = Boolean(detail.finalizedInvoice);
-                          const removeBlockedByLastItem = detail.items.length <= 1;
+                          const removeBlockedByLastItem =
+                            detail.items.filter((it) => (it.lineStatus ?? "PENDING") !== "CANCELLED").length <= 1;
                           const canRemoveAny =
                             canUpdate && !removeBlockedByStatus && !removeBlockedByInvoice && !removeBlockedByLastItem;
                           return (
@@ -1451,13 +1465,18 @@ export default function DashboardBookingsPage() {
                                             </p>
                                           ) : null}
                                         </div>
-                                        {canUpdate ? (
+                                        {lineSt === "CANCELLED" ? (
+                                          <span className="shrink-0 rounded-full bg-[#F0EBE3] px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-[#7A6A58]">
+                                            Removed · not charged
+                                          </span>
+                                        ) : canUpdate ? (
                                           <button
                                             type="button"
                                             aria-label={`Remove ${item.nameSnapshot}`}
-                                            onClick={() => void removeItem(item.id, item.nameSnapshot)}
+                                            onClick={() => void removeItem(item.id, item.nameSnapshot, item.lineStatus)}
                                             disabled={
                                               !canRemoveAny ||
+                                              lineSt === "COMPLETED" ||
                                               removingItemId === item.id ||
                                               removingItemId !== "" ||
                                               actionLoading !== null
@@ -1469,7 +1488,7 @@ export default function DashboardBookingsPage() {
                                             ) : (
                                               <Trash2 className="h-3.5 w-3.5" aria-hidden />
                                             )}
-                                            Remove
+                                            {lineSt === "IN_PROGRESS" ? "Stop & remove" : "Remove"}
                                           </button>
                                         ) : null}
                                       </div>
