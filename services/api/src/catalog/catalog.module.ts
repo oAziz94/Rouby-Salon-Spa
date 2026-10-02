@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { CatalogDashboardService } from './catalog-dashboard.service';
+import { CatalogPickerService } from './catalog-picker.service';
 import { CatalogPublicService } from './catalog-public.service';
+import { DashboardCatalogPickerController } from './dashboard-catalog-picker.controller';
 import { DashboardBundlesController } from './dashboard-bundles.controller';
 import { DashboardOffersController } from './dashboard-offers.controller';
 import { DashboardPackagesController } from './dashboard-packages.controller';
@@ -22,7 +24,12 @@ import { PublicCatalogController } from './public-catalog.controller';
     DashboardBundlesController,
     DashboardOffersController,
     PublicCatalogController,
+    DashboardCatalogPickerController,
   ],
-  providers: [CatalogDashboardService, CatalogPublicService],
+  providers: [
+    CatalogDashboardService,
+    CatalogPublicService,
+    CatalogPickerService,
+  ],
 })
 export class CatalogModule {}

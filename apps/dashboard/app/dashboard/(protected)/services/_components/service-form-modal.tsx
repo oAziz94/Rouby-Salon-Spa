@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  patchDashboardCatalogSearchTerms,
   ApiClientError,
   getDashboardServiceVariants,
   patchDashboardService,
@@ -20,6 +21,7 @@ import {
   type DashboardServiceImageValue,
 } from "@/components/dashboard-service-image-upload";
 import { GalleryImagePicker } from "@/components/gallery-image-picker";
+import { invalidatePickerCatalogCache } from "@/components/dashboard-service-variant-lines-block";
 
 type ServiceBenefitFormRow = { key: string; label: string; isActive: boolean };
 
@@ -604,6 +606,9 @@ export function ServiceFormModal({
                       className="w-full rounded-lg border border-border bg-white px-3 py-2.5 shadow-sm outline-none ring-accent/30 transition focus:ring-2"
                     />
                   </label>
+                  {editingService ? (
+                    <SearchTermsFields accessToken={accessToken} service={editingService} canManage={canManage} />
+                  ) : null}
                   <label className="block text-sm sm:col-span-2">
                     <span className="mb-1.5 block font-medium text-[#1F2420]">Full description</span>
                     <textarea
@@ -1156,5 +1161,67 @@ export function ServiceFormModal({
       />
     ) : null}
     </>
+  );
+}
+
+/** Spec v2 §3a: Arabic name + search aliases used by the front-desk treatment picker. */
+function SearchTermsFields({
+  accessToken,
+  service,
+  canManage,
+}: {
+  accessToken: string;
+  service: DashboardService;
+  canManage: boolean;
+}) {
+  const [nameAr, setNameAr] = useState(service.nameAr ?? "");
+  const [aliases, setAliases] = useState((service.searchAliases ?? []).join(", "));
+  const [saving, setSaving] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    setNameAr(service.nameAr ?? "");
+    setAliases((service.searchAliases ?? []).join(", "));
+    setNote(null);
+  }, [service.id, service.nameAr, service.searchAliases]);
+  const dirty =
+    nameAr.trim() !== (service.nameAr ?? "").trim() ||
+    aliases.split(",").map((a) => a.trim()).filter(Boolean).join("|") !== (service.searchAliases ?? []).join("|");
+  async function save() {
+    setSaving(true);
+    setNote(null);
+    try {
+      await patchDashboardCatalogSearchTerms(accessToken, "service", service.id, {
+        nameAr: nameAr.trim() || null,
+        searchAliases: aliases.split(",").map((a) => a.trim()).filter(Boolean),
+      });
+      invalidatePickerCatalogCache();
+      setNote("Saved. The front-desk picker now finds this service by these words.");
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Could not save search terms.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="rounded-xl border border-dashed border-[#D4C4B0] bg-[#FFFCF7] p-3 sm:col-span-2">
+      <p className="text-sm font-medium text-[#1F2420]">Front-desk search</p>
+      <p className="mt-0.5 text-xs text-[#7A6A58]">How reception finds this service when typing — Arabic name and short words like “mani”.</p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs font-medium text-[#5E574C]">Arabic name</span>
+          <input dir="rtl" value={nameAr} disabled={!canManage} onChange={(e) => setNameAr(e.target.value)} placeholder="قص شعر" className="w-full rounded-lg border border-border bg-white px-3 py-2 shadow-sm outline-none ring-accent/30 focus:ring-2" />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs font-medium text-[#5E574C]">Aliases (comma separated)</span>
+          <input value={aliases} disabled={!canManage} onChange={(e) => setAliases(e.target.value)} placeholder="cut, trim, قصة" className="w-full rounded-lg border border-border bg-white px-3 py-2 shadow-sm outline-none ring-accent/30 focus:ring-2" />
+        </label>
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-xs text-[#7A6A58]">{note ?? ""}</span>
+        <button type="button" disabled={!canManage || !dirty || saving} onClick={() => void save()} className="rounded-lg bg-[#062A2D] px-3 py-1.5 text-xs font-semibold text-[#F6F2EA] disabled:opacity-50">
+          {saving ? "Saving…" : "Save search terms"}
+        </button>
+      </div>
+    </div>
   );
 }

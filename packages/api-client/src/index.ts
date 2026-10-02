@@ -1728,6 +1728,8 @@ export type DashboardService = {
   id: string;
   categoryId: string;
   name: string;
+  nameAr?: string | null;
+  searchAliases?: string[];
   description: string | null;
   shortDescription: string | null;
   imageMediaId: string | null;
@@ -1772,6 +1774,8 @@ export type DashboardServiceVariant = {
   id: string;
   serviceId: string;
   name: string;
+  nameAr?: string | null;
+  searchAliases?: string[];
   description: string | null;
   price: number;
   durationMinutes: number;
@@ -1791,6 +1795,8 @@ export type DashboardPackageFeature = {
 export type DashboardPackage = {
   id: string;
   name: string;
+  nameAr?: string | null;
+  searchAliases?: string[];
   description: string | null;
   shortDescription: string | null;
   imageUrl: string | null;
@@ -1853,6 +1859,8 @@ export type DashboardOffer = {
 export type DashboardServiceEnhancement = {
   id: string;
   title: string;
+  nameAr?: string | null;
+  searchAliases?: string[];
   shortDescription: string | null;
   price: number | null;
   durationMinutes: number | null;
@@ -2267,6 +2275,77 @@ export async function getDashboardAuthPermissions(
   }
 
   return (await res.json()) as DashboardPermissionsResponse;
+}
+
+export type DashboardPickerCatalog = {
+  branchId: string | null;
+  generatedAt: string;
+  categories: Array<{ id: string; name: string }>;
+  services: Array<{
+    id: string;
+    categoryId: string;
+    name: string;
+    nameAr: string | null;
+    searchAliases: string[];
+    priceDisplayType: "FIXED" | "STARTS_FROM" | "RANGE" | "CONTACT" | "HIDDEN" | string;
+    basePrice: number | null;
+    basePriceMax: number | null;
+    durationMinutes: number | null;
+    isFeatured: boolean;
+    bookingAvailability: boolean;
+    branchIds: string[];
+  }>;
+  variants: Array<{
+    id: string;
+    serviceId: string;
+    name: string;
+    nameAr: string | null;
+    searchAliases: string[];
+    price: number;
+    durationMinutes: number;
+  }>;
+  packages: Array<{
+    id: string;
+    name: string;
+    nameAr: string | null;
+    searchAliases: string[];
+    price: number;
+    durationMinutes: number | null;
+    serviceIds: string[];
+  }>;
+  enhancements: Array<{
+    id: string;
+    name: string;
+    nameAr: string | null;
+    searchAliases: string[];
+    price: number | null;
+    durationMinutes: number | null;
+  }>;
+};
+
+/** GET /dashboard/catalog/picker — one call with everything the treatment picker needs. */
+export async function getDashboardPickerCatalog(
+  accessToken: string,
+  query: { branchId?: string } = {},
+): Promise<DashboardPickerCatalog> {
+  const res = await fetch(withQuery("/dashboard/catalog/picker", query), {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardPickerCatalog;
+}
+
+/** PATCH /dashboard/catalog/search-terms/:kind/:id — Arabic name + aliases (admin). */
+export async function patchDashboardCatalogSearchTerms(
+  accessToken: string,
+  kind: "service" | "variant" | "package" | "enhancement",
+  id: string,
+  body: { nameAr?: string | null; searchAliases?: string[] },
+): Promise<{ kind: string; id: string; nameAr: string | null; searchAliases: string[] }> {
+  return jsonMutation(accessToken, `/dashboard/catalog/search-terms/${kind}/${id}`, "PATCH", body);
 }
 
 /** GET /dashboard/overview/today — light front-desk summary (needs `overview.read` only). */

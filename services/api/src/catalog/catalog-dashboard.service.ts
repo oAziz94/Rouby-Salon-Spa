@@ -221,6 +221,8 @@ export class CatalogDashboardService {
     id: string;
     categoryId: string;
     name: string;
+    nameAr?: string | null;
+    searchAliases?: string[];
     description: string | null;
     shortDescription: string | null;
     imageMediaId: string | null;
@@ -262,6 +264,8 @@ export class CatalogDashboardService {
       id: row.id,
       categoryId: row.categoryId,
       name: row.name,
+      nameAr: row.nameAr ?? null,
+      searchAliases: row.searchAliases ?? [],
       description: row.description,
       shortDescription: row.shortDescription,
       imageMediaId: row.imageMediaId ?? null,
@@ -306,6 +310,8 @@ export class CatalogDashboardService {
   private mapServiceEnhancement(row: {
     id: string;
     title: string;
+    nameAr?: string | null;
+    searchAliases?: string[];
     shortDescription: string | null;
     price: Prisma.Decimal | null;
     durationMinutes: number | null;
@@ -318,6 +324,8 @@ export class CatalogDashboardService {
     return {
       id: row.id,
       title: row.title,
+      nameAr: row.nameAr ?? null,
+      searchAliases: row.searchAliases ?? [],
       shortDescription: row.shortDescription,
       price: decimalToNumber(row.price),
       durationMinutes: row.durationMinutes,
@@ -334,6 +342,8 @@ export class CatalogDashboardService {
     id: string;
     serviceId: string;
     name: string;
+    nameAr?: string | null;
+    searchAliases?: string[];
     description: string | null;
     price: Prisma.Decimal;
     durationMinutes: number;
@@ -387,6 +397,8 @@ export class CatalogDashboardService {
   private mapPackage(p: {
     id: string;
     name: string;
+    nameAr?: string | null;
+    searchAliases?: string[];
     description: string | null;
     shortDescription: string | null;
     imageUrl: string | null;
@@ -433,6 +445,8 @@ export class CatalogDashboardService {
     return {
       id: p.id,
       name: p.name,
+      nameAr: p.nameAr ?? null,
+      searchAliases: p.searchAliases ?? [],
       description: p.description,
       shortDescription: p.shortDescription,
       imageUrl: p.imageUrl,

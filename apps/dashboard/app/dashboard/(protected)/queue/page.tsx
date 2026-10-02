@@ -2626,6 +2626,7 @@ export default function DashboardQueuePage() {
                     lines={walkLines}
                     setLines={setWalkLines}
                     disabled={walkSubmitting}
+                    clientId={walkMode === "existing" ? walkClientId || null : null}
                   />
                 ) : null}
                 <label className="block text-xs font-medium text-[#7A6A58]">
@@ -2724,6 +2725,7 @@ export default function DashboardQueuePage() {
                   lines={addItemsLines}
                   setLines={setAddItemsLines}
                   disabled={addItemsSubmitting || Boolean(addItemsDetail?.finalizedInvoice)}
+                  clientId={addItemsDetail?.client?.id ?? null}
                 />
               </div>
               {addItemsError ? (

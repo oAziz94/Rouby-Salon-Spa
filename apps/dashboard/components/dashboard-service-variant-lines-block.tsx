@@ -1,64 +1,46 @@
 "use client";
 
 import {
-  getDashboardPackages,
-  getDashboardServiceCategories,
-  getDashboardServiceEnhancements,
-  getDashboardServiceVariants,
-  getDashboardServices,
+  getDashboardBookingById,
+  getDashboardBookings,
+  getDashboardPickerCatalog,
   type DashboardBookingLineInput,
-  type DashboardPackage,
-  type DashboardService,
-  type DashboardServiceCategory,
-  type DashboardServiceEnhancement,
-  type DashboardServiceVariant,
+  type DashboardPickerCatalog,
 } from "@rouby/api-client";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Minus, Plus, Trash2 } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
-  forwardRef,
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-} from "react";
-import { DashboardServicePicker } from "./dashboard-service-picker";
+  DashboardTreatmentPicker,
+  formatMinutes,
+  formatPickPrice,
+  type TreatmentPick,
+} from "./dashboard-treatment-picker";
 
-function serviceShowsStaffPricingFields(
-  service: DashboardService | undefined,
-  variantOptionCount: number,
-): boolean {
-  if (!service || variantOptionCount >= 1) {
-    return false;
-  }
+/*
+ * Front-desk treatment lines (spec v2 §3a).
+ *
+ * Public contract (ServiceLineRow / handle / props) is unchanged so the walk-in,
+ * add-service and booking dialogs keep working; the UI is now a list of chosen
+ * treatments plus one "Add treatment" button that opens the searchable panel.
+ */
+
+type PickerService = DashboardPickerCatalog["services"][number];
+
+function serviceShowsStaffPricingFields(service: PickerService | undefined, variantOptionCount: number): boolean {
+  if (!service || variantOptionCount >= 1) return false;
   const t = service.priceDisplayType;
-  if (t === "CONTACT" || t === "HIDDEN" || t === "RANGE") {
-    return true;
-  }
-  if (service.basePrice == null && (t === "FIXED" || t === "STARTS_FROM")) {
-    return true;
-  }
-  if (t === "STARTS_FROM" && service.basePrice != null) {
-    return true;
-  }
+  if (t === "CONTACT" || t === "HIDDEN" || t === "RANGE") return true;
+  if (service.basePrice == null && (t === "FIXED" || t === "STARTS_FROM")) return true;
+  if (t === "STARTS_FROM" && service.basePrice != null) return true;
   return false;
 }
 
-function serviceRequiresStaffPrice(
-  service: DashboardService | undefined,
-  variantOptionCount: number,
-): boolean {
-  if (!service || variantOptionCount >= 1) {
-    return false;
-  }
+function serviceRequiresStaffPrice(service: PickerService | undefined, variantOptionCount: number): boolean {
+  if (!service || variantOptionCount >= 1) return false;
   const t = service.priceDisplayType;
-  if (t === "CONTACT" || t === "HIDDEN" || t === "RANGE") {
-    return true;
-  }
-  if (service.basePrice == null && (t === "FIXED" || t === "STARTS_FROM")) {
-    return true;
-  }
+  if (t === "CONTACT" || t === "HIDDEN" || t === "RANGE") return true;
+  if (service.basePrice == null && (t === "FIXED" || t === "STARTS_FROM")) return true;
   return false;
 }
 
@@ -76,6 +58,8 @@ export type ServiceLineRow = {
   staffOverrideUnitPrice?: string;
   /** Optional duration override (minutes). */
   staffOverrideDurationMinutes?: string;
+  /** Units of this line (default 1). */
+  quantity?: number;
 };
 
 export type DashboardServiceVariantLinesBlockHandle = {
@@ -90,689 +74,439 @@ type Props = {
   lines: ServiceLineRow[];
   setLines: Dispatch<SetStateAction<ServiceLineRow[]>>;
   disabled?: boolean;
+  /** When known, the client's last completed visit is offered as a one-tap re-add. */
+  clientId?: string | null;
+  /** When a stylist is already chosen, services she isn't listed for are shown greyed. */
+  staffQualifiedServiceIds?: Set<string> | null;
+  staffName?: string | null;
 };
 
 function lineKindOf(line: ServiceLineRow): ServiceLineKind {
   return line.kind ?? "service";
 }
 
-export const DashboardServiceVariantLinesBlock = forwardRef<
-  DashboardServiceVariantLinesBlockHandle,
-  Props
->(function DashboardServiceVariantLinesBlock(
-  { token, branchId, lines, setLines, disabled = false },
-  ref,
-) {
-  const [lineVariantOptions, setLineVariantOptions] = useState<
-    Record<string, DashboardServiceVariant[]>
-  >({});
-  const [lineVariantLoading, setLineVariantLoading] = useState<Record<string, boolean>>({});
-  const [catalogLoading, setCatalogLoading] = useState(false);
-  const [services, setServices] = useState<DashboardService[]>([]);
-  const [categories, setCategories] = useState<DashboardServiceCategory[]>([]);
-  const [packages, setPackages] = useState<DashboardPackage[]>([]);
-  const [enhancements, setEnhancements] = useState<DashboardServiceEnhancement[]>([]);
+function isEmptyLine(line: ServiceLineRow): boolean {
+  const kind = lineKindOf(line);
+  if (kind === "package") return !(line.packageId ?? "").trim();
+  if (kind === "enhancement") return !(line.enhancementId ?? "").trim();
+  return !line.serviceId.trim();
+}
 
-  const servicesCatalogRef = useRef<DashboardService[]>([]);
-  servicesCatalogRef.current = services;
+// Catalog is identical for every dialog in a session; cache it briefly per branch.
+const catalogCache = new Map<string, { at: number; data: DashboardPickerCatalog }>();
+const CATALOG_TTL_MS = 5 * 60 * 1000;
 
-  const linesRef = useRef(lines);
-  const optsRef = useRef(lineVariantOptions);
-  const loadingRef = useRef(lineVariantLoading);
-  linesRef.current = lines;
-  optsRef.current = lineVariantOptions;
-  loadingRef.current = lineVariantLoading;
+async function loadCatalog(token: string, branchId: string): Promise<DashboardPickerCatalog> {
+  const hit = catalogCache.get(branchId);
+  if (hit && Date.now() - hit.at < CATALOG_TTL_MS) return hit.data;
+  const data = await getDashboardPickerCatalog(token, { branchId });
+  catalogCache.set(branchId, { at: Date.now(), data });
+  return data;
+}
 
-  const refreshVariantsForLine = useCallback(
-    async (lineKey: string, serviceId: string) => {
-      if (!serviceId) {
-        setLineVariantOptions((prev) => ({ ...prev, [lineKey]: [] }));
-        setLineVariantLoading((prev) => ({ ...prev, [lineKey]: false }));
+/** Exposed so admin screens can drop the cache after editing the catalog. */
+export function invalidatePickerCatalogCache(): void {
+  catalogCache.clear();
+}
+
+export const DashboardServiceVariantLinesBlock = forwardRef<DashboardServiceVariantLinesBlockHandle, Props>(
+  function DashboardServiceVariantLinesBlock(
+    { token, branchId, lines, setLines, disabled = false, clientId, staffQualifiedServiceIds, staffName },
+    ref,
+  ) {
+    const [catalog, setCatalog] = useState<DashboardPickerCatalog | null>(null);
+    const [catalogLoading, setCatalogLoading] = useState(false);
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const [lastVisitPicks, setLastVisitPicks] = useState<TreatmentPick[] | null>(null);
+
+    const linesRef = useRef(lines);
+    linesRef.current = lines;
+    const catalogRef = useRef<DashboardPickerCatalog | null>(null);
+    catalogRef.current = catalog;
+
+    useEffect(() => {
+      if (!branchId) return;
+      let cancelled = false;
+      setCatalogLoading(true);
+      loadCatalog(token, branchId)
+        .then((data) => {
+          if (!cancelled) setCatalog(data);
+        })
+        .catch(() => {
+          if (!cancelled) setCatalog(null);
+        })
+        .finally(() => {
+          if (!cancelled) setCatalogLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [token, branchId]);
+
+    const servicesById = useMemo(() => new Map((catalog?.services ?? []).map((s) => [s.id, s])), [catalog]);
+    const variantsByService = useMemo(() => {
+      const m = new Map<string, DashboardPickerCatalog["variants"]>();
+      for (const v of catalog?.variants ?? []) {
+        const l = m.get(v.serviceId) ?? [];
+        l.push(v);
+        m.set(v.serviceId, l);
+      }
+      return m;
+    }, [catalog]);
+    const variantsById = useMemo(() => new Map((catalog?.variants ?? []).map((v) => [v.id, v])), [catalog]);
+    const packagesById = useMemo(() => new Map((catalog?.packages ?? []).map((p) => [p.id, p])), [catalog]);
+    const enhancementsById = useMemo(() => new Map((catalog?.enhancements ?? []).map((e) => [e.id, e])), [catalog]);
+
+    // "Last visit" shortcut: the client's most recent completed booking, mapped to current catalog ids.
+    useEffect(() => {
+      if (!clientId || !catalog) {
+        setLastVisitPicks(null);
         return;
       }
-      setLineVariantLoading((prev) => ({ ...prev, [lineKey]: true }));
-      try {
-        const { data } = await getDashboardServiceVariants(token, serviceId);
-        const active = data.filter((v) => v.isActive);
-        setLineVariantOptions((prev) => ({ ...prev, [lineKey]: active }));
-        setLines((prev) =>
-          prev.map((row) => {
-            if (row.key !== lineKey || row.serviceId !== serviceId || lineKindOf(row) !== "service") {
-              return row;
+      let cancelled = false;
+      void (async () => {
+        try {
+          const list = await getDashboardBookings(token, { clientId, status: "COMPLETED", pageSize: 1 });
+          const last = list.data[0];
+          if (!last) {
+            if (!cancelled) setLastVisitPicks(null);
+            return;
+          }
+          const detail = await getDashboardBookingById(token, last.id);
+          const picks: TreatmentPick[] = [];
+          for (const it of detail.items) {
+            if (it.itemType === "SERVICE_VARIANT" && it.serviceVariantId && variantsById.has(it.serviceVariantId)) {
+              const v = variantsById.get(it.serviceVariantId)!;
+              const s = servicesById.get(v.serviceId);
+              picks.push({ kind: "variant", serviceId: v.serviceId, variantId: v.id, label: `${s?.name ?? "Service"} — ${v.name}`, price: v.price, priceDisplayType: "FIXED", durationMinutes: v.durationMinutes });
+            } else if (it.itemType === "SERVICE" && it.serviceId && servicesById.has(it.serviceId)) {
+              const s = servicesById.get(it.serviceId)!;
+              if ((variantsByService.get(s.id) ?? []).length === 0) {
+                picks.push({ kind: "service", serviceId: s.id, label: s.name, sublabel: s.nameAr, price: s.basePrice, priceMax: s.basePriceMax, priceDisplayType: s.priceDisplayType, durationMinutes: s.durationMinutes });
+              }
+            } else if (it.itemType === "PACKAGE" && it.packageId && packagesById.has(it.packageId)) {
+              const p = packagesById.get(it.packageId)!;
+              picks.push({ kind: "package", packageId: p.id, label: p.name, sublabel: p.nameAr, price: p.price, durationMinutes: p.durationMinutes });
+            } else if (it.itemType === "SERVICE_ENHANCEMENT" && it.serviceEnhancementId && enhancementsById.has(it.serviceEnhancementId)) {
+              const e = enhancementsById.get(it.serviceEnhancementId)!;
+              picks.push({ kind: "enhancement", enhancementId: e.id, label: e.name, sublabel: e.nameAr, price: e.price, durationMinutes: e.durationMinutes });
             }
-            if (active.length === 1) {
-              return { ...row, variantId: active[0].id };
-            }
-            return { ...row, variantId: "" };
-          }),
-        );
-      } catch {
-        setLineVariantOptions((prev) => ({ ...prev, [lineKey]: [] }));
-      } finally {
-        setLineVariantLoading((prev) => ({ ...prev, [lineKey]: false }));
-      }
-    },
-    [setLines, token],
-  );
+          }
+          if (!cancelled) setLastVisitPicks(picks.length ? picks : null);
+        } catch {
+          if (!cancelled) setLastVisitPicks(null);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [catalog, clientId, enhancementsById, packagesById, servicesById, token, variantsById, variantsByService]);
 
-  useImperativeHandle(ref, () => ({
-    buildBookingItems: () => {
-      const curLines = linesRef.current;
-      const opts = optsRef.current;
-      const loading = loadingRef.current;
-      for (const line of curLines) {
-        const kind = lineKindOf(line);
-        if (kind === "service") {
-          const sid = line.serviceId.trim();
-          if (!sid) {
+    const addPick = useCallback(
+      (pick: TreatmentPick) => {
+        setLines((prev) => {
+          const kept = prev.filter((l) => !isEmptyLine(l));
+          const key = `${Date.now()}-${Math.random()}`;
+          if (pick.kind === "package") {
+            return [...kept, { key, kind: "package", serviceId: "", variantId: "", packageId: pick.packageId, quantity: 1 }];
+          }
+          if (pick.kind === "enhancement") {
+            // Same add-on again → bump quantity instead of a duplicate row.
+            const idx = kept.findIndex((l) => lineKindOf(l) === "enhancement" && l.enhancementId === pick.enhancementId);
+            if (idx >= 0) {
+              return kept.map((l, i) => (i === idx ? { ...l, quantity: (l.quantity ?? 1) + 1 } : l));
+            }
+            return [...kept, { key, kind: "enhancement", serviceId: "", variantId: "", enhancementId: pick.enhancementId, quantity: 1 }];
+          }
+          return [
+            ...kept,
+            {
+              key,
+              kind: "service",
+              serviceId: pick.serviceId ?? "",
+              variantId: pick.variantId ?? "",
+              staffOverrideUnitPrice: "",
+              staffOverrideDurationMinutes: "",
+              quantity: 1,
+            },
+          ];
+        });
+      },
+      [setLines],
+    );
+
+    useImperativeHandle(ref, () => ({
+      buildBookingItems: () => {
+        const curLines = linesRef.current.filter((l) => !isEmptyLine(l));
+        const cat = catalogRef.current;
+        const items: DashboardBookingLineInput[] = [];
+        for (const line of curLines) {
+          const kind = lineKindOf(line);
+          const quantity = Math.max(1, Math.floor(line.quantity ?? 1));
+          if (kind === "package") {
+            items.push({ itemType: "PACKAGE", packageId: (line.packageId ?? "").trim(), quantity });
             continue;
           }
-          if (loading[line.key]) {
-            return { ok: false, error: "Wait for variant options to finish loading." };
+          if (kind === "enhancement") {
+            items.push({ itemType: "SERVICE_ENHANCEMENT", serviceEnhancementId: (line.enhancementId ?? "").trim(), quantity });
+            continue;
           }
-          const vo = opts[line.key] ?? [];
-          if (vo.length > 1 && !line.variantId.trim()) {
-            return {
-              ok: false,
-              error: "Select a variant for each service that lists multiple options.",
-            };
+          const serviceId = line.serviceId.trim();
+          const svc = cat?.services.find((s) => s.id === serviceId);
+          const variants = cat?.variants.filter((v) => v.serviceId === serviceId) ?? [];
+          if (variants.length >= 1) {
+            const variantId = line.variantId.trim() || (variants.length === 1 ? variants[0].id : "");
+            if (!variantId) {
+              return { ok: false, error: `Choose a size/option for ${svc?.name ?? "the service"}.` };
+            }
+            items.push({ itemType: "SERVICE_VARIANT", serviceId, serviceVariantId: variantId, quantity });
+            continue;
           }
-          const catalog = servicesCatalogRef.current;
-          const svc = catalog.find((s) => s.id === sid);
-          const showStaff = serviceShowsStaffPricingFields(svc, vo.length);
-          const requireStaffPrice = serviceRequiresStaffPrice(svc, vo.length);
-          if (requireStaffPrice) {
-            const rawPrice = (line.staffOverrideUnitPrice ?? "").trim().replace(/,/g, "");
+          const showStaff = serviceShowsStaffPricingFields(svc, 0);
+          const requireStaffPrice = serviceRequiresStaffPrice(svc, 0);
+          const rawPrice = (line.staffOverrideUnitPrice ?? "").trim().replace(/,/g, "");
+          const dmRaw = (line.staffOverrideDurationMinutes ?? "").trim();
+          const item: DashboardBookingLineInput = { itemType: "SERVICE", serviceId, quantity };
+          if (requireStaffPrice || (showStaff && rawPrice !== "")) {
             const p = parseFloat(rawPrice);
             if (!Number.isFinite(p) || p < 0.01) {
-              return {
-                ok: false,
-                error:
-                  "Enter a valid staff price (EGP) for each service with contact/hidden/range pricing or no catalog price.",
-              };
+              return { ok: false, error: `Enter the price for ${svc?.name ?? "this service"} (EGP).` };
             }
-            const hasCatalogDuration =
-              svc != null && svc.durationMinutes != null && svc.durationMinutes >= 1;
+            if (svc?.priceDisplayType === "RANGE" && svc.basePrice != null && svc.basePriceMax != null && (p < svc.basePrice || p > svc.basePriceMax)) {
+              return { ok: false, error: `${svc.name}: price must be between EGP ${svc.basePrice} and EGP ${svc.basePriceMax}.` };
+            }
+            item.staffOverrideUnitPrice = Math.round(p * 100) / 100;
+          }
+          if (requireStaffPrice) {
+            const hasCatalogDuration = svc != null && svc.durationMinutes != null && svc.durationMinutes >= 1;
             if (!hasCatalogDuration) {
-              const dm = (line.staffOverrideDurationMinutes ?? "").trim();
-              const d = parseInt(dm, 10);
-              if (!Number.isInteger(d) || d < 1) {
-                return {
-                  ok: false,
-                  error: "Enter duration in minutes for services with no default duration on the catalog.",
-                };
-              }
-            }
-          } else if (showStaff) {
-            const rawPrice = (line.staffOverrideUnitPrice ?? "").trim().replace(/,/g, "");
-            if (rawPrice !== "") {
-              const p = parseFloat(rawPrice);
-              if (!Number.isFinite(p) || p < 0.01) {
-                return {
-                  ok: false,
-                  error:
-                    "Enter a valid staff price (EGP) or leave it blank to use the catalog “starts from” price.",
-                };
-              }
-            }
-            const dmRaw = (line.staffOverrideDurationMinutes ?? "").trim();
-            if (dmRaw !== "") {
               const d = parseInt(dmRaw, 10);
               if (!Number.isInteger(d) || d < 1) {
-                return {
-                  ok: false,
-                  error: "Duration override must be a whole number of minutes (1–1440).",
-                };
+                return { ok: false, error: `Enter the duration in minutes for ${svc?.name ?? "this service"}.` };
               }
             }
           }
+          if (dmRaw) {
+            const d = parseInt(dmRaw, 10);
+            if (!Number.isInteger(d) || d < 1 || d > 1440) {
+              return { ok: false, error: "Duration must be a whole number of minutes (1–1440)." };
+            }
+            item.staffOverrideDurationMinutes = d;
+          }
+          items.push(item);
         }
-      }
-      const items: DashboardBookingLineInput[] = [];
-      for (const line of curLines) {
+        if (items.length === 0) {
+          return { ok: false, error: "Add at least one treatment." };
+        }
+        return { ok: true, items };
+      },
+    }));
+
+    const visibleLines = lines.filter((l) => !isEmptyLine(l));
+
+    // Footer totals (catalog prices; staff overrides applied when typed).
+    const totals = useMemo(() => {
+      let total = 0;
+      let minutes = 0;
+      for (const line of visibleLines) {
+        const q = Math.max(1, line.quantity ?? 1);
         const kind = lineKindOf(line);
         if (kind === "package") {
-          const packageId = (line.packageId ?? "").trim();
-          if (!packageId) {
-            continue;
-          }
-          items.push({ itemType: "PACKAGE", packageId, quantity: 1 });
-          continue;
-        }
-        if (kind === "enhancement") {
-          const enhancementId = (line.enhancementId ?? "").trim();
-          if (!enhancementId) {
-            continue;
-          }
-          items.push({
-            itemType: "SERVICE_ENHANCEMENT",
-            serviceEnhancementId: enhancementId,
-            quantity: 1,
-          });
-          continue;
-        }
-        const serviceId = line.serviceId.trim();
-        if (!serviceId) {
-          continue;
-        }
-        const vo = opts[line.key] ?? [];
-        if (vo.length >= 1) {
-          const variantId =
-            line.variantId.trim() || (vo.length === 1 ? vo[0].id : "");
-          if (!variantId) {
-            return { ok: false, error: "Select a variant for each priced option." };
-          }
-          items.push({
-            itemType: "SERVICE_VARIANT",
-            serviceId,
-            serviceVariantId: variantId,
-            quantity: 1,
-          });
+          const p = packagesById.get(line.packageId ?? "");
+          total += (p?.price ?? 0) * q;
+          minutes += (p?.durationMinutes ?? 0) * q;
+        } else if (kind === "enhancement") {
+          const e = enhancementsById.get(line.enhancementId ?? "");
+          total += (e?.price ?? 0) * q;
+          minutes += (e?.durationMinutes ?? 0) * q;
         } else {
-          const catalog = servicesCatalogRef.current;
-          const svc = catalog.find((s) => s.id === serviceId);
-          const showStaff = serviceShowsStaffPricingFields(svc, vo.length);
-          const requireStaffPrice = serviceRequiresStaffPrice(svc, vo.length);
-          if (!showStaff) {
-            items.push({
-              itemType: "SERVICE",
-              serviceId,
-              quantity: 1,
-            });
-          } else if (requireStaffPrice) {
-            const rawPrice = (line.staffOverrideUnitPrice ?? "").trim().replace(/,/g, "");
-            const p = parseFloat(rawPrice);
-            const rounded = Math.round(p * 100) / 100;
-            const item: DashboardBookingLineInput = {
-              itemType: "SERVICE",
-              serviceId,
-              quantity: 1,
-              staffOverrideUnitPrice: rounded,
-            };
-            const dmRaw = (line.staffOverrideDurationMinutes ?? "").trim();
-            if (dmRaw) {
-              const d = parseInt(dmRaw, 10);
-              if (!Number.isInteger(d) || d < 1) {
-                return {
-                  ok: false,
-                  error: "Duration override must be a whole number of minutes (1–1440).",
-                };
-              }
-              item.staffOverrideDurationMinutes = d;
-            }
-            items.push(item);
-          } else {
-            const rawPrice = (line.staffOverrideUnitPrice ?? "").trim().replace(/,/g, "");
-            if (rawPrice === "") {
-              items.push({
-                itemType: "SERVICE",
-                serviceId,
-                quantity: 1,
-              });
-            } else {
-              const p = parseFloat(rawPrice);
-              const rounded = Math.round(p * 100) / 100;
-              const item: DashboardBookingLineInput = {
-                itemType: "SERVICE",
-                serviceId,
-                quantity: 1,
-                staffOverrideUnitPrice: rounded,
-              };
-              const dmRaw = (line.staffOverrideDurationMinutes ?? "").trim();
-              if (dmRaw) {
-                const d = parseInt(dmRaw, 10);
-                if (!Number.isInteger(d) || d < 1) {
-                  return {
-                    ok: false,
-                    error: "Duration override must be a whole number of minutes (1–1440).",
-                  };
-                }
-                item.staffOverrideDurationMinutes = d;
-              }
-              items.push(item);
-            }
-          }
+          const v = line.variantId ? variantsById.get(line.variantId) : undefined;
+          const s = servicesById.get(line.serviceId);
+          const override = parseFloat((line.staffOverrideUnitPrice ?? "").replace(/,/g, ""));
+          const unit = Number.isFinite(override) && override > 0 ? override : (v?.price ?? s?.basePrice ?? 0);
+          const dOverride = parseInt(line.staffOverrideDurationMinutes ?? "", 10);
+          const dur = Number.isInteger(dOverride) && dOverride > 0 ? dOverride : (v?.durationMinutes ?? s?.durationMinutes ?? 0);
+          total += unit * q;
+          minutes += dur * q;
         }
       }
-      if (items.length === 0) {
-        return { ok: false, error: "Add at least one treatment line (service, package, or add-on)." };
-      }
-      return { ok: true, items };
-    },
-  }));
+      return { total, minutes };
+    }, [enhancementsById, packagesById, servicesById, variantsById, visibleLines]);
 
-  useEffect(() => {
-    if (!branchId) {
-      return;
-    }
-    let cancelled = false;
-    setCatalogLoading(true);
-    const fetchAllServices = async () => {
-      const collected: DashboardService[] = [];
-      let page = 1;
-      for (;;) {
-        const res = await getDashboardServices(token, {
-          page,
-          pageSize: 100,
-          isActive: true,
-        });
-        collected.push(...res.data);
-        if (!res.meta.hasNextPage || page >= 15) {
-          break;
-        }
-        page += 1;
-      }
-      return collected;
-    };
-    const fetchAllPackages = async () => {
-      const collected: DashboardPackage[] = [];
-      let page = 1;
-      for (;;) {
-        const res = await getDashboardPackages(token, {
-          page,
-          pageSize: 100,
-          isActive: true,
-        });
-        collected.push(...res.data);
-        if (!res.meta.hasNextPage || page >= 15) {
-          break;
-        }
-        page += 1;
-      }
-      return collected;
-    };
-    const fetchAllEnhancements = async () => {
-      const collected: DashboardServiceEnhancement[] = [];
-      let page = 1;
-      for (;;) {
-        const res = await getDashboardServiceEnhancements(token, {
-          page,
-          pageSize: 100,
-          isActive: true,
-        });
-        collected.push(...res.data);
-        if (!res.meta.hasNextPage || page >= 15) {
-          break;
-        }
-        page += 1;
-      }
-      return collected;
-    };
-    void (async () => {
-      const [servicesRes, categoriesRes, packagesRes, enhancementsRes] = await Promise.allSettled([
-        fetchAllServices(),
-        getDashboardServiceCategories(token, { isActive: true }),
-        fetchAllPackages(),
-        fetchAllEnhancements(),
-      ]);
-      if (cancelled) {
-        return;
-      }
-      setServices(servicesRes.status === "fulfilled" ? servicesRes.value : []);
-      setCategories(categoriesRes.status === "fulfilled" ? categoriesRes.value.data : []);
-      setPackages(packagesRes.status === "fulfilled" ? packagesRes.value : []);
-      setEnhancements(enhancementsRes.status === "fulfilled" ? enhancementsRes.value : []);
-      setCatalogLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token, branchId]);
+    const updateLine = (key: string, patch: Partial<ServiceLineRow>) =>
+      setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
-  const servicesAtBranch = branchId
-    ? services.filter((s) => s.branchIds.includes(branchId))
-    : services;
-  const packagesAtBranch = branchId
-    ? packages.filter((p) => p.branchIds.includes(branchId))
-    : packages;
-  const enhancementsBookable = enhancements.filter((e) => e.isActive && e.price != null);
-
-  return (
-    <div>
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">Treatments</span>
-        {catalogLoading ? (
-          <span className="text-xs text-[#7A6A58]">Loading catalog…</span>
-        ) : null}
-      </div>
-      <div className="space-y-3">
-        {lines.map((line, index) => {
-          const kind = lineKindOf(line);
-          const variantOpts = lineVariantOptions[line.key] ?? [];
-          const variantBusy =
-            kind === "service" && Boolean(line.serviceId && lineVariantLoading[line.key]);
-          const selectedService =
-            kind === "service" && line.serviceId
-              ? servicesAtBranch.find((s) => s.id === line.serviceId)
-              : undefined;
-          const showStaffPricingFields =
-            kind === "service" &&
-            Boolean(line.serviceId) &&
-            !variantBusy &&
-            serviceShowsStaffPricingFields(selectedService, variantOpts.length);
-          const staffPriceRequired =
-            showStaffPricingFields &&
-            serviceRequiresStaffPrice(selectedService, variantOpts.length);
-          const staffDurationOptional =
-            selectedService != null &&
-            selectedService.durationMinutes != null &&
-            selectedService.durationMinutes >= 1;
-          return (
-            <div key={line.key} className="space-y-2 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <select
-                  value={kind}
-                  disabled={disabled}
-                  onChange={(e) => {
-                    const nextKind = e.target.value as ServiceLineKind;
-                    setLineVariantOptions((prev) => {
-                      const next = { ...prev };
-                      delete next[line.key];
-                      return next;
-                    });
-                    setLineVariantLoading((prev) => {
-                      const next = { ...prev };
-                      delete next[line.key];
-                      return next;
-                    });
-                    setLines((prev) =>
-                      prev.map((row, i) =>
-                        i === index
-                          ? {
-                              ...row,
-                              kind: nextKind,
-                              serviceId: "",
-                              variantId: "",
-                              packageId: "",
-                              enhancementId: "",
-                              staffOverrideUnitPrice: "",
-                              staffOverrideDurationMinutes: "",
-                            }
-                          : row,
-                      ),
-                    );
-                  }}
-                  className="w-full shrink-0 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50 disabled:opacity-60 sm:max-w-[11rem]"
-                >
-                  <option value="service">Service</option>
-                  <option value="package">Package</option>
-                  <option value="enhancement">Add-on</option>
-                </select>
-
-                {kind === "service" ? (
-                  <DashboardServicePicker
-                    services={servicesAtBranch}
-                    categories={categories}
-                    value={line.serviceId}
-                    disabled={disabled}
-                    onChange={(v) => {
-                      setLines((prev) =>
-                        prev.map((row, i) =>
-                          i === index
-                            ? {
-                                ...row,
-                                serviceId: v,
-                                variantId: "",
-                                staffOverrideUnitPrice: "",
-                                staffOverrideDurationMinutes: "",
-                              }
-                            : row,
-                        ),
-                      );
-                      void refreshVariantsForLine(line.key, v);
-                    }}
-                  />
-                ) : null}
-
-                {kind === "package" ? (
-                  <select
-                    value={line.packageId ?? ""}
-                    disabled={disabled}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setLines((prev) =>
-                        prev.map((row, i) =>
-                          i === index ? { ...row, packageId: v } : row,
-                        ),
-                      );
-                    }}
-                    className="min-w-0 flex-1 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50 disabled:opacity-60"
-                  >
-                    <option value="">Select package</option>
-                    {packagesAtBranch.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-
-                {kind === "enhancement" ? (
-                  <select
-                    value={line.enhancementId ?? ""}
-                    disabled={disabled}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setLines((prev) =>
-                        prev.map((row, i) =>
-                          i === index ? { ...row, enhancementId: v } : row,
-                        ),
-                      );
-                    }}
-                    className="min-w-0 flex-1 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50 disabled:opacity-60"
-                  >
-                    <option value="">Select add-on</option>
-                    {enhancementsBookable.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.title}
-                        {e.price != null
-                          ? ` — EGP ${e.price.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
-                          : ""}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-
-                <button
-                  type="button"
-                  disabled={disabled || lines.length <= 1}
-                  onClick={() => {
-                    setLineVariantOptions((prev) => {
-                      const next = { ...prev };
-                      delete next[line.key];
-                      return next;
-                    });
-                    setLineVariantLoading((prev) => {
-                      const next = { ...prev };
-                      delete next[line.key];
-                      return next;
-                    });
-                    setLines((prev) => prev.filter((_, i) => i !== index));
-                  }}
-                  className="inline-flex shrink-0 items-center justify-center rounded-xl border border-[#E8E0D4] bg-white p-2 text-[#8B4428] shadow-sm hover:bg-[#FFF1EC] disabled:opacity-40"
-                  aria-label="Remove line"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-              {kind === "service" && line.serviceId && variantBusy ? (
-                <p className="flex items-center gap-2 text-xs text-[#7A6A58]">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                  Loading options…
-                </p>
-              ) : null}
-              {kind === "service" && variantOpts.length > 1 ? (
-                <label className="block text-xs font-medium text-[#7A6A58]">
-                  Variant
-                  <select
-                    value={line.variantId}
-                    disabled={disabled}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setLines((prev) =>
-                        prev.map((row, i) => (i === index ? { ...row, variantId: v } : row)),
-                      );
-                    }}
-                    className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-[#B9974A]/50 disabled:opacity-60"
-                  >
-                    <option value="">Select variant</option>
-                    {variantOpts.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              {showStaffPricingFields ? (
-                <div className="mt-2 grid gap-2 rounded-xl border border-dashed border-[#D4C4B0] bg-white/70 p-3 sm:grid-cols-2">
-                  <label className="block text-xs font-medium text-[#5E574C]">
-                    Staff price (EGP){" "}
-                    {staffPriceRequired ? (
-                      <span className="text-[#B85C38]">*</span>
-                    ) : (
-                      <span className="font-normal text-[#9A9084]">(optional)</span>
-                    )}
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min={0.01}
-                      step={0.01}
-                      disabled={disabled}
-                      value={line.staffOverrideUnitPrice ?? ""}
-                      onChange={(e) =>
-                        setLines((prev) =>
-                          prev.map((row, i) =>
-                            i === index ? { ...row, staffOverrideUnitPrice: e.target.value } : row,
-                          ),
-                        )
-                      }
-                      className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50 disabled:opacity-60"
-                    />
-                  </label>
-                  <label className="block text-xs font-medium text-[#5E574C]">
-                    Duration (minutes)
-                    {staffPriceRequired ? (
-                      staffDurationOptional ? (
-                        <span className="font-normal text-[#9A9084]"> optional</span>
-                      ) : (
-                        <span className="text-[#B85C38]"> *</span>
-                      )
-                    ) : (
-                      <span className="font-normal text-[#9A9084]"> optional</span>
-                    )}
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={1}
-                      max={1440}
-                      step={1}
-                      disabled={disabled}
-                      value={line.staffOverrideDurationMinutes ?? ""}
-                      onChange={(e) =>
-                        setLines((prev) =>
-                          prev.map((row, i) =>
-                            i === index ? { ...row, staffOverrideDurationMinutes: e.target.value } : row,
-                          ),
-                        )
-                      }
-                      placeholder={
-                        staffDurationOptional || !staffPriceRequired
-                          ? "Uses catalog duration if empty"
-                          : ""
-                      }
-                      className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50 disabled:opacity-60"
-                    />
-                  </label>
-                  <p className="sm:col-span-2 text-[11px] leading-relaxed text-[#7A6A58]">
-                    {staffPriceRequired ? (
-                      <>
-                        Enter what to charge for this service. Add duration when the catalog does not define one.
-                      </>
-                    ) : (
-                      <>
-                        Optional: override the catalog “starts from” price for this visit. Leave blank to use the
-                        catalog price; duration overrides are optional when the service has a default duration.
-                      </>
-                    )}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() =>
-              setLines((prev) => [
-                ...prev,
-                {
-                  key: `${Date.now()}-${Math.random()}`,
-                  kind: "service",
-                  serviceId: "",
-                  variantId: "",
-                  packageId: "",
-                  enhancementId: "",
-                  staffOverrideUnitPrice: "",
-                  staffOverrideDurationMinutes: "",
-                },
-              ])
-            }
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-xs font-semibold text-[#062A2D] shadow-sm transition hover:border-[#B9974A]/45 disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden />
-            Service
-          </button>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() =>
-              setLines((prev) => [
-                ...prev,
-                {
-                  key: `${Date.now()}-${Math.random()}`,
-                  kind: "package",
-                  serviceId: "",
-                  variantId: "",
-                  packageId: "",
-                  enhancementId: "",
-                  staffOverrideUnitPrice: "",
-                  staffOverrideDurationMinutes: "",
-                },
-              ])
-            }
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-xs font-semibold text-[#062A2D] shadow-sm transition hover:border-[#B9974A]/45 disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden />
-            Package
-          </button>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() =>
-              setLines((prev) => [
-                ...prev,
-                {
-                  key: `${Date.now()}-${Math.random()}`,
-                  kind: "enhancement",
-                  serviceId: "",
-                  variantId: "",
-                  packageId: "",
-                  enhancementId: "",
-                  staffOverrideUnitPrice: "",
-                  staffOverrideDurationMinutes: "",
-                },
-              ])
-            }
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-xs font-semibold text-[#062A2D] shadow-sm transition hover:border-[#B9974A]/45 disabled:opacity-50"
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden />
-            Add-on
-          </button>
+    return (
+      <div>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">Treatments</span>
+          {catalogLoading ? <span className="text-xs text-[#7A6A58]">Loading catalog…</span> : null}
         </div>
+
+        {visibleLines.length === 0 ? (
+          <button
+            type="button"
+            disabled={disabled || !branchId}
+            onClick={() => setPickerOpen(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#D8CBB8] bg-[#FFFCF7] px-3 py-4 text-sm font-semibold text-[#062A2D] transition hover:border-[#B9974A]/60 disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            Add treatment
+          </button>
+        ) : (
+          <ul className="space-y-2">
+            {visibleLines.map((line) => {
+              const kind = lineKindOf(line);
+              const q = Math.max(1, line.quantity ?? 1);
+              let label = "";
+              let sub: string | null = null;
+              let priceText = "";
+              let durText = "";
+              let svc: PickerService | undefined;
+              let showStaff = false;
+              let requireStaff = false;
+              if (kind === "package") {
+                const p = packagesById.get(line.packageId ?? "");
+                label = p?.name ?? "Package";
+                sub = "Package";
+                priceText = p ? formatPickPrice({ price: p.price }) : "";
+                durText = formatMinutes(p?.durationMinutes);
+              } else if (kind === "enhancement") {
+                const e = enhancementsById.get(line.enhancementId ?? "");
+                label = e?.name ?? "Add-on";
+                sub = "Add-on";
+                priceText = e ? formatPickPrice({ price: e.price }) : "";
+                durText = formatMinutes(e?.durationMinutes);
+              } else {
+                svc = servicesById.get(line.serviceId);
+                const v = line.variantId ? variantsById.get(line.variantId) : undefined;
+                const opts = variantsByService.get(line.serviceId) ?? [];
+                label = svc?.name ?? "Service";
+                sub = v ? v.name : svc?.nameAr ?? null;
+                priceText = v
+                  ? formatPickPrice({ price: v.price })
+                  : svc
+                    ? formatPickPrice({ price: svc.basePrice, priceMax: svc.basePriceMax, priceDisplayType: svc.priceDisplayType })
+                    : "";
+                durText = formatMinutes(v?.durationMinutes ?? svc?.durationMinutes);
+                showStaff = serviceShowsStaffPricingFields(svc, opts.length);
+                requireStaff = serviceRequiresStaffPrice(svc, opts.length);
+                if (!v && opts.length > 1) {
+                  // Service with sizes but none chosen yet (legacy rows) — offer the choice inline.
+                  return (
+                    <li key={line.key} className="rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
+                      <p className="text-sm font-medium text-[#1F2420]">{label}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {opts.map((o) => (
+                          <button key={o.id} type="button" disabled={disabled} onClick={() => updateLine(line.key, { variantId: o.id })} className="rounded-lg border border-[#D8CBB8] bg-white px-2.5 py-1 text-xs text-[#1F2420] hover:bg-[#FBF8F2]">
+                            {o.name} · {formatPickPrice({ price: o.price })}
+                          </button>
+                        ))}
+                      </div>
+                    </li>
+                  );
+                }
+              }
+              return (
+                <li key={line.key} className="rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-[#1F2420]">{label}</p>
+                      {sub ? <p className="truncate text-xs text-[#7A6A58]">{sub}</p> : null}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold text-[#1F2420]">{priceText}</p>
+                      {durText ? <p className="text-[0.7rem] text-[#9A8B7A]">{durText}</p> : null}
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <div className="inline-flex items-center rounded-lg border border-[#E8E0D4] bg-white">
+                      <button type="button" aria-label="Decrease quantity" disabled={disabled || q <= 1} onClick={() => updateLine(line.key, { quantity: q - 1 })} className="px-2 py-1 text-[#4A3C2F] disabled:opacity-40">
+                        <Minus className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                      <span className="min-w-[1.5rem] text-center text-xs font-semibold text-[#1F2420]">{q}</span>
+                      <button type="button" aria-label="Increase quantity" disabled={disabled} onClick={() => updateLine(line.key, { quantity: q + 1 })} className="px-2 py-1 text-[#4A3C2F] disabled:opacity-40">
+                        <Plus className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
+                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-[#8B4428] hover:bg-[#FFF1EC] disabled:opacity-40"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                      Remove
+                    </button>
+                  </div>
+                  {showStaff ? (
+                    <div className="mt-2 grid gap-2 rounded-xl border border-dashed border-[#D4C4B0] bg-white/70 p-2 sm:grid-cols-2">
+                      <label className="block text-xs font-medium text-[#5E574C]">
+                        Price (EGP) {requireStaff ? <span className="text-[#B85C38]">*</span> : <span className="font-normal text-[#9A9084]">(optional)</span>}
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min={0.01}
+                          step={0.01}
+                          disabled={disabled}
+                          value={line.staffOverrideUnitPrice ?? ""}
+                          onChange={(e) => updateLine(line.key, { staffOverrideUnitPrice: e.target.value })}
+                          placeholder={svc?.priceDisplayType === "RANGE" && svc.basePrice != null && svc.basePriceMax != null ? `${svc.basePrice}–${svc.basePriceMax}` : requireStaff ? "Agreed price" : "Catalog price"}
+                          className="mt-1 w-full rounded-lg border border-[#E8E0D4] bg-white px-2 py-1.5 text-sm text-[#1F2420] outline-none focus:border-[#B9974A]/50 disabled:opacity-60"
+                        />
+                      </label>
+                      <label className="block text-xs font-medium text-[#5E574C]">
+                        Duration (min) {requireStaff && !(svc?.durationMinutes && svc.durationMinutes >= 1) ? <span className="text-[#B85C38]">*</span> : <span className="font-normal text-[#9A9084]">(optional)</span>}
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={1440}
+                          disabled={disabled}
+                          value={line.staffOverrideDurationMinutes ?? ""}
+                          onChange={(e) => updateLine(line.key, { staffOverrideDurationMinutes: e.target.value })}
+                          placeholder={svc?.durationMinutes ? String(svc.durationMinutes) : ""}
+                          className="mt-1 w-full rounded-lg border border-[#E8E0D4] bg-white px-2 py-1.5 text-sm text-[#1F2420] outline-none focus:border-[#B9974A]/50 disabled:opacity-60"
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+            <li className="flex items-center justify-between gap-2 pt-1">
+              <button
+                type="button"
+                disabled={disabled || !branchId}
+                onClick={() => setPickerOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-xs font-semibold text-[#062A2D] shadow-sm transition hover:border-[#B9974A]/45 disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden />
+                Add treatment
+              </button>
+              <span className="text-xs text-[#4A3C2F]">
+                <span className="font-semibold">EGP {totals.total.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
+                {totals.minutes > 0 ? ` · ${formatMinutes(totals.minutes)}` : ""}
+              </span>
+            </li>
+          </ul>
+        )}
+
+        <DashboardTreatmentPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          catalog={catalog}
+          loading={catalogLoading}
+          lastVisitPicks={lastVisitPicks}
+          staffQualifiedServiceIds={staffQualifiedServiceIds ?? null}
+          staffName={staffName ?? null}
+          selectedCount={visibleLines.reduce((n, l) => n + Math.max(1, l.quantity ?? 1), 0)}
+          selectedTotal={totals.total}
+          selectedMinutes={totals.minutes}
+          onPick={addPick}
+          onPickMany={(picks) => picks.forEach(addPick)}
+        />
       </div>
-    </div>
-  );
-});
+    );
+  },
+);
