@@ -2,7 +2,9 @@
 
 import {
   ApiClientError,
+  appendDashboardBookingServiceItems,
   deleteDashboardBookingItem,
+  patchDashboardBookingLineDiscount,
   getDashboardBookingById,
   getDashboardBookings,
   getDashboardBranches,
@@ -40,6 +42,11 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
+import {
+  DashboardServiceVariantLinesBlock,
+  type DashboardServiceVariantLinesBlockHandle,
+  type ServiceLineRow,
+} from "@/components/dashboard-service-variant-lines-block";
 import { DashboardCreateBookingDialog } from "@/components/dashboard-create-booking-dialog";
 import { OverrideReasonDialog, useOverrideReason } from "@/components/override-reason-dialog";
 import { useSystemDialog } from "@/components/system-dialog-provider";
@@ -290,6 +297,16 @@ export default function DashboardBookingsPage() {
   const [removingItemId, setRemovingItemId] = useState<string>("");
 
   const [lineStartItemId, setLineStartItemId] = useState<string | null>(null);
+  const [addItemsOpen, setAddItemsOpen] = useState(false);
+  const [addItemsLines, setAddItemsLines] = useState<ServiceLineRow[]>([{ key: "a", serviceId: "", variantId: "" }]);
+  const [addItemsError, setAddItemsError] = useState("");
+  const [addItemsSubmitting, setAddItemsSubmitting] = useState(false);
+  const addItemsLinesRef = useRef<DashboardServiceVariantLinesBlockHandle>(null);
+  const [lineDiscountItemId, setLineDiscountItemId] = useState<string | null>(null);
+  const [lineDiscountAmount, setLineDiscountAmount] = useState("");
+  const [lineDiscountReason, setLineDiscountReason] = useState("");
+  const [lineDiscountError, setLineDiscountError] = useState("");
+  const [lineDiscountSaving, setLineDiscountSaving] = useState(false);
   const [lineStartStaffOptions, setLineStartStaffOptions] = useState<
     DashboardStaffAvailabilityResponse["staff"]
   >([]);
@@ -741,6 +758,56 @@ export default function DashboardBookingsPage() {
       setStaffChangeError(formatApiError(requestError));
     } finally {
       setStaffChangeSubmitting(false);
+    }
+  }
+
+  async function submitAddItems(): Promise<void> {
+    if (!token || !detail) return;
+    const built = addItemsLinesRef.current?.buildBookingItems();
+    if (!built) {
+      setAddItemsError("Treatments are still loading. Please try again.");
+      return;
+    }
+    if (!built.ok) {
+      setAddItemsError(built.error);
+      return;
+    }
+    setAddItemsSubmitting(true);
+    setAddItemsError("");
+    try {
+      await appendDashboardBookingServiceItems(token, detail.id, { items: built.items });
+      setAddItemsOpen(false);
+      setAddItemsLines([{ key: `${Date.now()}`, serviceId: "", variantId: "" }]);
+      await Promise.all([loadList(), loadDetail(detail.id)]);
+    } catch (e) {
+      setAddItemsError(formatApiError(e));
+    } finally {
+      setAddItemsSubmitting(false);
+    }
+  }
+
+  async function submitLineDiscount(): Promise<void> {
+    if (!token || !detail || !lineDiscountItemId) return;
+    const amount = Number(lineDiscountAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      setLineDiscountError("Enter a valid amount (0 removes the discount).");
+      return;
+    }
+    setLineDiscountSaving(true);
+    setLineDiscountError("");
+    try {
+      await patchDashboardBookingLineDiscount(token, detail.id, lineDiscountItemId, {
+        discountAmount: Number(amount.toFixed(2)),
+        reason: lineDiscountReason.trim() || undefined,
+      });
+      setLineDiscountItemId(null);
+      setLineDiscountAmount("");
+      setLineDiscountReason("");
+      await Promise.all([loadList(), loadDetail(detail.id)]);
+    } catch (e) {
+      setLineDiscountError(formatApiError(e));
+    } finally {
+      setLineDiscountSaving(false);
     }
   }
 
@@ -1405,9 +1472,25 @@ export default function DashboardBookingsPage() {
                     </section>
 
                     <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
-                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
-                        <ClipboardList className="h-4 w-4 text-[#B9974A]" aria-hidden />
-                        Selected items
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
+                          <ClipboardList className="h-4 w-4 text-[#B9974A]" aria-hidden />
+                          Selected items
+                        </div>
+                        {canUpdate && !isTerminalBookingStatus(detail.status) && !detail.finalizedInvoice ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAddItemsError("");
+                              setAddItemsLines([{ key: `${Date.now()}`, serviceId: "", variantId: "" }]);
+                              setAddItemsOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg border border-[#D8CBB8] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#1F2420] shadow-sm hover:border-[#B9974A]/60"
+                          >
+                            <Plus className="h-3.5 w-3.5" aria-hidden />
+                            Add service
+                          </button>
+                        ) : null}
                       </div>
                       {detail.items.length === 0 ? (
                         <p className="mt-2 text-sm text-[#7A6A58]">No items on this booking.</p>
@@ -1440,7 +1523,69 @@ export default function DashboardBookingsPage() {
                                           <p className="mt-1 text-xs text-[#7A6A58]">
                                             {item.itemType} · Qty {item.quantity} · {formatEGP(item.priceSnapshot)} ·{" "}
                                             {item.durationMinutesSnapshot} min
+                                            {item.discountAmount ? (
+                                              <span className="text-[#8B4428]">
+                                                {" "}
+                                                · −{formatEGP(item.discountAmount)} line discount
+                                                {item.discountReason ? ` (${item.discountReason})` : ""}
+                                              </span>
+                                            ) : null}
                                           </p>
+                                          {canDiscount && lineSt !== "CANCELLED" && !isTerminalBookingStatus(detail.status) ? (
+                                            lineDiscountItemId === item.id ? (
+                                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                <input
+                                                  type="number"
+                                                  min={0}
+                                                  step="0.01"
+                                                  value={lineDiscountAmount}
+                                                  onChange={(e) => setLineDiscountAmount(e.target.value)}
+                                                  placeholder="EGP"
+                                                  className="w-24 rounded-lg border border-[#E8E0D4] px-2 py-1 text-xs"
+                                                />
+                                                <input
+                                                  value={lineDiscountReason}
+                                                  onChange={(e) => setLineDiscountReason(e.target.value)}
+                                                  placeholder="Reason"
+                                                  className="w-40 rounded-lg border border-[#E8E0D4] px-2 py-1 text-xs"
+                                                />
+                                                <button
+                                                  type="button"
+                                                  disabled={lineDiscountSaving}
+                                                  onClick={() => void submitLineDiscount()}
+                                                  className="rounded-lg bg-[#062A2D] px-2.5 py-1 text-xs font-semibold text-[#F6F2EA] disabled:opacity-50"
+                                                >
+                                                  {lineDiscountSaving ? "Saving…" : "Apply"}
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setLineDiscountItemId(null);
+                                                    setLineDiscountError("");
+                                                  }}
+                                                  className="text-xs text-[#7A6A58] underline"
+                                                >
+                                                  Cancel
+                                                </button>
+                                                {lineDiscountError ? (
+                                                  <span className="basis-full text-xs text-[#8B4428]">{lineDiscountError}</span>
+                                                ) : null}
+                                              </div>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setLineDiscountItemId(item.id);
+                                                  setLineDiscountAmount(item.discountAmount ? String(item.discountAmount) : "");
+                                                  setLineDiscountReason(item.discountReason ?? "");
+                                                  setLineDiscountError("");
+                                                }}
+                                                className="mt-1 text-xs font-semibold text-[#062A2D] underline"
+                                              >
+                                                {item.discountAmount ? "Change line discount" : "Discount this line"}
+                                              </button>
+                                            )
+                                          ) : null}
                                           {showLineOps ? (
                                             <p className="mt-1 text-xs text-[#5C5348]">
                                               <span className="font-medium">Line status:</span> {lineSt}
@@ -1920,6 +2065,54 @@ export default function DashboardBookingsPage() {
                   </div>
                 ) : null}
               </div>
+
+              {addItemsOpen && detail ? (
+                <div className="absolute inset-0 z-[60] flex items-center justify-center bg-[#062A2D]/35 p-4 backdrop-blur-[1px]">
+                  <div
+                    className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#E8E0D4] bg-[#FFFCF7] p-5 shadow-xl"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Add services to booking"
+                  >
+                    <h3 className="text-base font-semibold text-[#062A2D]">Add services</h3>
+                    <p className="mt-1 text-xs text-[#7A6A58]">
+                      {formatAppointmentFromDetail(detail)} · the price is recalculated after adding.
+                    </p>
+                    <div className="mt-4">
+                      <DashboardServiceVariantLinesBlock
+                        ref={addItemsLinesRef}
+                        token={token ?? ""}
+                        branchId={detail.branchId}
+                        lines={addItemsLines}
+                        setLines={setAddItemsLines}
+                        disabled={addItemsSubmitting}
+                        clientId={detail.client?.id ?? null}
+                      />
+                    </div>
+                    {addItemsError ? (
+                      <p className="mt-3 rounded-xl border border-[#E7B9A4]/70 bg-[#FFF1EC] px-3 py-2 text-xs text-[#8B4428]">{addItemsError}</p>
+                    ) : null}
+                    <div className="mt-5 flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAddItemsOpen(false)}
+                        disabled={addItemsSubmitting}
+                        className="rounded-xl border border-[#E8E0D4] bg-white px-4 py-2 text-sm font-semibold text-[#1F2420]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void submitAddItems()}
+                        disabled={addItemsSubmitting}
+                        className="rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA] disabled:opacity-50"
+                      >
+                        {addItemsSubmitting ? "Adding…" : "Add to booking"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {lineStartItemId && detail ? (
                 <div className="absolute inset-0 z-[60] flex items-center justify-center bg-[#062A2D]/35 p-4 backdrop-blur-[1px]">

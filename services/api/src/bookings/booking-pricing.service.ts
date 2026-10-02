@@ -38,7 +38,18 @@ export type ResolvedBookingLine = {
   quantity: number;
   isTaxable: boolean;
   lineMetadata: Prisma.JsonValue | null;
+  /** Discount on this line only (EGP for the whole line). Never above the line amount. */
+  discountAmount?: Prisma.Decimal | number | null;
 };
+
+/** Line amount after its own discount (unit × qty − line discount, never below zero). */
+export function lineNetAmount(line: ResolvedBookingLine): number {
+  const unit = Number(line.priceSnapshot.toString());
+  const gross = unit * line.quantity;
+  const disc =
+    line.discountAmount == null ? 0 : Number(line.discountAmount.toString());
+  return Math.max(0, gross - Math.max(0, disc));
+}
 
 @Injectable()
 export class BookingPricingService {
@@ -80,8 +91,7 @@ export class BookingPricingService {
     let nonTaxExclusive = 0;
 
     for (const line of lines) {
-      const unit = Number(line.priceSnapshot.toString());
-      const ext = unit * line.quantity;
+      const ext = lineNetAmount(line);
       if (!line.isTaxable) {
         nonTaxExclusive += ext;
         continue;
@@ -131,8 +141,7 @@ export class BookingPricingService {
     line: ResolvedBookingLine,
     settings: SystemSettings,
   ): number {
-    const unit = Number(line.priceSnapshot.toString());
-    const ext = unit * line.quantity;
+    const ext = lineNetAmount(line);
     if (!line.isTaxable || !settings.vatEnabled) {
       return ext;
     }

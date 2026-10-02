@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -160,11 +161,26 @@ export class DashboardBookingsController {
     return this.bookings.markCompleted(user, bookingId);
   }
 
+  @Patch(':bookingId/items/:itemId/discount')
+  @RequirePermissions('bookings.discount.apply')
+  @ApiOperation({
+    summary:
+      'Discount one line only (reason + limit rules as the receipt discount)',
+  })
+  lineDiscount(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('bookingId') bookingId: string,
+    @Param('itemId') itemId: string,
+    @Body() body: DiscountBodyDto,
+  ) {
+    return this.bookings.applyLineDiscount(user, bookingId, itemId, body);
+  }
+
   @Post(':bookingId/service-items')
   @RequirePermissions('bookingServiceItems.create', 'bookings.update')
   @ApiOperation({
     summary:
-      'Append priced booking lines while visit is on the queue (same rules as queue items append)',
+      'Add priced lines to a booking: before check-in from the Bookings page, after check-in while on the queue',
   })
   appendServiceItems(
     @CurrentDashboardUser() user: DashboardJwtUser,

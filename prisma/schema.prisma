@@ -845,6 +845,9 @@ model BookingItem {
   serviceEnhancementId    String?         @map("service_enhancement_id") @db.Uuid
   nameSnapshot            String          @map("name_snapshot")
   priceSnapshot           Decimal         @map("price_snapshot") @db.Decimal(12, 2)
+  /// Discount on this line only (EGP, total for the line). Receipt-level discounts live on Booking.discountAmount.
+  discountAmount          Decimal         @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  discountReason          String?         @map("discount_reason")
   durationMinutesSnapshot Int             @map("duration_minutes_snapshot")
   quantity                Int             @default(1)
   /// Optional JSON: e.g. `{ "selectedServiceIds": ["uuid"] }` for flexible bundles (Sprint 5).
@@ -1024,6 +1027,7 @@ model InvoiceLine {
   serviceEnhancementId    String?         @map("service_enhancement_id") @db.Uuid
   nameSnapshot            String          @map("name_snapshot")
   priceSnapshot           Decimal         @map("price_snapshot") @db.Decimal(12, 2)
+  discountAmount          Decimal         @default(0) @map("discount_amount") @db.Decimal(12, 2)
   durationMinutesSnapshot Int             @map("duration_minutes_snapshot")
   quantity                Int             @default(1)
   lineMetadata            Json?           @map("line_metadata")

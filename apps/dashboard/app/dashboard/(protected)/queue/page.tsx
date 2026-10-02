@@ -9,6 +9,7 @@ import {
   getDashboardClients,
   getDashboardQueue,
   getDashboardStaffAvailability,
+  patchDashboardBookingLineDiscount,
   postDashboardBookingAction,
   postDashboardBookingQueueCheckIn,
   postDashboardBookingServiceItemComplete,
@@ -1076,8 +1077,11 @@ function QueueDetailsDrawer({
                         </p>
                       </div>
                       <span className="flex shrink-0 items-center gap-2">
-                        <span className={`text-xs font-semibold ${(item.lineStatus ?? "PENDING") === "CANCELLED" ? "text-[#9A8B7A] line-through" : "text-[#1F2420]"}`}>
+                        <span className={`text-right text-xs font-semibold ${(item.lineStatus ?? "PENDING") === "CANCELLED" ? "text-[#9A8B7A] line-through" : "text-[#1F2420]"}`}>
                           {formatEGP(item.priceSnapshot * item.quantity)}
+                          {item.discountAmount ? (
+                            <span className="block text-[0.65rem] font-medium text-[#8B4428]">−{formatEGP(item.discountAmount)}</span>
+                          ) : null}
                         </span>
                         {removeAllowed && ((item.lineStatus ?? "PENDING") === "PENDING" || item.lineStatus === "IN_PROGRESS") ? (
                           <button
@@ -1353,6 +1357,8 @@ export default function DashboardQueuePage() {
   const [discountType, setDiscountType] = useState<"flat" | "percentage">("flat");
   const [discountValue, setDiscountValue] = useState("");
   const [discountReason, setDiscountReason] = useState("");
+  /** "" = whole receipt, otherwise the booking item id the discount applies to. */
+  const [discountTargetItemId, setDiscountTargetItemId] = useState("");
   const [discountSubmitting, setDiscountSubmitting] = useState(false);
   const [discountError, setDiscountError] = useState("");
 
@@ -1427,6 +1433,7 @@ export default function DashboardQueuePage() {
     setDiscountType("flat");
     setDiscountValue("");
     setDiscountReason("");
+    setDiscountTargetItemId("");
     setDiscountError("");
     setDiscountDetailLoading(false);
     setDiscountOpen(true);
@@ -2209,11 +2216,19 @@ export default function DashboardQueuePage() {
       return;
     }
 
-    const baseAmount =
-      discountDetail?.subtotal ??
-      discountRow.invoiceSummary?.totalAmount ??
-      discountRow.bookingSummary?.totalAmount ??
-      0;
+    const targetLine = discountTargetItemId
+      ? discountDetail?.items.find((it) => it.id === discountTargetItemId) ?? null
+      : null;
+    if (discountTargetItemId && !targetLine) {
+      setDiscountError("That service line is no longer on the visit.");
+      return;
+    }
+    const baseAmount = targetLine
+      ? targetLine.priceSnapshot * targetLine.quantity
+      : (discountDetail?.subtotal ??
+        discountRow.invoiceSummary?.totalAmount ??
+        discountRow.bookingSummary?.totalAmount ??
+        0);
     if (baseAmount <= 0) {
       setDiscountError("This visit has no billable total to discount.");
       return;
@@ -2239,10 +2254,17 @@ export default function DashboardQueuePage() {
     setDiscountSubmitting(true);
     setDiscountError("");
     try {
-      await postDashboardBookingAction(token, discountRow.bookingId, "discount", {
-        discountAmount,
-        reason,
-      });
+      if (targetLine) {
+        await patchDashboardBookingLineDiscount(token, discountRow.bookingId, targetLine.id, {
+          discountAmount,
+          reason,
+        });
+      } else {
+        await postDashboardBookingAction(token, discountRow.bookingId, "discount", {
+          discountAmount,
+          reason,
+        });
+      }
       const bookingIdToRefresh = discountRow.bookingId;
       setDiscountOpen(false);
       setDiscountRow(null);
@@ -3051,6 +3073,25 @@ export default function DashboardQueuePage() {
                 </p>
               ) : null}
               <div className="mt-4 space-y-3">
+                <label className="block text-xs font-medium text-[#7A6A58]">
+                  Apply to
+                  <select
+                    value={discountTargetItemId}
+                    onChange={(event) => setDiscountTargetItemId(event.target.value)}
+                    disabled={discountDetailLoading}
+                    className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Whole receipt</option>
+                    {(discountDetail?.items ?? [])
+                      .filter((it) => (it.lineStatus ?? "PENDING") !== "CANCELLED")
+                      .map((it) => (
+                        <option key={it.id} value={it.id}>
+                          {it.nameSnapshot} · {formatEGP(it.priceSnapshot * it.quantity)}
+                          {it.discountAmount ? ` (−${formatEGP(it.discountAmount)} already)` : ""}
+                        </option>
+                      ))}
+                  </select>
+                </label>
                 <label className="block text-xs font-medium text-[#7A6A58]">
                   Discount type
                   <select

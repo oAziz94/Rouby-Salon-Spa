@@ -195,6 +195,7 @@ export class InvoicesService {
               serviceEnhancementId: it.serviceEnhancementId,
               nameSnapshot: it.nameSnapshot,
               priceSnapshot: it.priceSnapshot,
+              discountAmount: it.discountAmount,
               durationMinutesSnapshot: it.durationMinutesSnapshot,
               quantity: it.quantity,
               lineMetadata: it.lineMetadata ?? Prisma.JsonNull,
@@ -306,6 +307,7 @@ export class InvoicesService {
             serviceEnhancementId: it.serviceEnhancementId,
             nameSnapshot: it.nameSnapshot,
             priceSnapshot: it.priceSnapshot,
+            discountAmount: it.discountAmount,
             durationMinutesSnapshot: it.durationMinutesSnapshot,
             quantity: it.quantity,
             lineMetadata: it.lineMetadata ?? Prisma.JsonNull,
@@ -596,6 +598,7 @@ export class InvoicesService {
         serviceEnhancementId: ln.serviceEnhancementId,
         nameSnapshot: ln.nameSnapshot,
         priceSnapshot: Number(ln.priceSnapshot.toString()),
+        discountAmount: Number(ln.discountAmount.toString()),
         durationMinutesSnapshot: ln.durationMinutesSnapshot,
         quantity: ln.quantity,
         lineMetadata: ln.lineMetadata,
@@ -764,13 +767,18 @@ export class InvoicesService {
       lines: invoice.lines.map((ln) => {
         const unitPrice = Number(ln.priceSnapshot.toString());
         const quantity = ln.quantity;
+        const discount = Number(ln.discountAmount.toString());
         return {
           id: ln.id,
           sortOrder: ln.sortOrder,
           name: ln.nameSnapshot,
           quantity,
           unitPrice,
-          lineTotal: Number(ln.priceSnapshot.mul(quantity).toString()),
+          discountAmount: discount,
+          lineTotal: Math.max(
+            0,
+            Number(ln.priceSnapshot.mul(quantity).toString()) - discount,
+          ),
         };
       }),
       payments: payments.map((p) => ({

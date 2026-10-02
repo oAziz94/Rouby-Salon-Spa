@@ -1551,14 +1551,26 @@ export class BookingsService {
       },
       select: { id: true },
     });
-    if (!activeQueue) {
+    // Before check-in a booking may be edited from the Bookings page (spec v2 §3: "add a
+    // service" is FREE until the visit is closed); after check-in it must be on the queue.
+    const editableBeforeCheckIn: BookingStatus[] = [
+      BookingStatus.PENDING,
+      BookingStatus.CONFIRMED,
+      BookingStatus.RESCHEDULED,
+    ];
+    if (!activeQueue && !editableBeforeCheckIn.includes(booking.status)) {
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_REQUEST,
           message:
-            'Booking must be linked to an active queue entry in WAITING or IN_SERVICE status',
+            booking.status === BookingStatus.COMPLETED ||
+            booking.status === BookingStatus.CANCELLED ||
+            booking.status === BookingStatus.REJECTED ||
+            booking.status === BookingStatus.NO_SHOW
+              ? 'This booking is closed — services can no longer be added'
+              : 'Check the client in first, then add services from the queue',
           error: 'Bad Request',
-          code: 'BOOKING_NOT_IN_ACTIVE_QUEUE',
+          code: 'BOOKING_NOT_EDITABLE',
         },
         HttpStatus.BAD_REQUEST,
       );
@@ -1631,13 +1643,15 @@ export class BookingsService {
               ? allItems[0].nameSnapshot
               : `${allItems[0].nameSnapshot} +${allItems.length - 1} more`;
 
-        await tx.queueEntry.update({
-          where: { id: activeQueue.id },
-          data: {
-            itemsSnapshot,
-            serviceSummarySnapshot,
-          },
-        });
+        if (activeQueue) {
+          await tx.queueEntry.update({
+            where: { id: activeQueue.id },
+            data: {
+              itemsSnapshot,
+              serviceSummarySnapshot,
+            },
+          });
+        }
       },
       {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -1652,13 +1666,15 @@ export class BookingsService {
     }
     await this.audit.log({
       userId: user.userId,
-      action: 'booking.items_appended_from_queue',
+      action: activeQueue
+        ? 'booking.items_appended_from_queue'
+        : 'booking.items_appended',
       module: 'bookings',
       entityId: bookingId,
       newValue: {
-        addedLines: newLines.length,
+        addedLines: newLines.map((l) => l.nameSnapshot),
         totalAmount: updated.totalAmount,
-        queueEntryId: activeQueue.id,
+        queueEntryId: activeQueue?.id ?? null,
       },
     });
     return updated;
@@ -2090,6 +2106,7 @@ export class BookingsService {
               durationMinutesSnapshot: it.durationMinutesSnapshot,
               quantity: it.quantity,
               isTaxable,
+              discountAmount: it.discountAmount,
               lineMetadata: meta?.selectedServiceIds
                 ? { selectedServiceIds: meta.selectedServiceIds }
                 : null,
@@ -2167,6 +2184,178 @@ export class BookingsService {
         totalAmount: updated.totalAmount,
         remainingItemCount: updated.items.length,
         queueEntryId: activeQueue?.id ?? null,
+      },
+    });
+    return updated;
+  }
+
+  /**
+   * Discount on a single line (spec v2 §4), as an alternative to the receipt-level discount.
+   * Same guard as the receipt discount: reception needs a reason and stays under the limit
+   * (measured against that line), managers with `bookings.discount.apply_unlimited` don't.
+   * Totals are recomputed; a finalized invoice is kept in sync.
+   */
+  async applyLineDiscount(
+    user: DashboardJwtUser,
+    bookingId: string,
+    itemId: string,
+    body: DiscountBodyDto,
+  ) {
+    const booking = await this.requireDashboardBooking(user, bookingId);
+    if (
+      booking.status === BookingStatus.CANCELLED ||
+      booking.status === BookingStatus.REJECTED
+    ) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'Cannot apply discount to a cancelled/rejected booking',
+          error: 'Bad Request',
+          code: 'INVALID_BOOKING_STATE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const item = await this.prisma.bookingItem.findFirst({
+      where: { id: itemId, bookingId },
+      select: {
+        id: true,
+        nameSnapshot: true,
+        priceSnapshot: true,
+        quantity: true,
+        lineStatus: true,
+        discountAmount: true,
+      },
+    });
+    if (!item) {
+      throw new NotFoundException('Booking item not found on this booking');
+    }
+    if (item.lineStatus === BookingItemLineStatus.CANCELLED) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: `"${item.nameSnapshot}" was removed and is not charged`,
+          error: 'Bad Request',
+          code: 'LINE_ALREADY_CANCELLED',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const lineGross = Number(item.priceSnapshot.toString()) * item.quantity;
+    const requested = Math.max(0, Number(body.discountAmount.toFixed(2)));
+    if (requested > lineGross + 0.005) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: `Discount cannot exceed the line amount (${lineGross.toFixed(2)})`,
+          error: 'Bad Request',
+          code: 'DISCOUNT_EXCEEDS_LINE',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const discountReason = body.reason?.trim() || null;
+    if (
+      requested > 0 &&
+      !user.permissions.includes('bookings.discount.apply_unlimited')
+    ) {
+      if (!discountReason) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: 'A reason is required for discounts',
+            error: 'Bad Request',
+            code: 'DISCOUNT_REASON_REQUIRED',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      const limitRow = await this.prisma.systemSettings.findFirst({
+        select: { discountLimitPercentWithoutApproval: true },
+      });
+      const limitPct = Number(
+        limitRow?.discountLimitPercentWithoutApproval?.toString() ?? '15',
+      );
+      if (lineGross > 0 && requested > (lineGross * limitPct) / 100 + 0.005) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.FORBIDDEN,
+            message: `Discounts above ${limitPct}% of the line need a manager`,
+            error: 'Forbidden',
+            code: 'DISCOUNT_ABOVE_LIMIT',
+            limitPercent: limitPct,
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+    }
+
+    await this.prisma.bookingItem.update({
+      where: { id: item.id },
+      data: {
+        discountAmount: new Prisma.Decimal(requested.toFixed(2)),
+        discountReason: requested > 0 ? discountReason : null,
+      },
+    });
+    const settings = await this.pricing.getSystemSettings();
+    const lines = await this.buildResolvedLinesFromPersistedItems(bookingId);
+    const totals = this.pricing.computeTotals(
+      lines,
+      settings,
+      Number(booking.discountAmount.toString()),
+    );
+    await this.prisma.$transaction(async (tx) => {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          subtotal: totals.subtotal,
+          discountAmount: totals.discountAmount,
+          vatRate: totals.vatRate,
+          vatAmount: totals.vatAmount,
+          totalAmount: totals.totalAmount,
+        },
+      });
+      const finalizedInvoice = await tx.invoice.findFirst({
+        where: { bookingId, status: InvoiceStatus.FINALIZED },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, paidAmount: true },
+      });
+      if (finalizedInvoice) {
+        await tx.invoiceLine.updateMany({
+          where: { invoiceId: finalizedInvoice.id, bookingItemId: item.id },
+          data: { discountAmount: new Prisma.Decimal(requested.toFixed(2)) },
+        });
+        await tx.invoice.update({
+          where: { id: finalizedInvoice.id },
+          data: {
+            subtotal: totals.subtotal,
+            discountAmount: totals.discountAmount,
+            vatRate: totals.vatRate,
+            vatAmount: totals.vatAmount,
+            totalAmount: totals.totalAmount,
+            remainingAmount: decimalMaxZero(
+              totals.totalAmount.minus(finalizedInvoice.paidAmount),
+            ),
+          },
+        });
+      }
+    });
+    const updated = await this.getDashboardBooking(user, bookingId);
+    await this.audit.log({
+      userId: user.userId,
+      action: 'booking.line_discount_applied',
+      module: 'bookings',
+      entityId: bookingId,
+      oldValue: {
+        itemId: item.id,
+        nameSnapshot: item.nameSnapshot,
+        discountAmount: Number(item.discountAmount.toString()),
+        totalAmount: Number(booking.totalAmount.toString()),
+      },
+      newValue: {
+        discountAmount: requested,
+        reason: discountReason,
+        totalAmount: updated.totalAmount,
       },
     });
     return updated;
@@ -2690,6 +2879,7 @@ export class BookingsService {
         durationMinutesSnapshot: it.durationMinutesSnapshot,
         quantity: it.quantity,
         isTaxable,
+        discountAmount: it.discountAmount,
         lineMetadata: meta?.selectedServiceIds
           ? {
               selectedServiceIds: meta.selectedServiceIds,
@@ -2982,6 +3172,8 @@ export class BookingsService {
       serviceEnhancementId: string | null;
       nameSnapshot: string;
       priceSnapshot: Prisma.Decimal;
+      discountAmount: Prisma.Decimal;
+      discountReason: string | null;
       durationMinutesSnapshot: number;
       quantity: number;
       lineMetadata: Prisma.JsonValue | null;
@@ -3062,6 +3254,8 @@ export class BookingsService {
           serviceEnhancementId: it.serviceEnhancementId,
           nameSnapshot: it.nameSnapshot,
           priceSnapshot: Number(it.priceSnapshot.toString()),
+          discountAmount: Number(it.discountAmount.toString()),
+          discountReason: it.discountReason,
           durationMinutesSnapshot: it.durationMinutesSnapshot,
           quantity: it.quantity,
           lineMetadata: it.lineMetadata,

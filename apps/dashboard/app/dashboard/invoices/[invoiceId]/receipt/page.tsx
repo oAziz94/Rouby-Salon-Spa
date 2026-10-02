@@ -164,6 +164,7 @@ export default function DashboardInvoiceReceiptPage() {
                     <div className="line-meta">
                       <span>
                         {line.quantity} x {formatEGP(line.unitPrice)}
+                        {line.discountAmount ? ` − ${formatEGP(line.discountAmount)}` : ""}
                       </span>
                       <span>{formatEGP(line.lineTotal)}</span>
                     </div>

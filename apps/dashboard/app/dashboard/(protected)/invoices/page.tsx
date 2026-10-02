@@ -1352,7 +1352,8 @@ export default function DashboardInvoicesPage() {
                             </thead>
                             <tbody>
                               {detail.lines.map((line) => {
-                                const lineTotal = line.priceSnapshot * line.quantity;
+                                const lineDiscount = line.discountAmount ?? 0;
+                                const lineTotal = Math.max(0, line.priceSnapshot * line.quantity - lineDiscount);
                                 return (
                                   <tr key={line.id} className="border-b border-border/60">
                                     <td className="py-2 pr-2 font-medium text-[#1F2420]">
@@ -1362,6 +1363,9 @@ export default function DashboardInvoicesPage() {
                                     <td className="py-2 pr-2 text-right tabular-nums">{line.quantity}</td>
                                     <td className="py-2 pr-2 text-right tabular-nums">
                                       {formatEGP(line.priceSnapshot)}
+                                      {lineDiscount > 0 ? (
+                                        <span className="block text-[11px] text-[#8B4428]">−{formatEGP(lineDiscount)}</span>
+                                      ) : null}
                                     </td>
                                     <td className="py-2 text-right tabular-nums font-medium">
                                       {formatEGP(lineTotal)}

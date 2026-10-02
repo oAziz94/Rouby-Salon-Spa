@@ -812,6 +812,9 @@ export type DashboardBookingDetail = {
     serviceEnhancementId: string | null;
     nameSnapshot: string;
     priceSnapshot: number;
+    /** Discount on this line only (EGP for the whole line). */
+    discountAmount?: number;
+    discountReason?: string | null;
     durationMinutesSnapshot: number;
     quantity: number;
     lineMetadata: unknown;
@@ -1179,6 +1182,8 @@ export type DashboardInvoiceLine = {
   serviceEnhancementId: string | null;
   nameSnapshot: string;
   priceSnapshot: number;
+  /** Discount on this line only. */
+  discountAmount?: number;
   durationMinutesSnapshot: number;
   quantity: number;
   lineMetadata: unknown;
@@ -1273,6 +1278,8 @@ export type DashboardInvoiceReceiptLine = {
   name: string;
   quantity: number;
   unitPrice: number;
+  /** Discount on this line only; `lineTotal` is already net of it. */
+  discountAmount?: number;
   lineTotal: number;
 };
 
@@ -3290,6 +3297,35 @@ export async function postDashboardBookingAction(
  * line answers 409 `overridable` until `reason` is supplied, then it is kept as
  * CANCELLED (not charged). COMPLETED lines cannot be removed.
  */
+/** Add priced lines to a booking: before check-in from the Bookings page, after check-in while on the queue. */
+export async function appendDashboardBookingServiceItems(
+  accessToken: string,
+  bookingId: string,
+  payload: { items: DashboardBookingLineInput[] },
+): Promise<DashboardBookingDetail> {
+  return jsonMutation<DashboardBookingDetail>(
+    accessToken,
+    `/dashboard/bookings/${bookingId}/service-items`,
+    "POST",
+    payload,
+  );
+}
+
+/** Discount one line only (0 clears it). Same reason/limit rules as the receipt discount. */
+export async function patchDashboardBookingLineDiscount(
+  accessToken: string,
+  bookingId: string,
+  itemId: string,
+  payload: { discountAmount: number; reason?: string },
+): Promise<DashboardBookingDetail> {
+  return jsonMutation<DashboardBookingDetail>(
+    accessToken,
+    `/dashboard/bookings/${bookingId}/items/${itemId}/discount`,
+    "PATCH",
+    payload,
+  );
+}
+
 export async function deleteDashboardBookingItem(
   accessToken: string,
   bookingId: string,
