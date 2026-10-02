@@ -170,23 +170,23 @@ export default function DashboardPackagesPage() {
     setStatsLoading(true);
     setStatsNote("");
     try {
-      const [t0, t1, t2] = await Promise.all([
-        getDashboardPackages(token, { page: 1, pageSize: 1 }),
-        getDashboardPackages(token, { page: 1, pageSize: 1, isActive: true }),
-        getDashboardPackages(token, { page: 1, pageSize: 1, publicListing: true }),
-      ]);
-      setStatTotal(t0.meta.totalItems);
-      setStatActive(t1.meta.totalItems);
-      setStatOnline(t2.meta.totalItems);
-
-      const total = t0.meta.totalItems;
-      const pages = Math.min(10, Math.max(1, Math.ceil(total / 100)));
-      const chunks = await Promise.all(
-        Array.from({ length: pages }, (_, i) =>
-          getDashboardPackages(token, { page: i + 1, pageSize: 100 }),
-        ),
-      );
-      const merged = chunks.flatMap((c) => c.data);
+      // One page of 100 answers every tile for a salon-sized catalogue; only very large
+      // catalogues need the extra pages (capped at 3 requests in total).
+      const first = await getDashboardPackages(token, { page: 1, pageSize: 100 });
+      const total = first.meta.totalItems;
+      const pages = Math.min(3, Math.max(1, Math.ceil(total / 100)));
+      const rest =
+        pages > 1
+          ? await Promise.all(
+              Array.from({ length: pages - 1 }, (_, i) =>
+                getDashboardPackages(token, { page: i + 2, pageSize: 100 }),
+              ),
+            )
+          : [];
+      const merged = [first, ...rest].flatMap((c) => c.data);
+      setStatTotal(total);
+      setStatActive(merged.filter((pkg) => pkg.isActive).length);
+      setStatOnline(merged.filter((pkg) => pkg.isPublicListingReady).length);
       if (merged.length) {
         const savings = merged.map(savingsAmount).filter((s) => s > 0);
         const avg = savings.length ? savings.reduce((a, b) => a + b, 0) / savings.length : 0;

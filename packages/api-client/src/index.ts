@@ -2180,6 +2180,64 @@ export function apiUrl(resourcePath: string): string {
   return `${base}${path}`;
 }
 
+/** How long a single request may take before we give up (Render cold starts can take ~15s). */
+export const API_TIMEOUT_MS = 25_000;
+const NETWORK_RETRY_DELAY_MS = 700;
+
+export function isNetworkError(error: unknown): boolean {
+  return error instanceof ApiClientError && error.statusCode === 0;
+}
+
+/**
+ * `fetch` for API calls with the behaviours every screen needs and none had:
+ * - a timeout, so a hung request becomes an error instead of an endless spinner;
+ * - network failures ("Failed to fetch", DNS, offline) become a plain-language
+ *   `ApiClientError` with status 0 and code `NETWORK`;
+ * - idempotent requests (GET/HEAD) are retried once after a short pause.
+ */
+export async function apiFetch(
+  input: string,
+  init?: RequestInit,
+  options?: { timeoutMs?: number; retry?: boolean },
+): Promise<Response> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const retryAllowed = options?.retry ?? (method === "GET" || method === "HEAD");
+  const timeoutMs = options?.timeoutMs ?? API_TIMEOUT_MS;
+
+  const attempt = async (): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(input, { ...init, signal: init?.signal ?? controller.signal });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new ApiClientError(
+          "The server took too long to answer. Please try again.",
+          0,
+          "TIMEOUT",
+        );
+      }
+      throw new ApiClientError(
+        "We couldn't reach the server. Check the internet connection and try again.",
+        0,
+        "NETWORK",
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  try {
+    return await attempt();
+  } catch (error) {
+    if (retryAllowed && isNetworkError(error) && (error as ApiClientError).code === "NETWORK") {
+      await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
+      return attempt();
+    }
+    throw error;
+  }
+}
+
 /**
  * POST /dashboard/auth/login (Sprint 1).
  * Caller handles token storage (e.g. sessionStorage).
@@ -2188,7 +2246,7 @@ export async function postDashboardAuthLogin(
   email: string,
   password: string,
 ): Promise<DashboardLoginResponse> {
-  const res = await fetch(apiUrl("/dashboard/auth/login"), {
+  const res = await apiFetch(apiUrl("/dashboard/auth/login"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -2235,13 +2293,27 @@ async function parseApiError(res: Response): Promise<ApiClientError> {
     // Ignore JSON parsing errors and keep fallback message.
   }
 
-  return new ApiClientError(message, res.status, code, { overridable, details });
+  const requestId =
+    (details && typeof details.requestId === "string" ? details.requestId : null) ??
+    res.headers.get("x-request-id");
+  if (res.status >= 500 && (message === "Internal server error" || message.startsWith("Request failed"))) {
+    message = `Something went wrong on our side. Please try again${requestId ? ` (reference ${requestId})` : ""}.`;
+  } else if (res.status === 502 || res.status === 503 || res.status === 504) {
+    if (message.startsWith("Request failed")) {
+      message = "The server is starting up or busy. Please try again in a moment.";
+    }
+  }
+
+  return new ApiClientError(message, res.status, code, {
+    overridable,
+    details: requestId ? { ...(details ?? {}), requestId } : details,
+  });
 }
 
 export async function getDashboardAuthMe(
   accessToken: string,
 ): Promise<DashboardAuthMeResponse> {
-  const res = await fetch(apiUrl("/dashboard/auth/me"), {
+  const res = await apiFetch(apiUrl("/dashboard/auth/me"), {
     method: "GET",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -2282,7 +2354,7 @@ export async function postDashboardAuthChangePassword(
 export async function getDashboardAuthPermissions(
   accessToken: string,
 ): Promise<DashboardPermissionsResponse> {
-  const res = await fetch(apiUrl("/dashboard/auth/permissions"), {
+  const res = await apiFetch(apiUrl("/dashboard/auth/permissions"), {
     method: "GET",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -2347,7 +2419,7 @@ export async function getDashboardPickerCatalog(
   accessToken: string,
   query: { branchId?: string } = {},
 ): Promise<DashboardPickerCatalog> {
-  const res = await fetch(withQuery("/dashboard/catalog/picker", query), {
+  const res = await apiFetch(withQuery("/dashboard/catalog/picker", query), {
     method: "GET",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -2372,7 +2444,7 @@ export async function getDashboardOverviewToday(
   accessToken: string,
   query: { branchId?: string } = {},
 ): Promise<DashboardOverviewTodayResponse> {
-  const res = await fetch(withQuery("/dashboard/overview/today", query), {
+  const res = await apiFetch(withQuery("/dashboard/overview/today", query), {
     method: "GET",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -2386,7 +2458,7 @@ export async function getDashboardReportsOverview(
   accessToken: string,
   query: DashboardReportsQuery = {},
 ): Promise<DashboardReportsOverviewResponse> {
-  const res = await fetch(withQuery("/dashboard/reports/overview", query), {
+  const res = await apiFetch(withQuery("/dashboard/reports/overview", query), {
     method: "GET",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -2405,7 +2477,7 @@ async function getDashboardReportSection(
   resourcePath: string,
   query: DashboardReportsQuery = {},
 ): Promise<DashboardReportSectionResponse> {
-  const res = await fetch(withQuery(resourcePath, query), {
+  const res = await apiFetch(withQuery(resourcePath, query), {
     method: "GET",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -2456,7 +2528,7 @@ export async function getDashboardStaffAvailability(
     endTime?: string;
   },
 ): Promise<DashboardStaffAvailabilityResponse> {
-  const res = await fetch(withQuery("/dashboard/staff/availability", query), {
+  const res = await apiFetch(withQuery("/dashboard/staff/availability", query), {
     method: "GET",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -2510,7 +2582,7 @@ export async function getDashboardStaffList(
   }>;
   profiles: Array<Record<string, unknown>>;
 }> {
-  const res = await fetch(withQuery("/dashboard/staff", { branchId }), {
+  const res = await apiFetch(withQuery("/dashboard/staff", { branchId }), {
     method: "GET",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -2633,7 +2705,7 @@ export async function getDashboardStaffServices(
   accessToken: string,
   profileId: string,
 ): Promise<DashboardStaffServiceCapability[]> {
-  const res = await fetch(apiUrl(`/dashboard/staff/${profileId}/services`), {
+  const res = await apiFetch(apiUrl(`/dashboard/staff/${profileId}/services`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -2658,7 +2730,7 @@ export async function getDashboardStaffSchedule(
   accessToken: string,
   profileId: string,
 ): Promise<DashboardStaffScheduleRow[]> {
-  const res = await fetch(apiUrl(`/dashboard/staff/${profileId}/schedule`), {
+  const res = await apiFetch(apiUrl(`/dashboard/staff/${profileId}/schedule`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -2683,7 +2755,7 @@ export async function getDashboardStaffExceptions(
   accessToken: string,
   profileId: string,
 ): Promise<DashboardStaffScheduleException[]> {
-  const res = await fetch(apiUrl(`/dashboard/staff/${profileId}/exceptions`), {
+  const res = await apiFetch(apiUrl(`/dashboard/staff/${profileId}/exceptions`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -2743,16 +2815,35 @@ export async function deleteDashboardStaffException(
   );
 }
 
+/** Branch list changes rarely but every page asks for it; share one answer for a minute. */
+const BRANCHES_CACHE_TTL_MS = 60_000;
+let branchesCache: { token: string; until: number; promise: Promise<DashboardBranch[]> } | null = null;
+
+export function invalidateDashboardBranchesCache(): void {
+  branchesCache = null;
+}
+
 export async function getDashboardBranches(
   accessToken: string,
 ): Promise<DashboardBranch[]> {
-  const res = await fetch(apiUrl("/dashboard/branches"), {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) {
-    throw await parseApiError(res);
+  const now = Date.now();
+  if (branchesCache && branchesCache.token === accessToken && branchesCache.until > now) {
+    return branchesCache.promise;
   }
-  return (await res.json()) as DashboardBranch[];
+  const promise = (async () => {
+    const res = await apiFetch(apiUrl("/dashboard/branches"), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) {
+      throw await parseApiError(res);
+    }
+    return (await res.json()) as DashboardBranch[];
+  })();
+  branchesCache = { token: accessToken, until: now + BRANCHES_CACHE_TTL_MS, promise };
+  promise.catch(() => {
+    branchesCache = null;
+  });
+  return promise;
 }
 
 export async function listDashboardBranches(
@@ -2772,7 +2863,7 @@ export async function listDashboardUsers(
     status?: "all" | "active" | "inactive";
   } = {},
 ): Promise<DashboardUsersListResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/users", {
       page: query.page,
       pageSize: query.pageSize,
@@ -2793,7 +2884,7 @@ export async function getDashboardUser(
   accessToken: string,
   userId: string,
 ): Promise<DashboardUserDetail> {
-  const res = await fetch(apiUrl(`/dashboard/users/${userId}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/users/${userId}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -2866,7 +2957,7 @@ export async function deactivateDashboardUser(
 export async function listDashboardRoles(
   accessToken: string,
 ): Promise<DashboardRole[]> {
-  const res = await fetch(apiUrl("/dashboard/roles"), {
+  const res = await apiFetch(apiUrl("/dashboard/roles"), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -2878,7 +2969,7 @@ export async function listDashboardRoles(
 export async function getDashboardRbacMatrix(
   accessToken: string,
 ): Promise<DashboardRbacMatrix> {
-  const res = await fetch(apiUrl("/dashboard/rbac-matrix"), {
+  const res = await apiFetch(apiUrl("/dashboard/rbac-matrix"), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -2898,6 +2989,7 @@ export async function createDashboardBranch(
     isActive?: boolean;
   },
 ): Promise<DashboardBranch> {
+  invalidateDashboardBranchesCache();
   return jsonMutation<DashboardBranch>(
     accessToken,
     "/dashboard/branches",
@@ -2918,6 +3010,7 @@ export async function updateDashboardBranch(
     isActive: boolean;
   }>,
 ): Promise<DashboardBranch> {
+  invalidateDashboardBranchesCache();
   return jsonMutation<DashboardBranch>(
     accessToken,
     `/dashboard/branches/${branchId}`,
@@ -2930,7 +3023,7 @@ export async function getDashboardBookings(
   accessToken: string,
   query: DashboardBookingsListQuery = {},
 ): Promise<DashboardBookingsListResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/bookings", {
       branchId: query.branchId,
       status: query.status,
@@ -2956,7 +3049,7 @@ export async function getDashboardBookingById(
   accessToken: string,
   bookingId: string,
 ): Promise<DashboardBookingDetail> {
-  const res = await fetch(apiUrl(`/dashboard/bookings/${bookingId}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/bookings/${bookingId}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -2969,7 +3062,7 @@ export async function getDashboardQueue(
   accessToken: string,
   query: DashboardQueueListQuery = {},
 ): Promise<DashboardQueueListResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/queue", {
       date: query.date,
       branchId: query.branchId,
@@ -3116,7 +3209,7 @@ export async function getDashboardSlots(
   branchId: string,
   query: DashboardSlotsListQuery = {},
 ): Promise<DashboardSlotsListResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery(`/dashboard/branches/${branchId}/slots`, {
       page: query.page,
       pageSize: query.pageSize,
@@ -3139,7 +3232,7 @@ export async function getDashboardSlotById(
   branchId: string,
   slotId: string,
 ): Promise<DashboardSlot> {
-  const res = await fetch(
+  const res = await apiFetch(
     apiUrl(`/dashboard/branches/${branchId}/slots/${slotId}`),
     {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -3157,7 +3250,7 @@ async function jsonMutation<T>(
   method: "POST" | "PATCH" | "DELETE",
   body?: unknown,
 ): Promise<T> {
-  const res = await fetch(apiUrl(path), {
+  const res = await apiFetch(apiUrl(path), {
     method,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -3172,7 +3265,7 @@ async function jsonMutation<T>(
 }
 
 async function jsonPut<T>(accessToken: string, path: string, body: unknown): Promise<T> {
-  const res = await fetch(apiUrl(path), {
+  const res = await apiFetch(apiUrl(path), {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -3344,7 +3437,7 @@ export async function getDashboardBookingPayments(
   accessToken: string,
   bookingId: string,
 ): Promise<DashboardBookingPaymentsResponse> {
-  const res = await fetch(apiUrl(`/dashboard/bookings/${bookingId}/payments`), {
+  const res = await apiFetch(apiUrl(`/dashboard/bookings/${bookingId}/payments`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -3357,7 +3450,7 @@ export async function getDashboardPayments(
   accessToken: string,
   query: DashboardPaymentsListQuery = {},
 ): Promise<DashboardPaymentsListResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/payments", {
       search: query.search,
       method: query.method,
@@ -3382,7 +3475,7 @@ export async function getDashboardPaymentDetail(
   accessToken: string,
   paymentId: string,
 ): Promise<DashboardPaymentDetailResponse> {
-  const res = await fetch(apiUrl(`/dashboard/payments/${paymentId}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/payments/${paymentId}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -3434,7 +3527,7 @@ export async function getDashboardInvoices(
   accessToken: string,
   query: DashboardInvoicesListQuery = {},
 ): Promise<DashboardInvoicesListResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/invoices", {
       branchId: query.branchId,
       bookingId: query.bookingId,
@@ -3461,7 +3554,7 @@ export async function getDashboardInvoiceById(
   accessToken: string,
   invoiceId: string,
 ): Promise<DashboardInvoiceDetail> {
-  const res = await fetch(apiUrl(`/dashboard/invoices/${invoiceId}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/invoices/${invoiceId}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -3474,7 +3567,7 @@ export async function getDashboardInvoiceReceipt(
   accessToken: string,
   invoiceId: string,
 ): Promise<DashboardInvoiceReceipt> {
-  const res = await fetch(apiUrl(`/dashboard/invoices/${invoiceId}/receipt`), {
+  const res = await apiFetch(apiUrl(`/dashboard/invoices/${invoiceId}/receipt`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -3538,7 +3631,7 @@ export async function postDashboardWhatsappDeepLink(
 export async function getDashboardVatSettings(
   accessToken: string,
 ): Promise<DashboardVatSettingsResponse> {
-  const res = await fetch(apiUrl("/dashboard/settings/vat"), {
+  const res = await apiFetch(apiUrl("/dashboard/settings/vat"), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -3550,7 +3643,7 @@ export async function getDashboardVatSettings(
 export async function getDashboardSettings(
   accessToken: string,
 ): Promise<DashboardSettings> {
-  const res = await fetch(apiUrl("/dashboard/settings"), {
+  const res = await apiFetch(apiUrl("/dashboard/settings"), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -3649,7 +3742,7 @@ export async function patchDashboardVatSettings(
 export async function getDashboardPaymentPolicy(
   accessToken: string,
 ): Promise<DashboardPaymentPolicyResponse> {
-  const res = await fetch(apiUrl("/dashboard/settings/payment-policy"), {
+  const res = await apiFetch(apiUrl("/dashboard/settings/payment-policy"), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -3673,7 +3766,7 @@ export async function patchDashboardPaymentPolicy(
 export async function getSlotGenerationSettings(
   accessToken: string,
 ): Promise<SlotGenerationDefaults> {
-  const res = await fetch(apiUrl("/dashboard/settings/slot-generation"), {
+  const res = await apiFetch(apiUrl("/dashboard/settings/slot-generation"), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -3711,7 +3804,7 @@ export async function getDashboardBranchSlotSettings(
   accessToken: string,
   branchId: string,
 ): Promise<BranchSlotGenerationSettings> {
-  const res = await fetch(
+  const res = await apiFetch(
     apiUrl(`/dashboard/branches/${branchId}/slot-settings`),
     {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -3747,7 +3840,7 @@ export async function listDashboardWhatsAppTemplates(
   accessToken: string,
   params: ListDashboardWhatsAppTemplatesParams = {},
 ): Promise<DashboardWhatsAppTemplatesResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/whatsapp-templates", {
       search: params.search,
       category: params.category,
@@ -3777,7 +3870,7 @@ export async function getDashboardWhatsAppTemplate(
   accessToken: string,
   id: string,
 ): Promise<DashboardWhatsAppTemplate> {
-  const res = await fetch(apiUrl(`/dashboard/whatsapp-templates/${id}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/whatsapp-templates/${id}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -3879,7 +3972,7 @@ export async function getDashboardBookingChangeRequests(
     pageSize?: number;
   } = {},
 ): Promise<DashboardBookingChangeRequestsResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/booking-change-requests", {
       branchId: query.branchId,
       status: query.status,
@@ -3901,7 +3994,7 @@ export async function getDashboardBookingChangeRequestById(
   accessToken: string,
   requestId: string,
 ): Promise<DashboardBookingChangeRequestDetail> {
-  const res = await fetch(
+  const res = await apiFetch(
     apiUrl(`/dashboard/booking-change-requests/${requestId}`),
     {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -3929,7 +4022,7 @@ export async function getDashboardClients(
   accessToken: string,
   query: { page?: number; pageSize?: number; search?: string } = {},
 ): Promise<DashboardClientsListResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/clients", {
       page: query.page,
       pageSize: query.pageSize,
@@ -3953,7 +4046,7 @@ export async function getDashboardClientById(
   accessToken: string,
   clientId: string,
 ): Promise<DashboardClient> {
-  const res = await fetch(apiUrl(`/dashboard/clients/${clientId}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/clients/${clientId}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -3991,7 +4084,7 @@ export async function getDashboardServiceCategories(
   accessToken: string,
   query: { isActive?: boolean } = {},
 ): Promise<{ data: DashboardServiceCategory[] }> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/service-categories", {
       isActive: query.isActive,
     }),
@@ -4037,7 +4130,7 @@ export async function getDashboardServices(
     isActive?: boolean;
   } = {},
 ): Promise<{ data: DashboardService[]; meta: DashboardListMeta }> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/services", {
       page: query.page,
       pageSize: query.pageSize,
@@ -4061,7 +4154,7 @@ export async function postDashboardMediaUpload(
 ): Promise<DashboardMediaUploadResponse> {
   const form = new FormData();
   form.set("file", file);
-  const res = await fetch(apiUrl("/dashboard/media/upload"), {
+  const res = await apiFetch(apiUrl("/dashboard/media/upload"), {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -4114,7 +4207,7 @@ export async function getDashboardServiceVariants(
   accessToken: string,
   serviceId: string,
 ): Promise<{ data: DashboardServiceVariant[] }> {
-  const res = await fetch(apiUrl(`/dashboard/services/${serviceId}/variants`), {
+  const res = await apiFetch(apiUrl(`/dashboard/services/${serviceId}/variants`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -4173,7 +4266,7 @@ export async function getDashboardPackages(
     publicListing?: boolean;
   } = {},
 ): Promise<{ data: DashboardPackage[]; meta: DashboardListMeta }> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/packages", {
       page: query.page,
       pageSize: query.pageSize,
@@ -4235,7 +4328,7 @@ export async function getDashboardBundles(
   accessToken: string,
   query: { page?: number; pageSize?: number; isActive?: boolean } = {},
 ): Promise<{ data: DashboardBundle[]; meta: DashboardListMeta }> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/bundles", {
       page: query.page,
       pageSize: query.pageSize,
@@ -4294,7 +4387,7 @@ export async function getDashboardOffers(
   accessToken: string,
   query: { page?: number; pageSize?: number; isActive?: boolean } = {},
 ): Promise<{ data: DashboardOffer[]; meta: DashboardListMeta }> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/offers", {
       page: query.page,
       pageSize: query.pageSize,
@@ -4324,7 +4417,7 @@ export async function getDashboardServiceEnhancements(
     durationMax?: number;
   } = {},
 ): Promise<{ data: DashboardServiceEnhancement[]; meta: DashboardListMeta }> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/service-enhancements", {
       page: query.page,
       pageSize: query.pageSize,
@@ -4426,7 +4519,7 @@ export async function listDashboardWebsiteContent(
   accessToken: string,
   query: { page?: string; isVisible?: boolean } = {},
 ): Promise<DashboardWebsiteContentListResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/website-content", {
       page: query.page,
       isVisible: query.isVisible,
@@ -4443,7 +4536,7 @@ export async function getDashboardWebsiteContentSection(
   accessToken: string,
   id: string,
 ): Promise<DashboardWebsiteContentSection> {
-  const res = await fetch(apiUrl(`/dashboard/website-content/${id}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/website-content/${id}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -4503,7 +4596,7 @@ export async function getDashboardGallery(
     isActive?: boolean;
   } = {},
 ): Promise<{ data: DashboardGalleryListItem[]; meta: DashboardListMeta }> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/gallery", {
       page: query.page,
       pageSize: query.pageSize,
@@ -4530,7 +4623,7 @@ export async function getDashboardGallery(
 export async function getDashboardGalleryStats(
   accessToken: string,
 ): Promise<DashboardGalleryStats> {
-  const res = await fetch(apiUrl("/dashboard/gallery/stats"), {
+  const res = await apiFetch(apiUrl("/dashboard/gallery/stats"), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -4543,7 +4636,7 @@ export async function getDashboardGalleryAsset(
   accessToken: string,
   id: string,
 ): Promise<DashboardGalleryAssetDetail> {
-  const res = await fetch(apiUrl(`/dashboard/gallery/${id}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/gallery/${id}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -4570,7 +4663,7 @@ export async function uploadDashboardGalleryAsset(
   if (fields.description) form.set("description", fields.description);
   if (fields.category) form.set("category", fields.category);
   if (fields.tagsRaw) form.set("tagsRaw", fields.tagsRaw);
-  const res = await fetch(apiUrl("/dashboard/gallery/upload"), {
+  const res = await apiFetch(apiUrl("/dashboard/gallery/upload"), {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
@@ -4598,7 +4691,7 @@ export async function deleteDashboardGalleryAsset(
   accessToken: string,
   id: string,
 ): Promise<void> {
-  const res = await fetch(apiUrl(`/dashboard/gallery/${id}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/gallery/${id}`), {
     method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -4611,7 +4704,7 @@ export async function getDashboardGalleryAssetUsages(
   accessToken: string,
   id: string,
 ): Promise<{ data: DashboardGalleryUsageRow[] }> {
-  const res = await fetch(apiUrl(`/dashboard/gallery/${id}/usages`), {
+  const res = await apiFetch(apiUrl(`/dashboard/gallery/${id}/usages`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -4637,7 +4730,7 @@ export async function detachDashboardGalleryUsage(
   accessToken: string,
   usageId: string,
 ): Promise<{ ok: boolean }> {
-  const res = await fetch(apiUrl(`/dashboard/gallery/usages/${usageId}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/gallery/usages/${usageId}`), {
     method: "DELETE",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -4688,7 +4781,7 @@ export async function patchDashboardGalleryItemStatus(
 export async function getDashboardReviewsStats(
   accessToken: string,
 ): Promise<DashboardReviewStats> {
-  const res = await fetch(apiUrl("/dashboard/reviews/stats"), {
+  const res = await apiFetch(apiUrl("/dashboard/reviews/stats"), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -4714,7 +4807,7 @@ export async function getDashboardReviews(
     createdTo?: string;
   } = {},
 ): Promise<{ data: DashboardReview[]; meta: DashboardListMeta }> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/reviews", {
       page: query.page,
       pageSize: query.pageSize,
@@ -4744,7 +4837,7 @@ export async function getDashboardReview(
   accessToken: string,
   id: string,
 ): Promise<DashboardReviewDetail> {
-  const res = await fetch(apiUrl(`/dashboard/reviews/${id}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/reviews/${id}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
@@ -4910,7 +5003,7 @@ export async function getDashboardFinancialReports(
   accessToken: string,
   query: DashboardReportsQuery = {},
 ): Promise<DashboardFinancialReport> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/reports/financial-summary", query),
     {
       method: "GET",
@@ -4936,7 +5029,7 @@ export async function exportDashboardFinancialReport(
       | "daily-closing";
   } = {},
 ): Promise<Blob> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/reports/financial/export", query),
     {
       method: "GET",
@@ -4955,7 +5048,7 @@ export async function getDashboardStaffServicesRevenueReport(
   accessToken: string,
   query: StaffServicesRevenueQuery = {},
 ): Promise<StaffServicesRevenueReport> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/reports/staff-services-revenue", query),
     {
       method: "GET",
@@ -4973,7 +5066,7 @@ export async function getDashboardStaffServicesRevenueDetail(
   staffId: string,
   query: StaffServicesRevenueQuery = {},
 ): Promise<StaffServicesRevenueDetailReport> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery(`/dashboard/reports/staff-services-revenue/${staffId}`, query),
     {
       method: "GET",
@@ -4990,7 +5083,7 @@ export async function exportDashboardStaffServicesRevenueReport(
   accessToken: string,
   query: StaffServicesRevenueQuery = {},
 ): Promise<Blob> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/reports/staff-services-revenue/export.csv", query),
     {
       method: "GET",
@@ -5007,7 +5100,7 @@ export async function getDashboardAuditLogs(
   accessToken: string,
   query: DashboardAuditLogsQuery = {},
 ): Promise<DashboardAuditLogsResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/audit-logs", {
       search: query.search,
       module: query.module,
@@ -5037,7 +5130,7 @@ export async function getDashboardAuditLogById(
   accessToken: string,
   id: string,
 ): Promise<DashboardAuditLogDetail> {
-  const res = await fetch(apiUrl(`/dashboard/audit-logs/${id}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/audit-logs/${id}`), {
     method: "GET",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -5050,7 +5143,7 @@ export async function getDashboardAuditLogById(
 export async function getDashboardAuditLogFacets(
   accessToken: string,
 ): Promise<DashboardAuditLogFacets> {
-  const res = await fetch(apiUrl("/dashboard/audit-logs/facets"), {
+  const res = await apiFetch(apiUrl("/dashboard/audit-logs/facets"), {
     method: "GET",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -5154,7 +5247,7 @@ export async function getDashboardNotificationLogs(
   accessToken: string,
   query: DashboardNotificationLogsQuery = {},
 ): Promise<DashboardNotificationLogsResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/notifications", {
       search: query.search,
       channel: query.channel,
@@ -5181,7 +5274,7 @@ export async function getDashboardNotificationLogById(
   accessToken: string,
   id: string,
 ): Promise<DashboardNotificationLogDetail> {
-  const res = await fetch(apiUrl(`/dashboard/notifications/${id}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/notifications/${id}`), {
     method: "GET",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -5195,7 +5288,7 @@ export async function retryDashboardNotification(
   accessToken: string,
   id: string,
 ): Promise<DashboardNotificationRetryResponse> {
-  const res = await fetch(apiUrl(`/dashboard/notifications/${id}/retry`), {
+  const res = await apiFetch(apiUrl(`/dashboard/notifications/${id}/retry`), {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -5417,7 +5510,7 @@ export async function getDashboardCashDrawerCurrent(
   accessToken: string,
   params: { branchId: string; date: string },
 ): Promise<DashboardCashDrawerCurrentResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/cash-drawer/current", {
       branchId: params.branchId,
       date: params.date,
@@ -5449,7 +5542,7 @@ export async function getDashboardCashDrawer(
   accessToken: string,
   id: string,
 ): Promise<DashboardCashDrawerDetailResponse> {
-  const res = await fetch(apiUrl(`/dashboard/cash-drawer/${id}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/cash-drawer/${id}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw await parseApiError(res);
@@ -5504,7 +5597,7 @@ export async function getDashboardDailyClosingSummary(
   accessToken: string,
   params: { branchId: string; date: string },
 ): Promise<DashboardDailyClosingSummaryResponse> {
-  const res = await fetch(
+  const res = await apiFetch(
     withQuery("/dashboard/daily-closing/summary", {
       branchId: params.branchId,
       date: params.date,
@@ -5531,7 +5624,7 @@ export async function getDashboardDailyClosing(
   accessToken: string,
   id: string,
 ): Promise<DashboardDailyClosingReport> {
-  const res = await fetch(apiUrl(`/dashboard/daily-closing/${id}`), {
+  const res = await apiFetch(apiUrl(`/dashboard/daily-closing/${id}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw await parseApiError(res);
@@ -5596,7 +5689,7 @@ export async function getDashboardSlotHorizon(
   accessToken: string,
   branchId: string,
 ): Promise<DashboardSlotHorizonStatus> {
-  const res = await fetch(
+  const res = await apiFetch(
     apiUrl(`/dashboard/branches/${branchId}/slots/horizon`),
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
@@ -5630,7 +5723,7 @@ export async function getDashboardClosures(
   data: DashboardBranchClosure[];
   horizon: DashboardSlotHorizonStatus;
 }> {
-  const res = await fetch(
+  const res = await apiFetch(
     apiUrl(
       `/dashboard/branches/${branchId}/closures${opts?.includePast ? "?includePast=true" : ""}`,
     ),

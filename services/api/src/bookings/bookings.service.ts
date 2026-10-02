@@ -65,6 +65,7 @@ import {
   sumPaidPayments,
 } from '../billing/payment-ledger.util';
 
+import { withSerializableRetry } from '../common/serializable-retry';
 function parseDateOnly(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
 }
@@ -217,85 +218,87 @@ export class BookingsService {
     }
     const totals = this.pricing.computeTotals(lines, settings, discountAmount);
 
-    const booking = await this.prisma.$transaction(
-      async (tx) => {
-        await this.slots.assertWebsiteSubmitSlotPolicyTx(
-          tx,
-          body.branchId,
-          body.slotId,
-        );
-        const reserved = await this.slots.tryReserveOneSlotCapacityTx(
-          tx,
-          body.slotId,
-        );
-        if (!reserved) {
-          throw new HttpException(
-            {
-              statusCode: HttpStatus.BAD_REQUEST,
-              message: 'Selected slot is full',
-              error: 'Bad Request',
-              code: 'SLOT_FULL',
-            },
-            HttpStatus.BAD_REQUEST,
+    const booking = await withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          await this.slots.assertWebsiteSubmitSlotPolicyTx(
+            tx,
+            body.branchId,
+            body.slotId,
           );
-        }
+          const reserved = await this.slots.tryReserveOneSlotCapacityTx(
+            tx,
+            body.slotId,
+          );
+          if (!reserved) {
+            throw new HttpException(
+              {
+                statusCode: HttpStatus.BAD_REQUEST,
+                message: 'Selected slot is full',
+                error: 'Bad Request',
+                code: 'SLOT_FULL',
+              },
+              HttpStatus.BAD_REQUEST,
+            );
+          }
 
-        const created = await tx.booking.create({
-          data: {
-            clientId: client.clientId,
-            branchId: body.branchId,
-            slotId: body.slotId,
-            status: BookingStatus.PENDING,
-            source: BookingSource.WEBSITE,
-            subtotal: totals.subtotal,
-            discountAmount: totals.discountAmount,
-            appliedOfferId,
-            appliedPromoCode,
-            promoSnapshot:
-              promoSnapshot !== null
-                ? (promoSnapshot as Prisma.InputJsonValue)
-                : Prisma.JsonNull,
-            vatRate: totals.vatRate,
-            vatAmount: totals.vatAmount,
-            totalAmount: totals.totalAmount,
-            clientNotes: body.clientNotes ?? null,
-            adminNotes: null,
-            createdByUserId: null,
-            items: {
-              create: lines.map((l) => ({
-                itemType: l.itemType,
-                serviceId: l.serviceId,
-                serviceVariantId: l.serviceVariantId,
-                packageId: l.packageId,
-                bundleId: l.bundleId,
-                serviceEnhancementId: l.serviceEnhancementId,
-                nameSnapshot: l.nameSnapshot,
-                priceSnapshot: l.priceSnapshot,
-                durationMinutesSnapshot: l.durationMinutesSnapshot,
-                quantity: l.quantity,
-                lineMetadata: l.lineMetadata ?? Prisma.JsonNull,
-              })),
+          const created = await tx.booking.create({
+            data: {
+              clientId: client.clientId,
+              branchId: body.branchId,
+              slotId: body.slotId,
+              status: BookingStatus.PENDING,
+              source: BookingSource.WEBSITE,
+              subtotal: totals.subtotal,
+              discountAmount: totals.discountAmount,
+              appliedOfferId,
+              appliedPromoCode,
+              promoSnapshot:
+                promoSnapshot !== null
+                  ? (promoSnapshot as Prisma.InputJsonValue)
+                  : Prisma.JsonNull,
+              vatRate: totals.vatRate,
+              vatAmount: totals.vatAmount,
+              totalAmount: totals.totalAmount,
+              clientNotes: body.clientNotes ?? null,
+              adminNotes: null,
+              createdByUserId: null,
+              items: {
+                create: lines.map((l) => ({
+                  itemType: l.itemType,
+                  serviceId: l.serviceId,
+                  serviceVariantId: l.serviceVariantId,
+                  packageId: l.packageId,
+                  bundleId: l.bundleId,
+                  serviceEnhancementId: l.serviceEnhancementId,
+                  nameSnapshot: l.nameSnapshot,
+                  priceSnapshot: l.priceSnapshot,
+                  durationMinutesSnapshot: l.durationMinutesSnapshot,
+                  quantity: l.quantity,
+                  lineMetadata: l.lineMetadata ?? Prisma.JsonNull,
+                })),
+              },
             },
-          },
-          select: {
-            id: true,
-            status: true,
-            branchId: true,
-            slotId: true,
-            totalAmount: true,
-            createdAt: true,
-          },
-        });
+            select: {
+              id: true,
+              status: true,
+              branchId: true,
+              slotId: true,
+              totalAmount: true,
+              createdAt: true,
+            },
+          });
 
-        await this.slots.syncBookingSlotFilledFromCapacityTx(tx, body.slotId);
+          await this.slots.syncBookingSlotFilledFromCapacityTx(tx, body.slotId);
 
-        return created;
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        maxWait: 5000,
-        timeout: 10_000,
-      },
+          return created;
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 5000,
+          timeout: 10_000,
+        },
+      ),
     );
     await this.audit.log({
       userId: null,
@@ -983,68 +986,73 @@ export class BookingsService {
     });
     const totals = this.pricing.computeTotals(lines, settings, 0);
 
-    const booking = await this.prisma.$transaction(
-      async (tx) => {
-        if (countsTowardCapacity(initialStatus)) {
-          const ok = await this.slots.tryReserveOneSlotCapacityTx(
-            tx,
-            dto.slotId,
-          );
-          if (!ok) {
-            throw new HttpException(
-              {
-                statusCode: HttpStatus.BAD_REQUEST,
-                message: 'Slot is at capacity',
-                error: 'Bad Request',
-                code: 'SLOT_AT_CAPACITY',
-              },
-              HttpStatus.BAD_REQUEST,
+    const booking = await withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          if (countsTowardCapacity(initialStatus)) {
+            const ok = await this.slots.tryReserveOneSlotCapacityTx(
+              tx,
+              dto.slotId,
+            );
+            if (!ok) {
+              throw new HttpException(
+                {
+                  statusCode: HttpStatus.BAD_REQUEST,
+                  message: 'Slot is at capacity',
+                  error: 'Bad Request',
+                  code: 'SLOT_AT_CAPACITY',
+                },
+                HttpStatus.BAD_REQUEST,
+              );
+            }
+            await this.slots.syncBookingSlotFilledFromCapacityTx(
+              tx,
+              dto.slotId,
             );
           }
-          await this.slots.syncBookingSlotFilledFromCapacityTx(tx, dto.slotId);
-        }
 
-        const created = await tx.booking.create({
-          data: {
-            clientId: dto.clientId,
-            branchId: dto.branchId,
-            slotId: dto.slotId,
-            status: initialStatus,
-            source: dto.source,
-            subtotal: totals.subtotal,
-            discountAmount: totals.discountAmount,
-            vatRate: totals.vatRate,
-            vatAmount: totals.vatAmount,
-            totalAmount: totals.totalAmount,
-            clientNotes: dto.clientNotes ?? null,
-            adminNotes: dto.adminNotes ?? null,
-            createdByUserId: user.userId,
-            items: {
-              create: lines.map((l) => ({
-                itemType: l.itemType,
-                serviceId: l.serviceId,
-                serviceVariantId: l.serviceVariantId,
-                packageId: l.packageId,
-                bundleId: l.bundleId,
-                serviceEnhancementId: l.serviceEnhancementId,
-                nameSnapshot: l.nameSnapshot,
-                priceSnapshot: l.priceSnapshot,
-                durationMinutesSnapshot: l.durationMinutesSnapshot,
-                quantity: l.quantity,
-                lineMetadata: l.lineMetadata ?? Prisma.JsonNull,
-              })),
+          const created = await tx.booking.create({
+            data: {
+              clientId: dto.clientId,
+              branchId: dto.branchId,
+              slotId: dto.slotId,
+              status: initialStatus,
+              source: dto.source,
+              subtotal: totals.subtotal,
+              discountAmount: totals.discountAmount,
+              vatRate: totals.vatRate,
+              vatAmount: totals.vatAmount,
+              totalAmount: totals.totalAmount,
+              clientNotes: dto.clientNotes ?? null,
+              adminNotes: dto.adminNotes ?? null,
+              createdByUserId: user.userId,
+              items: {
+                create: lines.map((l) => ({
+                  itemType: l.itemType,
+                  serviceId: l.serviceId,
+                  serviceVariantId: l.serviceVariantId,
+                  packageId: l.packageId,
+                  bundleId: l.bundleId,
+                  serviceEnhancementId: l.serviceEnhancementId,
+                  nameSnapshot: l.nameSnapshot,
+                  priceSnapshot: l.priceSnapshot,
+                  durationMinutesSnapshot: l.durationMinutesSnapshot,
+                  quantity: l.quantity,
+                  lineMetadata: l.lineMetadata ?? Prisma.JsonNull,
+                })),
+              },
             },
-          },
-          include: { items: true, slot: true, client: true },
-        });
+            include: { items: true, slot: true, client: true },
+          });
 
-        return created;
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        maxWait: 5000,
-        timeout: 10_000,
-      },
+          return created;
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 5000,
+          timeout: 10_000,
+        },
+      ),
     );
     await this.audit.log({
       userId: user.userId,
@@ -1590,74 +1598,76 @@ export class BookingsService {
       Number(booking.discountAmount.toString()),
     );
 
-    await this.prisma.$transaction(
-      async (tx) => {
-        await tx.bookingItem.createMany({
-          data: newLines.map((l) => ({
-            bookingId,
-            itemType: l.itemType,
-            serviceId: l.serviceId,
-            serviceVariantId: l.serviceVariantId,
-            packageId: l.packageId,
-            bundleId: l.bundleId,
-            serviceEnhancementId: l.serviceEnhancementId,
-            nameSnapshot: l.nameSnapshot,
-            priceSnapshot: l.priceSnapshot,
-            durationMinutesSnapshot: l.durationMinutesSnapshot,
-            quantity: l.quantity,
-            lineMetadata: l.lineMetadata ?? Prisma.JsonNull,
-          })),
-        });
-        await tx.booking.update({
-          where: { id: bookingId },
-          data: {
-            subtotal: totals.subtotal,
-            discountAmount: totals.discountAmount,
-            vatRate: totals.vatRate,
-            vatAmount: totals.vatAmount,
-            totalAmount: totals.totalAmount,
-          },
-        });
-
-        const allItems = await tx.bookingItem.findMany({
-          where: {
-            bookingId,
-            lineStatus: { not: BookingItemLineStatus.CANCELLED },
-          },
-          orderBy: { createdAt: 'asc' },
-          select: {
-            itemType: true,
-            nameSnapshot: true,
-            quantity: true,
-          },
-        });
-        const itemsSnapshot = allItems.map((it) => ({
-          itemType: it.itemType,
-          nameSnapshot: it.nameSnapshot,
-          quantity: it.quantity,
-        }));
-        const serviceSummarySnapshot =
-          allItems.length === 0
-            ? '—'
-            : allItems.length === 1
-              ? allItems[0].nameSnapshot
-              : `${allItems[0].nameSnapshot} +${allItems.length - 1} more`;
-
-        if (activeQueue) {
-          await tx.queueEntry.update({
-            where: { id: activeQueue.id },
+    await withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          await tx.bookingItem.createMany({
+            data: newLines.map((l) => ({
+              bookingId,
+              itemType: l.itemType,
+              serviceId: l.serviceId,
+              serviceVariantId: l.serviceVariantId,
+              packageId: l.packageId,
+              bundleId: l.bundleId,
+              serviceEnhancementId: l.serviceEnhancementId,
+              nameSnapshot: l.nameSnapshot,
+              priceSnapshot: l.priceSnapshot,
+              durationMinutesSnapshot: l.durationMinutesSnapshot,
+              quantity: l.quantity,
+              lineMetadata: l.lineMetadata ?? Prisma.JsonNull,
+            })),
+          });
+          await tx.booking.update({
+            where: { id: bookingId },
             data: {
-              itemsSnapshot,
-              serviceSummarySnapshot,
+              subtotal: totals.subtotal,
+              discountAmount: totals.discountAmount,
+              vatRate: totals.vatRate,
+              vatAmount: totals.vatAmount,
+              totalAmount: totals.totalAmount,
             },
           });
-        }
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        maxWait: 5000,
-        timeout: 10_000,
-      },
+
+          const allItems = await tx.bookingItem.findMany({
+            where: {
+              bookingId,
+              lineStatus: { not: BookingItemLineStatus.CANCELLED },
+            },
+            orderBy: { createdAt: 'asc' },
+            select: {
+              itemType: true,
+              nameSnapshot: true,
+              quantity: true,
+            },
+          });
+          const itemsSnapshot = allItems.map((it) => ({
+            itemType: it.itemType,
+            nameSnapshot: it.nameSnapshot,
+            quantity: it.quantity,
+          }));
+          const serviceSummarySnapshot =
+            allItems.length === 0
+              ? '—'
+              : allItems.length === 1
+                ? allItems[0].nameSnapshot
+                : `${allItems[0].nameSnapshot} +${allItems.length - 1} more`;
+
+          if (activeQueue) {
+            await tx.queueEntry.update({
+              where: { id: activeQueue.id },
+              data: {
+                itemsSnapshot,
+                serviceSummarySnapshot,
+              },
+            });
+          }
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 5000,
+          timeout: 10_000,
+        },
+      ),
     );
 
     const updated = await this.getDashboardBooking(user, bookingId);
@@ -2048,115 +2058,117 @@ export class BookingsService {
 
     const settings = await this.pricing.getSystemSettings();
 
-    await this.prisma.$transaction(
-      async (tx) => {
-        if (stopInProgress) {
-          await tx.bookingItem.update({
-            where: { id: target.id },
+    await withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          if (stopInProgress) {
+            await tx.bookingItem.update({
+              where: { id: target.id },
+              data: {
+                lineStatus: BookingItemLineStatus.CANCELLED,
+                completedAt: new Date(),
+              },
+            });
+          } else {
+            await tx.bookingItem.delete({ where: { id: target.id } });
+          }
+
+          const remainingItems = await tx.bookingItem.findMany({
+            where: {
+              bookingId,
+              lineStatus: { not: BookingItemLineStatus.CANCELLED },
+            },
+            include: {
+              service: true,
+              serviceVariant: { include: { service: true } },
+              package: true,
+              bundle: { include: { services: { include: { service: true } } } },
+              serviceEnhancement: true,
+            },
+            orderBy: { createdAt: 'asc' },
+          });
+
+          const remainingLines: ResolvedBookingLine[] = remainingItems.map(
+            (it) => {
+              const meta = it.lineMetadata as {
+                selectedServiceIds?: string[];
+              } | null;
+              let isTaxable = true;
+              if (it.packageId && it.package) {
+                isTaxable = it.package.isTaxable;
+              } else if (it.service) {
+                isTaxable = it.service.isTaxable;
+              } else if (it.serviceVariant?.service) {
+                isTaxable = it.serviceVariant.service.isTaxable;
+              } else if (it.bundle) {
+                isTaxable = it.bundle.services.some((s) => s.service.isTaxable);
+              } else if (it.serviceEnhancement) {
+                isTaxable = true;
+              }
+              return {
+                itemType: it.itemType,
+                serviceId: it.serviceId,
+                serviceVariantId: it.serviceVariantId,
+                packageId: it.packageId,
+                bundleId: it.bundleId,
+                serviceEnhancementId: it.serviceEnhancementId,
+                nameSnapshot: it.nameSnapshot,
+                priceSnapshot: it.priceSnapshot,
+                durationMinutesSnapshot: it.durationMinutesSnapshot,
+                quantity: it.quantity,
+                isTaxable,
+                discountAmount: it.discountAmount,
+                lineMetadata: meta?.selectedServiceIds
+                  ? { selectedServiceIds: meta.selectedServiceIds }
+                  : null,
+              };
+            },
+          );
+
+          const totals = this.pricing.computeTotals(
+            remainingLines,
+            settings,
+            Number(booking.discountAmount.toString()),
+          );
+
+          await tx.booking.update({
+            where: { id: bookingId },
             data: {
-              lineStatus: BookingItemLineStatus.CANCELLED,
-              completedAt: new Date(),
+              subtotal: totals.subtotal,
+              discountAmount: totals.discountAmount,
+              vatRate: totals.vatRate,
+              vatAmount: totals.vatAmount,
+              totalAmount: totals.totalAmount,
             },
           });
-        } else {
-          await tx.bookingItem.delete({ where: { id: target.id } });
-        }
 
-        const remainingItems = await tx.bookingItem.findMany({
-          where: {
-            bookingId,
-            lineStatus: { not: BookingItemLineStatus.CANCELLED },
-          },
-          include: {
-            service: true,
-            serviceVariant: { include: { service: true } },
-            package: true,
-            bundle: { include: { services: { include: { service: true } } } },
-            serviceEnhancement: true,
-          },
-          orderBy: { createdAt: 'asc' },
-        });
-
-        const remainingLines: ResolvedBookingLine[] = remainingItems.map(
-          (it) => {
-            const meta = it.lineMetadata as {
-              selectedServiceIds?: string[];
-            } | null;
-            let isTaxable = true;
-            if (it.packageId && it.package) {
-              isTaxable = it.package.isTaxable;
-            } else if (it.service) {
-              isTaxable = it.service.isTaxable;
-            } else if (it.serviceVariant?.service) {
-              isTaxable = it.serviceVariant.service.isTaxable;
-            } else if (it.bundle) {
-              isTaxable = it.bundle.services.some((s) => s.service.isTaxable);
-            } else if (it.serviceEnhancement) {
-              isTaxable = true;
-            }
-            return {
+          if (activeQueue) {
+            const itemsSnapshot = remainingItems.map((it) => ({
               itemType: it.itemType,
-              serviceId: it.serviceId,
-              serviceVariantId: it.serviceVariantId,
-              packageId: it.packageId,
-              bundleId: it.bundleId,
-              serviceEnhancementId: it.serviceEnhancementId,
               nameSnapshot: it.nameSnapshot,
-              priceSnapshot: it.priceSnapshot,
-              durationMinutesSnapshot: it.durationMinutesSnapshot,
               quantity: it.quantity,
-              isTaxable,
-              discountAmount: it.discountAmount,
-              lineMetadata: meta?.selectedServiceIds
-                ? { selectedServiceIds: meta.selectedServiceIds }
-                : null,
-            };
-          },
-        );
-
-        const totals = this.pricing.computeTotals(
-          remainingLines,
-          settings,
-          Number(booking.discountAmount.toString()),
-        );
-
-        await tx.booking.update({
-          where: { id: bookingId },
-          data: {
-            subtotal: totals.subtotal,
-            discountAmount: totals.discountAmount,
-            vatRate: totals.vatRate,
-            vatAmount: totals.vatAmount,
-            totalAmount: totals.totalAmount,
-          },
-        });
-
-        if (activeQueue) {
-          const itemsSnapshot = remainingItems.map((it) => ({
-            itemType: it.itemType,
-            nameSnapshot: it.nameSnapshot,
-            quantity: it.quantity,
-          }));
-          const serviceSummarySnapshot =
-            remainingItems.length === 0
-              ? '—'
-              : remainingItems.length === 1
-                ? remainingItems[0].nameSnapshot
-                : `${remainingItems[0].nameSnapshot} +${remainingItems.length - 1} more`;
-          await tx.queueEntry.update({
-            where: { id: activeQueue.id },
-            data: {
-              itemsSnapshot,
-              serviceSummarySnapshot,
-            },
-          });
-        }
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        maxWait: 5000,
-        timeout: 10_000,
-      },
+            }));
+            const serviceSummarySnapshot =
+              remainingItems.length === 0
+                ? '—'
+                : remainingItems.length === 1
+                  ? remainingItems[0].nameSnapshot
+                  : `${remainingItems[0].nameSnapshot} +${remainingItems.length - 1} more`;
+            await tx.queueEntry.update({
+              where: { id: activeQueue.id },
+              data: {
+                itemsSnapshot,
+                serviceSummarySnapshot,
+              },
+            });
+          }
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 5000,
+          timeout: 10_000,
+        },
+      ),
     );
 
     const updated = await this.getDashboardBooking(user, bookingId);
@@ -2551,70 +2563,72 @@ export class BookingsService {
   }
 
   async approveChangeRequest(user: DashboardJwtUser, requestId: string) {
-    await this.prisma.$transaction(
-      async (tx) => {
-        const row = await tx.bookingChangeRequest.findUnique({
-          where: { id: requestId },
-          include: { booking: true },
-        });
-        if (!row) {
-          throw new NotFoundException('Change request not found');
-        }
-        assertDashboardBranchAccess(user, row.booking.branchId);
-
-        if (row.status !== BookingChangeRequestStatus.PENDING) {
-          throw new HttpException(
-            {
-              statusCode: HttpStatus.BAD_REQUEST,
-              message: 'Only PENDING change requests can be approved',
-              error: 'Bad Request',
-              code: 'INVALID_REQUEST_STATUS',
-            },
-            HttpStatus.BAD_REQUEST,
-          );
-        }
-
-        if (row.requestType === BookingChangeRequestType.CANCEL) {
-          if (!user.permissions.includes('bookings.cancel')) {
-            throw new ForbiddenException('Insufficient permissions');
+    await withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const row = await tx.bookingChangeRequest.findUnique({
+            where: { id: requestId },
+            include: { booking: true },
+          });
+          if (!row) {
+            throw new NotFoundException('Change request not found');
           }
-          await this.cancelBookingTx(tx, row.bookingId);
-        } else {
-          if (!user.permissions.includes('bookings.reschedule')) {
-            throw new ForbiddenException('Insufficient permissions');
-          }
-          if (!row.requestedSlotId) {
+          assertDashboardBranchAccess(user, row.booking.branchId);
+
+          if (row.status !== BookingChangeRequestStatus.PENDING) {
             throw new HttpException(
               {
                 statusCode: HttpStatus.BAD_REQUEST,
-                message: 'Reschedule request is missing requestedSlotId',
+                message: 'Only PENDING change requests can be approved',
                 error: 'Bad Request',
-                code: 'INVALID_REQUEST',
+                code: 'INVALID_REQUEST_STATUS',
               },
               HttpStatus.BAD_REQUEST,
             );
           }
-          await this.rescheduleBookingTx(
-            tx,
-            row.bookingId,
-            row.requestedSlotId,
-          );
-        }
 
-        await tx.bookingChangeRequest.update({
-          where: { id: requestId },
-          data: {
-            status: BookingChangeRequestStatus.APPROVED,
-            handledByUserId: user.userId,
-            handledAt: new Date(),
-          },
-        });
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        maxWait: 5000,
-        timeout: 10_000,
-      },
+          if (row.requestType === BookingChangeRequestType.CANCEL) {
+            if (!user.permissions.includes('bookings.cancel')) {
+              throw new ForbiddenException('Insufficient permissions');
+            }
+            await this.cancelBookingTx(tx, row.bookingId);
+          } else {
+            if (!user.permissions.includes('bookings.reschedule')) {
+              throw new ForbiddenException('Insufficient permissions');
+            }
+            if (!row.requestedSlotId) {
+              throw new HttpException(
+                {
+                  statusCode: HttpStatus.BAD_REQUEST,
+                  message: 'Reschedule request is missing requestedSlotId',
+                  error: 'Bad Request',
+                  code: 'INVALID_REQUEST',
+                },
+                HttpStatus.BAD_REQUEST,
+              );
+            }
+            await this.rescheduleBookingTx(
+              tx,
+              row.bookingId,
+              row.requestedSlotId,
+            );
+          }
+
+          await tx.bookingChangeRequest.update({
+            where: { id: requestId },
+            data: {
+              status: BookingChangeRequestStatus.APPROVED,
+              handledByUserId: user.userId,
+              handledAt: new Date(),
+            },
+          });
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 5000,
+          timeout: 10_000,
+        },
+      ),
     );
 
     const approved = await this.getChangeRequest(user, requestId);
@@ -3033,22 +3047,24 @@ export class BookingsService {
       },
     ) => Promise<void>,
   ): Promise<void> {
-    await this.prisma.$transaction(
-      async (tx) => {
-        const booking = await tx.booking.findUnique({
-          where: { id: bookingId },
-        });
-        if (!booking) {
-          throw new NotFoundException('Booking not found');
-        }
-        assertDashboardBranchAccess(user, booking.branchId);
-        await fn(tx, booking);
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        maxWait: 5000,
-        timeout: 10_000,
-      },
+    await withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const booking = await tx.booking.findUnique({
+            where: { id: bookingId },
+          });
+          if (!booking) {
+            throw new NotFoundException('Booking not found');
+          }
+          assertDashboardBranchAccess(user, booking.branchId);
+          await fn(tx, booking);
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 5000,
+          timeout: 10_000,
+        },
+      ),
     );
   }
 

@@ -290,7 +290,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const canSalonSettings =
     hasPermission("settings.system.read") || hasPermission("settings.read");
   const canViewReports = hasPermission("reports.view");
-  const canOverviewToday = !canViewReports && hasPermission("overview.read");
+  // Everyone who may read the light "today" feed uses it for the bell; the 55-query reports
+  // overview is only a fallback for roles that have reports.view without overview.read.
+  const canOverviewToday = hasPermission("overview.read");
   const notifications = useMemo(() => {
     const fromActivity: DashboardNotification[] = recentActivity
       .filter((activity) => RING_ACTIONS.has((activity.action ?? "").toLowerCase()))

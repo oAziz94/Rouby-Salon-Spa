@@ -2,7 +2,7 @@
 
 Inputs: code audit, Owner walkthrough of 30 pages, Receptionist end-to-end walkthrough on the dev branch, industry research (Fresha, Zenoti, Phorest, Booksy). Business rules: `docs/VISIT_WORKFLOW_SPEC_V2.md` (approved 2 Oct 2026).
 
-Done so far: DST freeze fixed and deployed; `/health/ready`; `next` advisory; dev branch isolation; Receptionist test account; **Batch 1** (4ea8050), **Batch 2** (da61b21), **Batch 2b** (treatment picker), the override-dialog fix (25b2ee1), remove-a-service mid-visit (0ee4977) and **Batch 3** (slots, closures, day close) shipped.
+Done so far: DST freeze fixed and deployed; `/health/ready`; `next` advisory; dev branch isolation; Receptionist test account; **Batch 1** (4ea8050), **Batch 2** (da61b21), **Batch 2b** (treatment picker), the override-dialog fix (25b2ee1), remove-a-service mid-visit (0ee4977) **Batch 3** (slots, closures, day close), pre-check-in booking edits + line discounts (108d794, 5a83a51) and **Batch 4** (reliability & speed) shipped.
 
 ## Guiding rules for every batch
 - Backend enforces every rule; UI only reflects it.
@@ -35,6 +35,8 @@ Done so far: DST freeze fixed and deployed; `/health/ready`; `next` advisory; de
 
 ## Batch 4 — Reliability & speed (Medium; one env change on Render)
 P2034 retry + global exception filter + request ids; api-client `request()` wrapper (timeout, GET retry, plain-language errors) and dashboard `error.tsx`; light notifications feed instead of the 55-query overview on every page; dedupe `/branches` and list calls; fix Packages 10× fetch; JWT user cache; **Render `DATABASE_URL` → Neon `-pooler` + `connection_limit`**; booking-collision test.
+
+**As built:** `withSerializableRetry` around the 7 SERIALIZABLE transactions (3 attempts, jittered); `AllExceptionsFilter` + `x-request-id` on every response (HttpException bodies unchanged, Prisma connectivity → 503 `DATABASE_UNAVAILABLE`, P2034 → 409 `TRY_AGAIN`, unknown → 500 with a reference); 20 s per-user permission cache invalidated on user edits; reminder cron single-run guard; api-client `apiFetch` (25 s timeout, one retry for GET on network failure, status-0 `NETWORK`/`TIMEOUT` errors, friendlier 5xx text with the reference) on all 79 calls; `getDashboardBranches` shared for 60 s; shell bell uses the light today feed for every role with `overview.read`; Packages page stats from 1–3 requests instead of up to 13; `app/dashboard/error.tsx`. The booking-collision test is covered by the retry helper's unit test; a true two-client integration test needs a test database (Batch 6). Render: confirm `DATABASE_URL` uses the `-pooler` host; add `&connection_limit=10` if absent.
 
 ## Batch 2b — Service picker (Medium; migration for `nameAr` / `searchAliases`)
 Spec §3a: single search across services/variants/packages/add-ons; large side panel with category chips and selected-lines footer; Arabic names + aliases + typo tolerance; inline variants; editable price for STARTS_FROM/RANGE/CONTACT; add-on chips; "last visit" and "recent/popular" at the top; keyboard navigation; catalog cached per session. Reused in walk-in, new booking, add-service, and later the website cart. Admin catalog screens get the `nameAr`/aliases fields.

@@ -23,6 +23,8 @@ const ACTIVE_REMINDER_STATUSES: BookingStatus[] = [
 @Injectable()
 export class BookingReminderScheduler {
   private readonly logger = new Logger(BookingReminderScheduler.name);
+  /** A slow WhatsApp provider must not let two runs overlap and double-send. */
+  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -32,10 +34,22 @@ export class BookingReminderScheduler {
 
   @Cron('*/15 * * * *')
   async dispatchDueReminders(): Promise<void> {
-    if (!this.config.isEnabled()) {
+    if (!this.config.isEnabled() || this.running) {
       return;
     }
+    this.running = true;
+    try {
+      await this.dispatchDueRemindersOnce();
+    } catch (err) {
+      this.logger.error(
+        `Reminder run failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      this.running = false;
+    }
+  }
 
+  private async dispatchDueRemindersOnce(): Promise<void> {
     const hoursBefore = this.config.getReminderHoursBefore();
     const minutesBeforeFinal = this.config.getReminderMinutesBeforeFinal();
     const nowMs = reminderComparisonNowMs();

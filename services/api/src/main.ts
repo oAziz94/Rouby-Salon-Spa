@@ -8,6 +8,9 @@ import { join } from 'path';
 import { AppModule } from './app.module';
 import { resolveUploadsRoot } from './media/uploads-root';
 
+import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { requestIdMiddleware } from './common/request-id.middleware';
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableShutdownHooks();
@@ -50,9 +53,12 @@ async function bootstrap(): Promise<void> {
       'CORS_ORIGIN (or CORS_ORIGINS) must be set in production with comma-separated allowed browser origins.',
     );
   }
+  app.use(requestIdMiddleware);
+  app.useGlobalFilters(new AllExceptionsFilter());
   app.enableCors({
     origin: list.length ? list : defaultOrigins,
     credentials: true,
+    exposedHeaders: ['x-request-id'],
   });
 
   const nodeEnv = configService.get<string>('NODE_ENV', 'development');

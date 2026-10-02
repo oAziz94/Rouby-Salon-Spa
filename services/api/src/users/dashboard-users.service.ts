@@ -15,6 +15,7 @@ import {
 } from '../billing/dashboard-branch-scope';
 import { buildListMeta } from '../catalog/catalog.utils';
 import { PrismaService } from '../prisma/prisma.service';
+import { invalidateDashboardUserCache } from '../auth/strategies/dashboard-jwt.strategy';
 import type { CreateDashboardUserDto } from './dto/create-dashboard-user.dto';
 import type { DashboardUserListQueryDto } from './dto/dashboard-user-list-query.dto';
 import type { OwnerSetUserPasswordDto } from './dto/owner-set-user-password.dto';
@@ -770,6 +771,7 @@ export class DashboardUsersService {
       where: { id: userId },
     });
     if (!current) throw new NotFoundException('User not found');
+    invalidateDashboardUserCache(userId);
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: { isActive: true },
@@ -795,6 +797,7 @@ export class DashboardUsersService {
       where: { id: userId },
     });
     if (!current) throw new NotFoundException('User not found');
+    invalidateDashboardUserCache(userId);
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: { isActive: false },
@@ -830,6 +833,7 @@ export class DashboardUsersService {
     const passwordHash = await argon2.hash(dto.newPassword, {
       type: argon2.argon2id,
     });
+    invalidateDashboardUserCache(userId);
     await this.prisma.user.update({
       where: { id: userId },
       data: { passwordHash },

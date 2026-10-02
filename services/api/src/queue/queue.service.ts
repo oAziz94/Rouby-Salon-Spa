@@ -46,6 +46,7 @@ import type { QueueListQueryDto } from './dto/queue-list-query.dto';
 import type { WalkInQueueDto } from './dto/walk-in-queue.dto';
 import type { StartQueueEntryDto } from './dto/start-queue-entry.dto';
 
+import { withSerializableRetry } from '../common/serializable-retry';
 const ACTIVE_QUEUE_STATUSES: QueueEntryStatus[] = [
   QueueEntryStatus.WAITING,
   QueueEntryStatus.IN_SERVICE,
@@ -748,66 +749,68 @@ export class QueueService {
     const checkedInAt = new Date();
     const bucketDate = parseDateOnlyUtc(cairoTodayYmd());
 
-    const { entry, booking } = await this.prisma.$transaction(
-      async (tx) => {
-        const bucket = await this.slots.ensureWalkInBucketSlotTx(tx, {
-          branchId: dto.branchId,
-          date: bucketDate,
-        });
-        const reserved = await this.slots.tryReserveOneSlotCapacityTx(
-          tx,
-          bucket.id,
-        );
-        if (!reserved) {
-          throw new HttpException(
-            {
-              statusCode: HttpStatus.BAD_REQUEST,
-              message: 'Walk-in capacity bucket is full',
-              error: 'Bad Request',
-              code: 'SLOT_AT_CAPACITY',
-            },
-            HttpStatus.BAD_REQUEST,
+    const { entry, booking } = await withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const bucket = await this.slots.ensureWalkInBucketSlotTx(tx, {
+            branchId: dto.branchId,
+            date: bucketDate,
+          });
+          const reserved = await this.slots.tryReserveOneSlotCapacityTx(
+            tx,
+            bucket.id,
           );
-        }
+          if (!reserved) {
+            throw new HttpException(
+              {
+                statusCode: HttpStatus.BAD_REQUEST,
+                message: 'Walk-in capacity bucket is full',
+                error: 'Bad Request',
+                code: 'SLOT_AT_CAPACITY',
+              },
+              HttpStatus.BAD_REQUEST,
+            );
+          }
 
-        const bookingRow = await this.bookings.createWalkInArrivedBookingTx(
-          tx,
-          {
-            clientId,
-            branchId: dto.branchId,
-            slotId: bucket.id,
-            createdByUserId: user.userId,
-            lines,
-            totals,
-          },
-        );
+          const bookingRow = await this.bookings.createWalkInArrivedBookingTx(
+            tx,
+            {
+              clientId,
+              branchId: dto.branchId,
+              slotId: bucket.id,
+              createdByUserId: user.userId,
+              lines,
+              totals,
+            },
+          );
 
-        await this.slots.syncBookingSlotFilledFromCapacityTx(tx, bucket.id);
+          await this.slots.syncBookingSlotFilledFromCapacityTx(tx, bucket.id);
 
-        const entryRow = await tx.queueEntry.create({
-          data: {
-            branchId: dto.branchId,
-            bookingId: bookingRow.id,
-            clientId,
-            source: QueueEntrySource.WALK_IN,
-            status: QueueEntryStatus.WAITING,
-            clientNameSnapshot,
-            clientPhoneSnapshot,
-            serviceSummarySnapshot,
-            itemsSnapshot,
-            notes: dto.notes?.trim() ? dto.notes.trim() : null,
-            checkedInAt,
-            createdByUserId: user.userId,
-          },
-        });
+          const entryRow = await tx.queueEntry.create({
+            data: {
+              branchId: dto.branchId,
+              bookingId: bookingRow.id,
+              clientId,
+              source: QueueEntrySource.WALK_IN,
+              status: QueueEntryStatus.WAITING,
+              clientNameSnapshot,
+              clientPhoneSnapshot,
+              serviceSummarySnapshot,
+              itemsSnapshot,
+              notes: dto.notes?.trim() ? dto.notes.trim() : null,
+              checkedInAt,
+              createdByUserId: user.userId,
+            },
+          });
 
-        return { entry: entryRow, booking: bookingRow };
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        maxWait: 5000,
-        timeout: 10_000,
-      },
+          return { entry: entryRow, booking: bookingRow };
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 5000,
+          timeout: 10_000,
+        },
+      ),
     );
 
     await this.audit.log({
