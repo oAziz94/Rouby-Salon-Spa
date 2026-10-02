@@ -802,6 +802,10 @@ export class DashboardUsersService {
       where: { id: userId },
       data: { isActive: false },
     });
+    await this.prisma.dashboardRefreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: 'deactivated' },
+    });
     await this.audit.log({
       userId: actor.userId,
       action: 'user.deactivated',
@@ -837,6 +841,10 @@ export class DashboardUsersService {
     await this.prisma.user.update({
       where: { id: userId },
       data: { passwordHash },
+    });
+    await this.prisma.dashboardRefreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: 'password_reset' },
     });
     await this.audit.log({
       userId: actor.userId,

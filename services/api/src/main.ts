@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { mkdirSync } from 'fs';
+import helmet from 'helmet';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import { resolveUploadsRoot } from './media/uploads-root';
@@ -54,6 +55,15 @@ async function bootstrap(): Promise<void> {
     );
   }
   app.use(requestIdMiddleware);
+  // JSON API + Swagger + uploaded images: CSP is left to the Next.js apps; images are
+  // embedded cross-origin by the dashboard/website, so CORP must allow that.
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
   app.useGlobalFilters(new AllExceptionsFilter());
   app.enableCors({
     origin: list.length ? list : defaultOrigins,

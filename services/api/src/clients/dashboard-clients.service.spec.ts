@@ -9,7 +9,7 @@ describe('DashboardClientsService', () => {
     roleId: 'role-1',
     branchId: null,
     allowedBranchIds: [],
-    permissions: ['clients.read'],
+    permissions: ['clients.read', 'branches.access_all'],
   };
 
   const clientRow = {
@@ -77,7 +77,10 @@ describe('DashboardClientsService', () => {
     const service = new DashboardClientsService(prisma as never);
 
     await service.createClient(
-      { ...baseUser, permissions: ['clients.create', 'clients.read'] },
+      {
+        ...baseUser,
+        permissions: ['clients.create', 'clients.read', 'branches.access_all'],
+      },
       { fullName: 'Test', phone: '01001234567' },
     );
 
@@ -99,7 +102,12 @@ describe('DashboardClientsService', () => {
     const service = new DashboardClientsService(prisma as never);
     const user = {
       ...baseUser,
-      permissions: ['clients.create', 'clients.update', 'clients.read'],
+      permissions: [
+        'clients.create',
+        'clients.update',
+        'clients.read',
+        'branches.access_all',
+      ],
     };
 
     await expect(

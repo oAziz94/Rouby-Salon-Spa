@@ -23,7 +23,12 @@ describe('DashboardNotificationsService', () => {
     roleId: 'role-owner',
     branchId: null,
     allowedBranchIds: [],
-    permissions: ['notifications.read', 'notifications.retry', 'audit.read'],
+    permissions: [
+      'notifications.read',
+      'notifications.retry',
+      'audit.read',
+      'branches.access_all',
+    ],
   };
 
   const branchUser: DashboardJwtUser = {

@@ -2,6 +2,7 @@ import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import {
   assertDashboardBranchAccess,
   buildDashboardBookingBranchWhere,
+  canAccessAllBranches,
   getEffectiveAllowedBranchIds,
 } from './dashboard-branch-scope';
 
@@ -12,7 +13,16 @@ describe('dashboard-branch-scope', () => {
     roleId: 'r1',
     branchId: null,
     allowedBranchIds: [],
-    permissions: [],
+    permissions: ['branches.access_all'],
+  };
+
+  const orphan: DashboardJwtUser = {
+    userId: 'u0',
+    email: 'n@x.com',
+    roleId: 'r0',
+    branchId: null,
+    allowedBranchIds: [],
+    permissions: ['bookings.read'],
   };
 
   const manager: DashboardJwtUser = {
@@ -33,8 +43,16 @@ describe('dashboard-branch-scope', () => {
     permissions: [],
   };
 
-  it('treats null branch + no branches.manage as all-access', () => {
+  it('treats branches.access_all as all-access', () => {
+    expect(canAccessAllBranches(unrestricted)).toBe(true);
     expect(getEffectiveAllowedBranchIds(unrestricted)).toEqual([]);
+  });
+
+  it('fails closed for a user with no branch and no all-access permission', () => {
+    expect(canAccessAllBranches(orphan)).toBe(false);
+    expect(getEffectiveAllowedBranchIds(orphan)).toEqual([]);
+    expect(() => buildDashboardBookingBranchWhere(orphan)).toThrow();
+    expect(() => assertDashboardBranchAccess(orphan, 'b1')).toThrow();
   });
 
   it('uses allowedBranchIds when set', () => {

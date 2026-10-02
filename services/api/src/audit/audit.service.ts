@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
+import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
+import {
+  canAccessAllBranches,
+  getEffectiveAllowedBranchIds,
+} from '../billing/dashboard-branch-scope';
 import { buildListMeta } from '../catalog/catalog.utils';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuditLogListQueryDto } from './dto/audit-log-list-query.dto';
@@ -323,14 +328,34 @@ export class AuditService {
     }
   }
 
-  async list(query: AuditLogListQueryDto) {
+  /**
+   * Branch-restricted viewers only see entries stamped with one of their branches. Entries
+   * without a branch (settings, users, catalog) are owner/admin material and stay hidden.
+   */
+  private branchScopeWhere(
+    viewer: DashboardJwtUser | undefined,
+  ): Prisma.AuditLogWhereInput[] {
+    if (!viewer || canAccessAllBranches(viewer)) return [];
+    const allowed = getEffectiveAllowedBranchIds(viewer);
+    if (!allowed.length) return [{ id: { in: [] } }];
+    return [
+      {
+        OR: allowed.flatMap((branchId) => [
+          { newValue: { path: ['branchId'], equals: branchId } },
+          { oldValue: { path: ['branchId'], equals: branchId } },
+        ]),
+      },
+    ];
+  }
+
+  async list(query: AuditLogListQueryDto, viewer?: DashboardJwtUser) {
     const where: Prisma.AuditLogWhereInput = {
       ...(query.module ? { module: query.module } : {}),
       ...(query.action ? { action: query.action } : {}),
       ...(query.userId ? { userId: query.userId } : {}),
       ...(query.entityId ? { entityId: query.entityId } : {}),
     };
-    const and: Prisma.AuditLogWhereInput[] = [];
+    const and: Prisma.AuditLogWhereInput[] = [...this.branchScopeWhere(viewer)];
     if (query.search) {
       and.push({
         OR: [
@@ -514,7 +539,7 @@ export class AuditService {
     };
   }
 
-  async getById(id: string) {
+  async getById(id: string, viewer?: DashboardJwtUser) {
     const row = await this.prisma.auditLog.findUnique({
       where: { id },
       include: { user: { select: { id: true, name: true, email: true } } },
@@ -525,6 +550,10 @@ export class AuditService {
     const branchId =
       (typeof n.branchId === 'string' ? n.branchId : null) ??
       (typeof o.branchId === 'string' ? o.branchId : null);
+    if (viewer && !canAccessAllBranches(viewer)) {
+      const allowed = getEffectiveAllowedBranchIds(viewer);
+      if (!branchId || !allowed.includes(branchId)) return null;
+    }
     const [branch, actorUser] = await Promise.all([
       branchId
         ? this.prisma.branch.findUnique({
@@ -577,23 +606,45 @@ export class AuditService {
     };
   }
 
-  async getFacets() {
+  async getFacets(viewer?: DashboardJwtUser) {
+    const scope = this.branchScopeWhere(viewer);
+    const scopedWhere: Prisma.AuditLogWhereInput =
+      scope.length > 0 ? { AND: scope } : {};
+    const allowedBranchIds =
+      viewer && !canAccessAllBranches(viewer)
+        ? getEffectiveAllowedBranchIds(viewer)
+        : null;
     const [modules, actions, users, branches] = await Promise.all([
       this.prisma.auditLog.findMany({
+        where: scopedWhere,
         distinct: ['module'],
         select: { module: true },
         orderBy: { module: 'asc' },
       }),
       this.prisma.auditLog.findMany({
+        where: scopedWhere,
         distinct: ['action'],
         select: { action: true },
         orderBy: { action: 'asc' },
       }),
       this.prisma.user.findMany({
+        where: allowedBranchIds
+          ? {
+              OR: [
+                { branchId: { in: allowedBranchIds } },
+                {
+                  branchAccesses: {
+                    some: { branchId: { in: allowedBranchIds } },
+                  },
+                },
+              ],
+            }
+          : {},
         orderBy: { name: 'asc' },
         select: { id: true, name: true, email: true },
       }),
       this.prisma.branch.findMany({
+        where: allowedBranchIds ? { id: { in: allowedBranchIds } } : {},
         orderBy: { name: 'asc' },
         select: { id: true, name: true },
       }),

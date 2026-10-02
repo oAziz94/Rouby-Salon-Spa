@@ -49,6 +49,13 @@ One date formatter; humanised statuses; single primary action per card/detail (r
 ## Batch 6 — Security, tests, observability (Medium–Large)
 Audit-log branch scoping; no-branch users fail closed; shorter JWT + refresh; helmet; remaining `npm audit` highs; tests for queue lifecycle per role, booking create/confirm/check-in, payment totals, Cairo dates; structured logs; uptime alert on `/health/ready`; reminder cron single-instance guard; `processingMinutes` on services (processing-time model) and staff "free during processing" on the calendar.
 
+**As built — 6a security (2026-10-03):**
+- Sessions: access token 30 min (`JWT_EXPIRES_IN`, was 24 h) + opaque refresh token 30 days (`JWT_REFRESH_EXPIRES_IN`), table `dashboard_refresh_tokens` (sha-256 hash, family id, rotated on every use, reuse of a rotated token revokes the family and writes a CRITICAL audit `user.session_reuse_detected`). `POST /dashboard/auth/refresh`, logout revokes the family; password change / owner reset / deactivation revoke all sessions. Dashboard renews 2 min before expiry and on tab wake; `apiFetch` retries one 401 with a renewed token, so a 30-min token never interrupts the desk. Tokens still live in web storage (same exposure as before, but now short-lived and revocable).
+- `helmet` on the API (CSP off: JSON only; CORP cross-origin for uploaded images); Next.js security headers on dashboard and website (frame deny / sameorigin, nosniff, referrer, permissions, HSTS).
+- Branch access fails closed: all-branch visibility now needs `branches.access_all` (new; Owner + Admin) or `branches.manage`. A user with no home branch and no access rows sees nothing instead of everything. Run `npm run db:sync-role-permissions` after deploy (done on prod).
+- Audit log list/detail/facets are scoped to the viewer's branches unless all-access; unstamped (global) entries stay owner/admin-only.
+- `npm audit fix` applied (body-parser, multer, nanoid, qs, sharp, js-yaml). Left: `postcss` inside `next@15` (build-time only; needs Next 16), `deepmerge-ts` inside the Prisma CLI (migration tooling; needs Prisma 7), `js-yaml` inside `@nestjs/swagger` (Swagger is off in production).
+
 ## Dependencies
 1 → 2 (payload + permissions first) → 2b (picker; independent of 3) → 3 (needs lifecycle stable before touching slots/walk-in schema). 4 and 5 can run alongside 2–3. 6 last.
 
@@ -57,6 +64,7 @@ Audit-log branch scoping; no-branch users fail closed; shorter JWT + refresh; he
 - B2: backup branch → `migrate deploy` → deploy.
 - B3: backup branch → `migrate deploy` + backfill script → deploy; set `SLOT_HORIZON_DAYS=28`.
 - B4: set pooled `DATABASE_URL`; deploy.
+- B6a: `migrate deploy` (refresh tokens) → `db:sync-role-permissions` → deploy; optionally set `JWT_EXPIRES_IN=30m` on Render (the code default is 30m when unset; the current Render value 24h would override it — remove it or set 30m).
 
 ## Complexity
 B1 Small–Medium · B2 Medium · B2b Medium · B3 Medium · B4 Medium · B5 Medium · B6 Medium–Large.

@@ -3,10 +3,13 @@ import {
   Controller,
   Get,
   HttpCode,
+  Ip,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -19,6 +22,10 @@ import type { DashboardJwtUser } from './dashboard-jwt-user';
 import { DashboardAuthService } from './dashboard-auth.service';
 import { ChangeDashboardPasswordDto } from './dto/change-dashboard-password.dto';
 import { DashboardLoginDto } from './dto/dashboard-login.dto';
+import {
+  DashboardLogoutDto,
+  DashboardRefreshDto,
+} from './dto/dashboard-refresh.dto';
 import { UpdateDashboardProfileDto } from './dto/update-dashboard-profile.dto';
 import { DashboardJwtAuthGuard } from './guards/dashboard-jwt-auth.guard';
 
@@ -38,8 +45,31 @@ export class DashboardAuthController {
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   @ApiResponse({ status: 429, description: 'Too many login attempts' })
-  login(@Body() dto: DashboardLoginDto) {
-    return this.dashboardAuth.login(dto);
+  login(@Body() dto: DashboardLoginDto, @Req() req: Request, @Ip() ip: string) {
+    return this.dashboardAuth.login(dto, {
+      userAgent: req.get('user-agent'),
+      ipAddress: ip,
+    });
+  }
+
+  @Post('refresh')
+  @HttpCode(200)
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Exchange a refresh token for a new access token (rotates the refresh token)',
+  })
+  @ApiResponse({ status: 401, description: 'Refresh token invalid or expired' })
+  refresh(
+    @Body() dto: DashboardRefreshDto,
+    @Req() req: Request,
+    @Ip() ip: string,
+  ) {
+    return this.dashboardAuth.refresh(dto.refreshToken, {
+      userAgent: req.get('user-agent'),
+      ipAddress: ip,
+    });
   }
 
   @Post('logout')
@@ -49,10 +79,13 @@ export class DashboardAuthController {
   @ApiOperation({
     summary: 'Dashboard logout',
     description:
-      'Sprint 1: no server-side session. Client discards the access token after this succeeds.',
+      'Revokes the refresh-token family of this session. The client discards both tokens.',
   })
-  logout(): void {
-    return undefined;
+  async logout(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Body() dto: DashboardLogoutDto,
+  ): Promise<void> {
+    await this.dashboardAuth.logout(user.userId, dto?.refreshToken ?? null);
   }
 
   @Get('me')

@@ -236,6 +236,11 @@ export const PERMISSION_SEED_ROWS: Array<{
 
   { key: "branches.manage", module: "branches", description: "CRUD branches" },
   {
+    key: "branches.access_all",
+    module: "branches",
+    description: "See and act in every branch (Owner/Admin); others are limited to assigned branches",
+  },
+  {
     key: "branches.read",
     module: "branches",
     description: "View branch directory",

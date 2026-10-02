@@ -2,9 +2,15 @@ import { ForbiddenException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 
-/** Owner/Admin style: no branch row or branches.manage → all branches. */
+/**
+ * Owner/Admin style: only an explicit permission grants every branch. A user with no home
+ * branch and no access rows is *not* all-access — they see nothing until assigned (fail closed).
+ */
 export function canAccessAllBranches(user: DashboardJwtUser): boolean {
-  return user.branchId === null || user.permissions.includes('branches.manage');
+  return (
+    user.permissions.includes('branches.access_all') ||
+    user.permissions.includes('branches.manage')
+  );
 }
 
 /**

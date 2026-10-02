@@ -8,7 +8,11 @@ export type DashboardLoginUser = {
 
 export type DashboardLoginResponse = {
   accessToken: string;
+  /** Access-token lifetime in seconds. */
   expiresIn: number;
+  /** Opaque, rotated on every refresh. Older API builds may omit it. */
+  refreshToken?: string;
+  refreshExpiresIn?: number;
   user: DashboardLoginUser;
 };
 
@@ -2189,6 +2193,45 @@ export function isNetworkError(error: unknown): boolean {
 }
 
 /**
+ * Silent session renewal. The dashboard registers a function that, given the access token a
+ * request just failed with, returns a fresh one (or null when the session is really over).
+ * `apiFetch` then repeats the request once with the new token, so a 30-minute access token
+ * never interrupts the front desk. Concurrent 401s share one refresh call.
+ */
+type AccessTokenRefresher = (staleAccessToken: string) => Promise<string | null>;
+let accessTokenRefresher: AccessTokenRefresher | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+
+export function setDashboardAccessTokenRefresher(fn: AccessTokenRefresher | null): void {
+  accessTokenRefresher = fn;
+}
+
+function bearerFrom(init?: RequestInit): string | null {
+  if (!init?.headers) return null;
+  const value = new Headers(init.headers).get("authorization");
+  if (!value || !/^Bearer /i.test(value)) return null;
+  return value.slice(7).trim() || null;
+}
+
+function withBearer(init: RequestInit | undefined, token: string): RequestInit {
+  const headers = new Headers(init?.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  return { ...init, headers };
+}
+
+async function refreshSharedAccessToken(stale: string): Promise<string | null> {
+  if (!accessTokenRefresher) return null;
+  if (!refreshInFlight) {
+    refreshInFlight = accessTokenRefresher(stale).finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+const AUTH_ENDPOINT_RE = /\/dashboard\/auth\/(login|refresh|logout)(\?|$)/;
+
+/**
  * `fetch` for API calls with the behaviours every screen needs and none had:
  * - a timeout, so a hung request becomes an error instead of an endless spinner;
  * - network failures ("Failed to fetch", DNS, offline) become a plain-language
@@ -2227,15 +2270,37 @@ export async function apiFetch(
     }
   };
 
+  let response: Response;
   try {
-    return await attempt();
+    response = await attempt();
   } catch (error) {
     if (retryAllowed && isNetworkError(error) && (error as ApiClientError).code === "NETWORK") {
       await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
-      return attempt();
+      response = await attempt();
+    } else {
+      throw error;
     }
-    throw error;
   }
+
+  if (response.status === 401 && accessTokenRefresher && !AUTH_ENDPOINT_RE.test(input)) {
+    const stale = bearerFrom(init);
+    if (stale) {
+      const fresh = await refreshSharedAccessToken(stale);
+      if (fresh && fresh !== stale) {
+        const retryInit = withBearer(init, fresh);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          return await fetch(input, { ...retryInit, signal: retryInit.signal ?? controller.signal });
+        } catch {
+          return response;
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+    }
+  }
+  return response;
 }
 
 /**
@@ -2263,6 +2328,60 @@ export async function postDashboardAuthLogin(
     throw new Error(msg);
   }
   return body as DashboardLoginResponse;
+}
+
+/** POST /dashboard/auth/refresh — rotates the refresh token; the old one stops working. */
+export async function postDashboardAuthRefresh(
+  refreshToken: string,
+): Promise<DashboardLoginResponse> {
+  const res = await apiFetch(apiUrl("/dashboard/auth/refresh"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!res.ok) {
+    throw await parseApiError(res);
+  }
+  return (await res.json()) as DashboardLoginResponse;
+}
+
+/** POST /dashboard/auth/logout — revokes this session's refresh tokens. Best effort. */
+export async function postDashboardAuthLogout(
+  accessToken: string,
+  refreshToken?: string | null,
+): Promise<void> {
+  try {
+    await apiFetch(
+      apiUrl("/dashboard/auth/logout"),
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(refreshToken ? { refreshToken } : {}),
+        // Survives the navigation to the login page that follows immediately.
+        keepalive: true,
+      },
+      { timeoutMs: 5_000, retry: false },
+    );
+  } catch {
+    // The client forgets the tokens regardless; the server copy expires on its own.
+  }
+}
+
+/** Seconds until a JWT's `exp`, or null when it cannot be read. No signature check (display only). */
+export function jwtSecondsToExpiry(token: string, now = Date.now()): number | null {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const json = atob(part.replace(/-/g, "+").replace(/_/g, "/"));
+    const exp = (JSON.parse(json) as { exp?: unknown }).exp;
+    if (typeof exp !== "number") return null;
+    return Math.floor(exp - now / 1000);
+  } catch {
+    return null;
+  }
 }
 
 async function parseApiError(res: Response): Promise<ApiClientError> {
