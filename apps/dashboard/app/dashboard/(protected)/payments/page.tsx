@@ -22,7 +22,7 @@ import {
   type DashboardPaymentListRow,
   type SimplePaymentAggregateStatus,
 } from "@rouby/api-client";
-import { formatDateTimeAmPm } from "@rouby/wall-clock";
+import { formatDateTimeAmPm, formatWallClockRange12h } from "@rouby/wall-clock";
 import {
   Banknote,
   Building2,
@@ -1482,8 +1482,8 @@ export default function DashboardPaymentsPage() {
                     </p>
                     {drawerData.booking.slot ? (
                       <p className="text-sm text-[#7A6A58]">
-                        Slot {drawerData.booking.slot.date} {drawerData.booking.slot.startTime}–
-                        {drawerData.booking.slot.endTime}
+                        Slot {drawerData.booking.slot.date}{" "}
+                        {formatWallClockRange12h(drawerData.booking.slot.startTime, drawerData.booking.slot.endTime)}
                       </p>
                     ) : null}
                     {drawerData.booking.servicesSummary ? (

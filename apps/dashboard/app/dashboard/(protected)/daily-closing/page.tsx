@@ -68,6 +68,7 @@ export default function DailyClosingPage() {
   const [closeModal, setCloseModal] = useState(false);
   const [closeSaving, setCloseSaving] = useState(false);
   const [closeNotes, setCloseNotes] = useState("");
+  const [carryOverReason, setCarryOverReason] = useState("");
 
   const multiBranch = user?.branchId === null && canReadBranches;
 
@@ -128,6 +129,10 @@ export default function DailyClosingPage() {
 
   const branchName = branches.find((b) => b.id === branchId)?.name ?? data?.branch.name ?? "Branch";
   const readOnly = data?.status === "CLOSED";
+  const openVisits = data?.openItems?.openVisits ?? [];
+  const unpaidInvoices = data?.openItems?.unpaidInvoices ?? [];
+  const hasOpenItems = openVisits.length > 0 || unpaidInvoices.length > 0;
+  const closeBlockedByPolicy = hasOpenItems && data?.openItemsPolicy === "BLOCK";
   const cashDrawer = data?.cashDrawerSummary as Record<string, unknown> | undefined;
 
   const onSaveDraft = async () => {
@@ -155,9 +160,11 @@ export default function DailyClosingPage() {
     try {
       await closeDashboardDailyClosing(token, data.existingClosingId, {
         notes: closeNotes.trim() || undefined,
+        carryOverReason: hasOpenItems ? carryOverReason.trim() || undefined : undefined,
       });
       setCloseModal(false);
       setCloseNotes("");
+      setCarryOverReason("");
       setToast({ m: "Business day closed.", ok: true });
       await load();
     } catch (e) {
@@ -336,6 +343,85 @@ export default function DailyClosingPage() {
                       ))}
                     </ul>
                   </div>
+                </div>
+              ) : null}
+
+              {!readOnly ? (
+                <div
+                  className={`rounded-2xl border p-4 shadow-sm ${hasOpenItems ? "border-[#E7B9A4] bg-[#FFF8F4]" : "border-emerald-200 bg-emerald-50/70"}`}
+                >
+                  <h2 className="text-sm font-semibold text-[#1F2420]">Before you close the day</h2>
+                  {!hasOpenItems ? (
+                    <p className="mt-1 text-sm text-emerald-900">
+                      Nothing left open: every visit is finished and every invoice is paid.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-1 text-xs text-[#7A6A58]">
+                        {data.openItemsPolicy === "BLOCK"
+                          ? "These must be resolved before the day can be closed."
+                          : "Resolve these, or close anyway and carry them over with a reason."}
+                      </p>
+                      {openVisits.length > 0 ? (
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-[#8B4428]">
+                              Visits still open ({openVisits.length})
+                            </p>
+                            <Link href="/dashboard/queue" className="text-xs font-semibold text-[#062A2D] underline">
+                              Open queue
+                            </Link>
+                          </div>
+                          <ul className="mt-1 divide-y divide-[#F0E3DA] rounded-xl border border-[#F0E3DA] bg-white text-sm">
+                            {openVisits.map((v) => (
+                              <li key={v.queueEntryId} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                                <span className="min-w-0">
+                                  <span className="font-medium text-[#1F2420]">{v.clientName}</span>
+                                  <span className="text-[#7A6A58]"> · {v.serviceSummary ?? "—"}</span>
+                                </span>
+                                <span className="text-xs text-[#7A6A58]">
+                                  {v.status === "IN_SERVICE" ? "In service" : "Waiting"} since{" "}
+                                  {formatDateTimeAmPm(v.checkedInAt)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {unpaidInvoices.length > 0 ? (
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-[#8B4428]">
+                              Invoices with a balance ({unpaidInvoices.length})
+                            </p>
+                            {canInvoice ? (
+                              <Link href="/dashboard/invoices" className="text-xs font-semibold text-[#062A2D] underline">
+                                Open invoices
+                              </Link>
+                            ) : null}
+                          </div>
+                          <ul className="mt-1 divide-y divide-[#F0E3DA] rounded-xl border border-[#F0E3DA] bg-white text-sm">
+                            {unpaidInvoices.map((inv) => (
+                              <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                                <span className="min-w-0">
+                                  <span className="font-mono text-xs font-semibold text-[#1F2420]">{inv.invoiceNumber}</span>
+                                  <span className="text-[#7A6A58]"> · {inv.client?.fullName ?? "Client"}</span>
+                                </span>
+                                <span className="text-xs font-semibold text-[#8B4428]">
+                                  {formatEGP(inv.remainingAmount)} left of {formatEGP(inv.totalAmount)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ) : data.carryOverReason ? (
+                <div className="rounded-2xl border border-[#E8E0D4] bg-white p-4 text-sm shadow-sm">
+                  <span className="font-semibold text-[#1F2420]">Closed with items carried over.</span>{" "}
+                  <span className="text-[#5E574C]">Reason: {data.carryOverReason}</span>
                 </div>
               ) : null}
 
@@ -713,6 +799,30 @@ export default function DailyClosingPage() {
                   ))}
                 </ul>
               ) : null}
+              {hasOpenItems ? (
+                closeBlockedByPolicy ? (
+                  <p className="mt-4 rounded-xl border border-[#E7B9A4] bg-[#FFF1EC] px-3 py-2 text-sm text-[#8B4428]">
+                    {openVisits.length > 0 ? `${openVisits.length} visit(s) still open` : ""}
+                    {openVisits.length > 0 && unpaidInvoices.length > 0 ? " and " : ""}
+                    {unpaidInvoices.length > 0 ? `${unpaidInvoices.length} invoice(s) with a balance` : ""}. Resolve
+                    them before closing the day.
+                  </p>
+                ) : (
+                  <label className="mt-4 block text-sm">
+                    <span className="font-medium text-[#8B4428]">
+                      Carry-over reason (required): {openVisits.length} open visit(s), {unpaidInvoices.length} unpaid
+                      invoice(s)
+                    </span>
+                    <input
+                      value={carryOverReason}
+                      onChange={(e) => setCarryOverReason(e.target.value)}
+                      placeholder="e.g. client will pay the balance tomorrow"
+                      maxLength={500}
+                      className="mt-1 w-full rounded-xl border border-[#E7B9A4] px-3 py-2"
+                    />
+                  </label>
+                )
+              ) : null}
               <label className="mt-4 block text-sm">
                 Closing notes (optional)
                 <textarea
@@ -732,10 +842,10 @@ export default function DailyClosingPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={closeSaving}
+                  disabled={closeSaving || closeBlockedByPolicy || (hasOpenItems && !carryOverReason.trim())}
                   className="rounded-xl bg-[#1B4332] px-4 py-2 text-sm font-semibold text-[#F5E6C8] disabled:opacity-50"
                 >
-                  {closeSaving ? "Closing…" : "Close day"}
+                  {closeSaving ? "Closing…" : hasOpenItems ? "Close day & carry over" : "Close day"}
                 </button>
               </div>
             </form>

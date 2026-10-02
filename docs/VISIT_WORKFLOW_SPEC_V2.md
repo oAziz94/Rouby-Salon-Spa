@@ -27,7 +27,7 @@ WAITING ──start any service──▶ IN SERVICE ──all services done─�
 
 - **Booking status** becomes derived from the visit: `CONFIRMED` → `ARRIVED` (on check-in) → `IN_PROGRESS` (first service start) → `COMPLETED` (close). Reception never sets these by hand; the "Arrived / In progress / Completed" buttons in booking detail go away.
 - **Line status** (per service: pending / in progress / done) stays, because it drives staff workload and reports, but it must never block the front desk (see §3).
-- **Walk-ins** are visits without a planned slot. They **no longer** get a fake 11:30 PM "bucket slot"; the drawer/calendar shows "Walk-in · 10:36 PM arrival" instead. (Schema: `Booking.slotId` becomes nullable for `source = WALK_IN`; see §9.)
+- **Walk-ins** are visits without a planned slot. They are never shown at a fake 11:30 PM time: every screen shows the real arrival time ("Arrived 10:36 PM"). (As built in Batch 3: the API presents walk-ins with `slot.isWalkIn = true` and the arrival time; the internal same-day bucket row stays as a hidden date anchor so reports keep counting walk-ins. Nullable `Booking.slotId` is deferred, see the fix plan.)
 
 ## 2. Getting the client in
 
@@ -139,7 +139,8 @@ Users with **no branch assigned** are treated as **no access** to branch data (f
 
 ## 9. Data changes
 
-- `Booking.slotId` nullable for walk-ins (migration + backfill: existing walk-in bucket slots → null, bucket slots deleted).
+- `Booking.slotId` nullable for walk-ins — **deferred** (needs a `visitDate` column and a reporting refactor); Batch 3 hides the bucket time at the API instead.
+- Batch 3 (done): `branch_closures`, `booking_slots.closed_by_closure_id`, `system_settings.day_close_open_items_policy`, `daily_closings.carry_over_reason`.
 - `Invoice.status` already has UNPAID / PARTIALLY_PAID / PAID; `QueueEntry` gains `closedWithBalance` reason. 
 - `Settings`: `receptionistDiscountLimitPercent`, `slotHorizonDays`, `staleVisitHours`.
 - Override reasons stored in AuditLog (`override.staff_unavailable`, `override.slot_full`, `visit.closed_with_balance`, `discount.applied_by_reception`).

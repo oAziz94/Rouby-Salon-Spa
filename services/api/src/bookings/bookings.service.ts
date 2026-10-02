@@ -27,7 +27,10 @@ import {
   assertDashboardBranchAccess,
   buildDashboardBookingBranchWhere,
 } from '../billing/dashboard-branch-scope';
-import { isAtLeast24HoursBeforeSlotStartCairo } from '../common/cairo-slot-time';
+import {
+  isAtLeast24HoursBeforeSlotStartCairo,
+  presentBookingSlot,
+} from '../common/cairo-slot-time';
 import {
   slotStartCompositeKey,
   getCairoNowCompositeKey,
@@ -838,13 +841,7 @@ export class BookingsService {
 
     return {
       data: rows.map((b) => {
-        const slot = b.slot
-          ? {
-              date: b.slot.date.toISOString().slice(0, 10),
-              startTime: b.slot.startTime.toISOString().slice(11, 19),
-              endTime: b.slot.endTime.toISOString().slice(11, 19),
-            }
-          : null;
+        const slot = b.slot ? presentBookingSlot(b.slot, b) : null;
         const itemsPreview =
           b.items?.map((it) => ({
             nameSnapshot: it.nameSnapshot,
@@ -3051,11 +3048,7 @@ export class BookingsService {
       createdAt: booking.createdAt,
       updatedAt: booking.updatedAt,
       slot: booking.slot
-        ? {
-            date: booking.slot.date.toISOString().slice(0, 10),
-            startTime: booking.slot.startTime.toISOString().slice(11, 19),
-            endTime: booking.slot.endTime.toISOString().slice(11, 19),
-          }
+        ? presentBookingSlot(booking.slot, booking)
         : undefined,
       client: booking.client,
       items:

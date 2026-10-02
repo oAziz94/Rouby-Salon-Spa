@@ -15,6 +15,7 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { PatchSlotGenerationDto } from '../slots/dto/patch-slot-generation.dto';
 import { PatchBusinessIdentityDto } from './dto/patch-business-identity.dto';
 import { PatchDefaultBranchDto } from './dto/patch-default-branch.dto';
+import { PatchOperationsSettingsDto } from './dto/patch-operations-settings.dto';
 import { PatchPaymentPolicyDto } from './dto/patch-payment-policy.dto';
 import { PatchReceiptSettingsDto } from './dto/patch-receipt-settings.dto';
 import { PatchSystemSettingsDto } from './dto/patch-system-settings.dto';
@@ -80,6 +81,19 @@ export class SettingsController {
     @Body() dto: PatchReceiptSettingsDto,
   ) {
     return this.settings.patchReceiptSettings(user, dto);
+  }
+
+  @Patch('operations')
+  @RequirePermissions('settings.system.manage')
+  @ApiOperation({
+    summary:
+      'Update front-desk rules (day-close policy, reception discount cap)',
+  })
+  patchOperations(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Body() dto: PatchOperationsSettingsDto,
+  ) {
+    return this.settings.patchOperationsSettings(user, dto);
   }
 
   @Get('payment-policy')

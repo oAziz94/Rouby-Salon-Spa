@@ -38,6 +38,7 @@ model Branch {
   staffProfiles         StaffProfile[]
   staffSchedules        StaffSchedule[]
   staffScheduleExceptions StaffScheduleException[]
+  closures              BranchClosure[]
 
   @@map("branches")
 }
@@ -72,6 +73,8 @@ model SystemSettings {
   paymentDepositPolicy    PaymentDepositPolicy @map("payment_deposit_policy")
   /// Max discount (% of subtotal) a user without `bookings.discount.apply_unlimited` may apply.
   discountLimitPercentWithoutApproval Decimal @default(15) @map("discount_limit_percent_without_approval") @db.Decimal(5, 2)
+  /// Day close with open visits / unpaid invoices: ALERT = allowed with a carry-over reason, BLOCK = refused.
+  dayCloseOpenItemsPolicy DayCloseOpenItemsPolicy @default(ALERT) @map("day_close_open_items_policy")
   /// Global defaults for dashboard "generate week slots" (JSON: schemaVersion, workingDays, times, etc.).
   slotGenerationDefaults  Json?                @map("slot_generation_defaults")
   updatedByUserId         String?              @map("updated_by_user_id") @db.Uuid
@@ -82,6 +85,11 @@ model SystemSettings {
 
   @@index([defaultBranchId])
   @@map("system_settings")
+}
+
+enum DayCloseOpenItemsPolicy {
+  ALERT
+  BLOCK
 }
 
 enum PaymentDepositPolicy {
@@ -523,6 +531,8 @@ model BookingSlot {
   /// Internal same-day capacity bucket for walk-in queue bookings (never listed for public online booking).
   isWalkInBucket   Boolean           @default(false) @map("is_walk_in_bucket")
   notes            String?
+  /// Set when a Holidays & Closures entry closed this slot; cleared (and slot reopened) when the closure is removed.
+  closedByClosureId String?          @map("closed_by_closure_id") @db.Uuid
   createdByUserId  String?           @map("created_by_user_id") @db.Uuid
   deletedAt        DateTime?         @map("deleted_at")
   createdAt        DateTime          @default(now()) @map("created_at")
@@ -530,6 +540,7 @@ model BookingSlot {
 
   branch    Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
   createdBy User?  @relation("BookingSlotCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  closedByClosure BranchClosure? @relation(fields: [closedByClosureId], references: [id], onDelete: SetNull)
 
   bookings             Booking[]
   changeRequestTargets BookingChangeRequest[] @relation("ChangeRequestTargetSlot")
@@ -538,7 +549,26 @@ model BookingSlot {
   @@index([branchId, date, startTime])
   @@index([createdByUserId])
   @@index([deletedAt])
+  @@index([closedByClosureId])
   @@map("booking_slots")
+}
+
+/// Holidays & closures: a date range on which a branch takes no appointments.
+/// Slot generation skips these days and existing slots in the range are CLOSED.
+model BranchClosure {
+  id              String   @id @default(uuid()) @db.Uuid
+  branchId        String   @map("branch_id") @db.Uuid
+  startDate       DateTime @map("start_date") @db.Date
+  endDate         DateTime @map("end_date") @db.Date
+  reason          String
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  branch Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  slots  BookingSlot[]
+
+  @@index([branchId, startDate, endDate])
+  @@map("branch_closures")
 }
 
 // --- Sprint 5: Clients + bookings ---
@@ -1104,6 +1134,8 @@ model DailyClosing {
   queueCompletedCount       Int                @default(0) @map("queue_completed_count")
   queueActiveCount          Int                @default(0) @map("queue_active_count")
   notes                     String?
+  /// Why the day was closed while visits were still open or invoices unpaid (ALERT policy).
+  carryOverReason           String?            @map("carry_over_reason")
   snapshot                  Json
   createdAt                 DateTime           @default(now()) @map("created_at")
   updatedAt                 DateTime           @updatedAt @map("updated_at")

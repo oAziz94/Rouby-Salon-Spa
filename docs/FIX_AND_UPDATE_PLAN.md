@@ -2,7 +2,7 @@
 
 Inputs: code audit, Owner walkthrough of 30 pages, Receptionist end-to-end walkthrough on the dev branch, industry research (Fresha, Zenoti, Phorest, Booksy). Business rules: `docs/VISIT_WORKFLOW_SPEC_V2.md` (approved 2 Oct 2026).
 
-Done so far: DST freeze fixed and deployed; `/health/ready`; `next` advisory; dev branch isolation; Receptionist test account; **Batch 1** (4ea8050), **Batch 2** (da61b21) and **Batch 2b** (treatment picker) shipped.
+Done so far: DST freeze fixed and deployed; `/health/ready`; `next` advisory; dev branch isolation; Receptionist test account; **Batch 1** (4ea8050), **Batch 2** (da61b21), **Batch 2b** (treatment picker), the override-dialog fix (25b2ee1), remove-a-service mid-visit (0ee4977) and **Batch 3** (slots, closures, day close) shipped.
 
 ## Guiding rules for every batch
 - Backend enforces every rule; UI only reflects it.
@@ -29,9 +29,9 @@ Done so far: DST freeze fixed and deployed; `/health/ready`; `next` advisory; de
 
 ## Batch 3 — Slots, walk-ins, closures (Medium; migration + data backfill)
 1. Nightly rolling slot generation (28 days) from branch defaults; Overview warning when horizon < 7 days; Slots page becomes "exceptions".
-2. Walk-ins without a fake slot: `bookings.slot_id` nullable for `WALK_IN`; backfill existing walk-in rows to null and delete bucket slots; calendar/drawer show "Walk-in · arrival time".
+2. Walk-ins without a fake slot time. **As built:** the API presents every walk-in with its real arrival time (`slot.isWalkIn = true`, start = end = arrival in Cairo), so the drawer, bookings, calendar, invoices and payments never show 11:30 PM. The internal same-day bucket row is kept as a hidden date anchor instead of making `bookings.slot_id` nullable: ~150 queries (reports, overview, daily closing, reminders) filter bookings through `slot.date`, and a null slot would have silently dropped walk-ins from those figures. Making the column nullable needs a `visit_date` column and a reporting refactor — parked for Batch 6 with tests.
 3. Holidays & Closures: real page; closure days skip generation, block online booking, list affected bookings for reschedule.
-4. Daily Closing: open visits / unpaid invoices listed; each resolved or "carry over" with reason; setting `dayClose.openInvoices = alert|block` (default alert).
+4. Daily Closing: open visits (including ones forgotten on earlier days) and unpaid invoices listed; close anyway with one carry-over reason, stored on the closing and in its snapshot; setting `system_settings.day_close_open_items_policy = ALERT|BLOCK` (default ALERT), editable in Settings → Front-desk rules together with the reception discount cap.
 
 ## Batch 4 — Reliability & speed (Medium; one env change on Render)
 P2034 retry + global exception filter + request ids; api-client `request()` wrapper (timeout, GET retry, plain-language errors) and dashboard `error.tsx`; light notifications feed instead of the 55-query overview on every page; dedupe `/branches` and list calls; fix Packages 10× fetch; JWT user cache; **Render `DATABASE_URL` → Neon `-pooler` + `connection_limit`**; booking-collision test.

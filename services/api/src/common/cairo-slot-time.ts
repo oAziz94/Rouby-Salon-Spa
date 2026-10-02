@@ -273,3 +273,38 @@ export function cairoMonthRangeContainingYmd(ymd: string): {
   const monthEndYmd = ymdInCairo(lastInstant);
   return { monthStartYmd, monthEndYmd };
 }
+
+/** `HH:mm:ss` wall-clock time in Cairo for an instant. */
+export function cairoTimeOfDay(date: Date): string {
+  const p = zonedTimeParts(date, CAIRO_TIME_ZONE);
+  const two = (n: number) => String(n).padStart(2, '0');
+  return `${two(p.hour)}:${two(p.minute)}:${two(p.second)}`;
+}
+
+/**
+ * A booking's slot as shown to people.
+ *
+ * Walk-ins are anchored to an internal same-day "bucket" slot whose 23:30 time means nothing,
+ * so they are presented with their real arrival time (when the walk-in was registered) and
+ * `isWalkIn: true`. Appointments are returned unchanged.
+ */
+export function presentBookingSlot(
+  slot: { date: Date; startTime: Date; endTime: Date },
+  booking: { source: string; createdAt: Date },
+): { date: string; startTime: string; endTime: string; isWalkIn: boolean } {
+  if (booking.source === 'WALK_IN') {
+    const arrival = cairoTimeOfDay(booking.createdAt);
+    return {
+      date: ymdInCairo(booking.createdAt),
+      startTime: arrival,
+      endTime: arrival,
+      isWalkIn: true,
+    };
+  }
+  return {
+    date: toDateOnlyUtc(slot.date),
+    startTime: toTimeOnlyUtc(slot.startTime),
+    endTime: toTimeOnlyUtc(slot.endTime),
+    isWalkIn: false,
+  };
+}

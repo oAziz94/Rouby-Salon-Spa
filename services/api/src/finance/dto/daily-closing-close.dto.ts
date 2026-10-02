@@ -7,4 +7,13 @@ export class DailyClosingCloseDto {
   @IsString()
   @MaxLength(5000)
   notes?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Required (ALERT policy) when visits are still open or invoices unpaid: why they are carried over.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  carryOverReason?: string;
 }

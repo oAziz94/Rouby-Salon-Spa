@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,6 +10,7 @@ import {
   BookingStatus,
   CashDrawerSessionStatus,
   DailyClosingStatus,
+  DayCloseOpenItemsPolicy,
   InvoiceStatus,
   PaymentStatus,
   Prisma,
@@ -26,6 +29,8 @@ import {
   utcBusinessDayInclusiveRange,
 } from './finance-day.util';
 import { CashDrawerService } from './cash-drawer.service';
+import { overridableException } from '../common/overridable.exception';
+import { SYSTEM_SETTINGS_ID } from '../settings/settings.constants';
 
 function num(d: Prisma.Decimal | number | null | undefined): number {
   if (d === null || d === undefined) {
@@ -92,6 +97,82 @@ export class DailyClosingService {
       branchId,
       slot: { is: { date: businessDate } },
     };
+  }
+
+  /**
+   * The checklist behind "is the day really finished?" (spec v2 §4): visits still in the
+   * queue and invoices with a balance, each listed so they can be resolved or carried over.
+   */
+  async collectOpenItems(branchId: string, dateStr: string) {
+    const { end } = utcBusinessDayInclusiveRange(dateStr);
+    const [openVisits, unpaidInvoices] = await Promise.all([
+      this.prisma.queueEntry.findMany({
+        // No lower bound on purpose: a visit forgotten open on an earlier day must surface here too.
+        where: {
+          branchId,
+          checkedInAt: { lte: end },
+          status: {
+            in: [QueueEntryStatus.WAITING, QueueEntryStatus.IN_SERVICE],
+          },
+        },
+        orderBy: { checkedInAt: 'asc' },
+        take: 100,
+        select: {
+          id: true,
+          bookingId: true,
+          status: true,
+          checkedInAt: true,
+          clientNameSnapshot: true,
+          clientPhoneSnapshot: true,
+          serviceSummarySnapshot: true,
+        },
+      }),
+      this.prisma.invoice.findMany({
+        where: {
+          ...this.invoiceOnBusinessDayWhere(branchId, dateStr),
+          remainingAmount: { gt: new Prisma.Decimal(0) },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          bookingId: true,
+          totalAmount: true,
+          paidAmount: true,
+          remainingAmount: true,
+          client: { select: { id: true, fullName: true, phone: true } },
+        },
+      }),
+    ]);
+    return {
+      openVisits: openVisits.map((q) => ({
+        queueEntryId: q.id,
+        bookingId: q.bookingId,
+        status: q.status,
+        checkedInAt: q.checkedInAt.toISOString(),
+        clientName: q.clientNameSnapshot,
+        clientPhone: q.clientPhoneSnapshot,
+        serviceSummary: q.serviceSummarySnapshot,
+      })),
+      unpaidInvoices: unpaidInvoices.map((inv) => ({
+        id: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        bookingId: inv.bookingId,
+        client: inv.client,
+        totalAmount: num(inv.totalAmount),
+        paidAmount: num(inv.paidAmount),
+        remainingAmount: num(inv.remainingAmount),
+      })),
+    };
+  }
+
+  private async openItemsPolicy(): Promise<DayCloseOpenItemsPolicy> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { id: SYSTEM_SETTINGS_ID },
+      select: { dayCloseOpenItemsPolicy: true },
+    });
+    return row?.dayCloseOpenItemsPolicy ?? DayCloseOpenItemsPolicy.ALERT;
   }
 
   async buildLiveSnapshot(
@@ -373,6 +454,11 @@ export class DailyClosingService {
       uiStatus = 'DRAFT';
     }
 
+    const [openItems, openItemsPolicy] = await Promise.all([
+      this.collectOpenItems(bid, date),
+      this.openItemsPolicy(),
+    ]);
+
     const [recentInvoices, recentPayments] = await Promise.all([
       this.prisma.invoice.findMany({
         where: this.invoiceOnBusinessDayWhere(bid, date),
@@ -457,6 +543,9 @@ export class DailyClosingService {
         queueActiveCount: snapshot.queueActiveCount,
       },
       warnings,
+      openItems,
+      openItemsPolicy,
+      carryOverReason: existing?.carryOverReason ?? null,
       recentInvoices: recentInvoices.map((inv) => ({
         id: inv.id,
         invoiceNumber: inv.invoiceNumber,
@@ -605,7 +694,7 @@ export class DailyClosingService {
   async close(
     user: DashboardJwtUser,
     closingId: string,
-    body: { notes?: string },
+    body: { notes?: string; carryOverReason?: string },
   ) {
     this.assertPermission(user, 'dailyClosing.close');
     const row = await this.prisma.dailyClosing.findUnique({
@@ -634,11 +723,60 @@ export class DailyClosingService {
       );
     }
 
-    const { snapshot } = await this.buildLiveSnapshot(
+    const [openItems, policy] = await Promise.all([
+      this.collectOpenItems(row.branchId, dateStr),
+      this.openItemsPolicy(),
+    ]);
+    const openVisitCount = openItems.openVisits.length;
+    const unpaidCount = openItems.unpaidInvoices.length;
+    const carryOverReason = body.carryOverReason?.trim() || null;
+    if (openVisitCount > 0 || unpaidCount > 0) {
+      const parts: string[] = [];
+      if (openVisitCount > 0) {
+        parts.push(
+          `${openVisitCount} visit${openVisitCount === 1 ? '' : 's'} still open`,
+        );
+      }
+      if (unpaidCount > 0) {
+        parts.push(
+          `${unpaidCount} invoice${unpaidCount === 1 ? '' : 's'} with a balance`,
+        );
+      }
+      const what = parts.join(' and ');
+      if (policy === DayCloseOpenItemsPolicy.BLOCK) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.BAD_REQUEST,
+            message: `The day cannot be closed: ${what}. Finish or cancel the visits and collect the balances first.`,
+            error: 'Bad Request',
+            code: 'DAY_CLOSE_OPEN_ITEMS',
+            openVisitCount,
+            unpaidInvoiceCount: unpaidCount,
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      if (!carryOverReason) {
+        throw overridableException(
+          'DAY_CLOSE_OPEN_ITEMS',
+          `${what[0].toUpperCase()}${what.slice(1)} — close the day anyway and carry them over?`,
+          { openVisitCount, unpaidInvoiceCount: unpaidCount },
+        );
+      }
+    }
+
+    const { snapshot: liveSnapshot } = await this.buildLiveSnapshot(
       user,
       row.branchId,
       dateStr,
     );
+    const snapshot: ClosingSnapshot = {
+      ...liveSnapshot,
+      carriedOver:
+        openVisitCount > 0 || unpaidCount > 0
+          ? { reason: carryOverReason, ...openItems }
+          : null,
+    };
     const totals = this.computeClosingTotalsFromSnapshot(snapshot);
 
     const updated = await this.prisma.dailyClosing.update({
@@ -648,6 +786,8 @@ export class DailyClosingService {
         closedByUserId: user.userId,
         closedAt: new Date(),
         notes: body.notes?.trim() ?? row.notes,
+        carryOverReason:
+          openVisitCount > 0 || unpaidCount > 0 ? carryOverReason : null,
         snapshot: snapshot as Prisma.InputJsonValue,
         cashDrawerSessionId:
           drawer?.status === CashDrawerSessionStatus.CLOSED ? drawer.id : null,
@@ -668,6 +808,9 @@ export class DailyClosingService {
         grossSales: Number(updated.grossSales.toString()),
         totalCollected: Number(updated.totalCollected.toString()),
         cashDifference: Number(updated.cashDifference.toString()),
+        carriedOverVisits: openVisitCount,
+        carriedOverUnpaidInvoices: unpaidCount,
+        carryOverReason: updated.carryOverReason,
       },
     });
 
@@ -702,6 +845,7 @@ export class DailyClosingService {
       businessDate: dateStr,
       status: row.status,
       notes: row.notes,
+      carryOverReason: row.carryOverReason,
       closedBy: row.closedBy,
       closedAt: row.closedAt?.toISOString() ?? null,
       totals: {

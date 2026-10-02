@@ -28,8 +28,10 @@ import {
   slotDuplicateKey,
   slotOverlapsAnyBreak,
   timeToMinutes,
+  type SlotGenerationDefaultsV1,
 } from './slot-generation.utils';
 import {
+  cairoTodayYmd,
   cairoWeekdayIndexFromDateString,
   isSlotStartStrictlyInFutureCairo,
   toDateOnlyUtc,
@@ -513,13 +515,11 @@ export class SlotsService {
     return this.mapSlot(row, liveBySlot.get(row.id) ?? 0);
   }
 
-  async generateWeekSlots(
-    user: DashboardJwtUser,
-    branchId: string,
-    dto: GenerateWeekSlotsDto,
-  ) {
-    assertDashboardBranchAccess(user, branchId);
-
+  /** Branch defaults win over system defaults; `configured` is false when neither was ever saved. */
+  private async resolveSlotGenerationForBranch(branchId: string): Promise<{
+    effective: SlotGenerationDefaultsV1;
+    configured: boolean;
+  }> {
     const [branch, settingsRow] = await Promise.all([
       this.prisma.branch.findUnique({
         where: { id: branchId },
@@ -533,58 +533,94 @@ export class SlotsService {
     if (!branch) {
       throw new NotFoundException('Branch not found');
     }
-
-    const systemParsed = parseStoredSlotGeneration(
-      settingsRow?.slotGenerationDefaults,
-    );
-    const stored =
+    const effective =
       branch.slotGenerationDefaults != null
         ? parseStoredSlotGeneration(branch.slotGenerationDefaults)
-        : systemParsed;
-    const overrides = pickOverridesFromSlotDto(dto);
-    const effective = mergeSlotGeneration(stored, overrides);
-    assertValidSlotGeneration(effective);
+        : parseStoredSlotGeneration(settingsRow?.slotGenerationDefaults);
+    return {
+      effective,
+      configured:
+        branch.slotGenerationDefaults != null ||
+        settingsRow?.slotGenerationDefaults != null,
+    };
+  }
 
-    const dateStart = dto.weekStartDate;
-    const dateEnd = addUtcDaysToDateString(dateStart, 6);
+  /**
+   * Shared generator. Idempotent: an existing slot with the same date/start/end is never duplicated.
+   * - Days inside a Holidays & Closures entry are skipped.
+   * - `respectDeleted`: slots an admin removed on purpose are not recreated (rolling/nightly runs).
+   * - `alignDefaults`: untouched AVAILABLE slots are updated to the current capacity / online flag.
+   */
+  private async generateSlotsCore(params: {
+    branchId: string;
+    dateStart: string;
+    days: number;
+    effective: SlotGenerationDefaultsV1;
+    createdByUserId: string | null;
+    respectDeleted: boolean;
+    alignDefaults: boolean;
+  }): Promise<{
+    createdCount: number;
+    skippedCount: number;
+    alignedDefaultsCount: number;
+    closedDaysSkipped: number;
+    dateFrom: string;
+    dateTo: string;
+  }> {
+    const { branchId, dateStart, days, effective } = params;
+    const dateEnd = addUtcDaysToDateString(dateStart, days - 1);
+    const rangeStart = this.parseDateOnly(dateStart);
+    const rangeEnd = this.parseDateOnly(dateEnd);
 
-    const existingRows = await this.prisma.bookingSlot.findMany({
-      where: {
-        branchId,
-        deletedAt: null,
-        date: {
-          gte: this.parseDateOnly(dateStart),
-          lte: this.parseDateOnly(dateEnd),
+    const [existingRows, closures] = await Promise.all([
+      this.prisma.bookingSlot.findMany({
+        where: {
+          branchId,
+          isWalkInBucket: false,
+          ...(params.respectDeleted ? {} : { deletedAt: null }),
+          date: { gte: rangeStart, lte: rangeEnd },
         },
-      },
-      select: {
-        id: true,
-        date: true,
-        startTime: true,
-        endTime: true,
-        capacity: true,
-        bookedCount: true,
-        status: true,
-        isOnlineBookable: true,
-      },
-    });
-    const existingByKey = new Map<
-      string,
-      {
-        id: string;
-        date: Date;
-        startTime: Date;
-        endTime: Date;
-        capacity: number;
-        bookedCount: number;
-        status: BookingSlotStatus;
-        isOnlineBookable: boolean;
+        select: {
+          id: true,
+          date: true,
+          startTime: true,
+          endTime: true,
+          capacity: true,
+          bookedCount: true,
+          status: true,
+          isOnlineBookable: true,
+          deletedAt: true,
+        },
+      }),
+      this.prisma.branchClosure.findMany({
+        where: {
+          branchId,
+          startDate: { lte: rangeEnd },
+          endDate: { gte: rangeStart },
+        },
+        select: { startDate: true, endDate: true },
+      }),
+    ]);
+
+    const closedDates = new Set<string>();
+    for (const c of closures) {
+      let cursor = toDateOnlyUtc(c.startDate);
+      const last = toDateOnlyUtc(c.endDate);
+      for (let guard = 0; cursor <= last && guard < 400; guard += 1) {
+        closedDates.add(cursor);
+        cursor = addUtcDaysToDateString(cursor, 1);
       }
-    >();
-    for (const row of existingRows) {
-      existingByKey.set(slotDuplicateKey(row), row);
     }
-    const existingKeys = new Set(existingByKey.keys());
+
+    const existingByKey = new Map<string, (typeof existingRows)[number]>();
+    for (const row of existingRows) {
+      const key = slotDuplicateKey(row);
+      const prev = existingByKey.get(key);
+      // Prefer the live row when a deleted twin exists for the same window.
+      if (!prev || (prev.deletedAt !== null && row.deletedAt === null)) {
+        existingByKey.set(key, row);
+      }
+    }
     const localKeys = new Set<string>();
     const slotIdsToAlignDefaults = new Set<string>();
 
@@ -592,21 +628,25 @@ export class SlotsService {
       start: timeToMinutes(b.startTime),
       end: timeToMinutes(b.endTime),
     }));
-
     const startM = timeToMinutes(effective.startTime);
     const endM = timeToMinutes(effective.endTime);
     const dur = effective.slotDurationMinutes;
 
     const createRows: Prisma.BookingSlotCreateManyInput[] = [];
     let skippedCount = 0;
+    let closedDaysSkipped = 0;
 
-    for (let day = 0; day < 7; day += 1) {
+    for (let day = 0; day < days; day += 1) {
       const dateStr = addUtcDaysToDateString(dateStart, day);
-      const dateObj = this.parseDateOnly(dateStr);
       const cairoDow = cairoWeekdayIndexFromDateString(dateStr);
       if (!effective.workingDays.includes(cairoDow)) {
         continue;
       }
+      if (closedDates.has(dateStr)) {
+        closedDaysSkipped += 1;
+        continue;
+      }
+      const dateObj = this.parseDateOnly(dateStr);
       for (let cursor = startM; cursor + dur <= endM; cursor += dur) {
         const slotEndM = cursor + dur;
         if (slotOverlapsAnyBreak(cursor, slotEndM, breakRanges)) {
@@ -619,11 +659,13 @@ export class SlotsService {
           startTime: this.parseTimeOnly(startStr),
           endTime: this.parseTimeOnly(endStr),
         });
-        if (existingKeys.has(key) || localKeys.has(key)) {
+        const hit = existingByKey.get(key);
+        if (hit || localKeys.has(key)) {
           skippedCount += 1;
-          const hit = existingByKey.get(key);
           if (
+            params.alignDefaults &&
             hit &&
+            hit.deletedAt === null &&
             hit.bookedCount === 0 &&
             hit.status === BookingSlotStatus.AVAILABLE &&
             (hit.capacity !== effective.defaultCapacity ||
@@ -644,7 +686,7 @@ export class SlotsService {
           status: BookingSlotStatus.AVAILABLE,
           isOnlineBookable: effective.defaultOnlineBookable,
           notes: null,
-          createdByUserId: user.userId,
+          createdByUserId: params.createdByUserId,
         });
       }
     }
@@ -675,26 +717,191 @@ export class SlotsService {
       alignedDefaultsCount = alignRes.count;
     }
 
+    return {
+      createdCount,
+      skippedCount,
+      alignedDefaultsCount,
+      closedDaysSkipped,
+      dateFrom: dateStart,
+      dateTo: dateEnd,
+    };
+  }
+
+  async generateWeekSlots(
+    user: DashboardJwtUser,
+    branchId: string,
+    dto: GenerateWeekSlotsDto,
+  ) {
+    assertDashboardBranchAccess(user, branchId);
+
+    const { effective: stored } =
+      await this.resolveSlotGenerationForBranch(branchId);
+    const effective = mergeSlotGeneration(
+      stored,
+      pickOverridesFromSlotDto(dto),
+    );
+    assertValidSlotGeneration(effective);
+
+    const result = await this.generateSlotsCore({
+      branchId,
+      dateStart: dto.weekStartDate,
+      days: 7,
+      effective,
+      createdByUserId: user.userId,
+      respectDeleted: false,
+      alignDefaults: true,
+    });
+
     await this.audit.log({
       userId: user.userId,
       action: 'slots.week_generated',
       module: 'slots',
       entityId: branchId,
-      newValue: {
-        createdCount,
-        skippedCount,
-        alignedDefaultsCount,
-        dateFrom: dateStart,
-        dateTo: dateEnd,
-      },
+      newValue: result,
     });
 
+    return result;
+  }
+
+  /**
+   * Rolling horizon (spec v2 §5): make sure slots exist from today through `horizonDays` ahead.
+   * Used by the nightly job, on API start, and by the "Fill now" button. Never touches existing
+   * slots and never recreates a slot that was deleted on purpose.
+   */
+  async ensureSlotHorizonForBranch(
+    branchId: string,
+    horizonDays: number,
+    actorUserId: string | null,
+  ) {
+    const { effective, configured } =
+      await this.resolveSlotGenerationForBranch(branchId);
+    if (!configured) {
+      return {
+        branchId,
+        configured: false as const,
+        createdCount: 0,
+        skippedCount: 0,
+        closedDaysSkipped: 0,
+        dateFrom: cairoTodayYmd(),
+        dateTo: cairoTodayYmd(),
+      };
+    }
+    assertValidSlotGeneration(effective);
+    const result = await this.generateSlotsCore({
+      branchId,
+      dateStart: cairoTodayYmd(),
+      days: horizonDays + 1,
+      effective,
+      createdByUserId: actorUserId,
+      respectDeleted: true,
+      alignDefaults: false,
+    });
+    if (result.createdCount > 0) {
+      await this.audit.log({
+        userId: actorUserId,
+        action: 'slots.horizon_extended',
+        module: 'slots',
+        entityId: branchId,
+        branchId,
+        newValue: {
+          createdCount: result.createdCount,
+          closedDaysSkipped: result.closedDaysSkipped,
+          dateFrom: result.dateFrom,
+          dateTo: result.dateTo,
+          trigger: actorUserId ? 'manual' : 'automatic',
+        },
+      });
+    }
     return {
-      createdCount,
-      skippedCount,
-      alignedDefaultsCount,
-      dateFrom: dateStart,
-      dateTo: dateEnd,
+      branchId,
+      configured: true as const,
+      createdCount: result.createdCount,
+      skippedCount: result.skippedCount,
+      closedDaysSkipped: result.closedDaysSkipped,
+      dateFrom: result.dateFrom,
+      dateTo: result.dateTo,
+    };
+  }
+
+  async ensureSlotHorizonAllBranches(horizonDays: number) {
+    const branches = await this.prisma.branch.findMany({
+      where: { isActive: true },
+      select: { id: true },
+    });
+    const results: Awaited<
+      ReturnType<SlotsService['ensureSlotHorizonForBranch']>
+    >[] = [];
+    for (const b of branches) {
+      results.push(
+        await this.ensureSlotHorizonForBranch(b.id, horizonDays, null),
+      );
+    }
+    return results;
+  }
+
+  /** How far ahead bookable slots exist for a branch (drives the "running out of slots" warning). */
+  async getSlotHorizonStatus(branchId: string, horizonDays: number) {
+    const todayYmd = cairoTodayYmd();
+    const [{ configured }, last] = await Promise.all([
+      this.resolveSlotGenerationForBranch(branchId),
+      this.prisma.bookingSlot.findFirst({
+        where: {
+          branchId,
+          deletedAt: null,
+          isWalkInBucket: false,
+          date: { gte: this.parseDateOnly(todayYmd) },
+        },
+        orderBy: { date: 'desc' },
+        select: { date: true },
+      }),
+    ]);
+    const lastSlotDate = last ? toDateOnlyUtc(last.date) : null;
+    const daysAhead = lastSlotDate
+      ? Math.round(
+          (this.parseDateOnly(lastSlotDate).getTime() -
+            this.parseDateOnly(todayYmd).getTime()) /
+            86_400_000,
+        )
+      : -1;
+    return {
+      branchId,
+      todayYmd,
+      lastSlotDate,
+      daysAhead,
+      horizonDays,
+      autoGenerationConfigured: configured,
+      low: daysAhead < 7,
+    };
+  }
+
+  async dashboardSlotHorizonStatus(
+    user: DashboardJwtUser,
+    branchId: string,
+    horizonDays: number,
+  ) {
+    assertDashboardBranchAccess(user, branchId);
+    return this.getSlotHorizonStatus(branchId, horizonDays);
+  }
+
+  async dashboardEnsureSlotHorizon(
+    user: DashboardJwtUser,
+    branchId: string,
+    horizonDays: number,
+  ) {
+    assertDashboardBranchAccess(user, branchId);
+    const result = await this.ensureSlotHorizonForBranch(
+      branchId,
+      horizonDays,
+      user.userId,
+    );
+    if (!result.configured) {
+      throw new BadRequestException(
+        'Save the slot defaults (working days and hours) first — automatic slots need them.',
+      );
+    }
+    return {
+      ...result,
+      status: await this.getSlotHorizonStatus(branchId, horizonDays),
     };
   }
 

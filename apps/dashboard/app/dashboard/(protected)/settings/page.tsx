@@ -11,6 +11,7 @@ import {
   updateDashboardBranch,
   updateDashboardBranchSlotSettings,
   updateDashboardBusinessIdentity,
+  updateDashboardOperationsSettings,
   updateDashboardReceiptSettings,
   updateDashboardVatSettings,
   type BranchSlotGenerationSettings,
@@ -431,6 +432,62 @@ export default function SettingsIndexPage() {
           }
         }}>Save receipt settings</button>
       </article>
+
+      {settings.operationsSettings ? (
+        <article className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-[#1F2420]">Front-desk rules</h2>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            <label className="block text-sm">
+              <span className="font-medium text-[#1F2420]">Closing the day with open visits or unpaid invoices</span>
+              <select
+                className="mt-1 w-full rounded-md border border-border px-3 py-2"
+                value={settings.operationsSettings.dayCloseOpenItemsPolicy}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    operationsSettings: {
+                      ...settings.operationsSettings!,
+                      dayCloseOpenItemsPolicy: e.target.value === "BLOCK" ? "BLOCK" : "ALERT",
+                    },
+                  })
+                }
+              >
+                <option value="ALERT">Allow, but list them and require a carry-over reason</option>
+                <option value="BLOCK">Do not allow until everything is finished and paid</option>
+              </select>
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium text-[#1F2420]">Largest discount reception may give without a manager (%)</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                className="mt-1 w-full rounded-md border border-border px-3 py-2"
+                value={settings.operationsSettings.discountLimitPercentWithoutApproval}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    operationsSettings: {
+                      ...settings.operationsSettings!,
+                      discountLimitPercentWithoutApproval: Math.min(100, Math.max(0, Number(e.target.value) || 0)),
+                    },
+                  })
+                }
+              />
+            </label>
+          </div>
+          <button disabled={!canUpdate} className="mt-3 rounded-md bg-primary px-4 py-2 text-sm text-white disabled:opacity-60" onClick={async () => {
+            try {
+              const next = await updateDashboardOperationsSettings(token!, settings.operationsSettings!);
+              setSettings(next);
+              setBanner({ type: "ok", message: "Front-desk rules updated." });
+            } catch (e) {
+              setBanner({ type: "error", message: apiError(e) });
+            }
+          }}>Save front-desk rules</button>
+        </article>
+      ) : null}
     </section>
   );
 }

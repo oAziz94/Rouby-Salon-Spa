@@ -920,6 +920,8 @@ export type DashboardOverviewTodayResponse = {
     completed: number;
   };
   unpaidInvoicesToday: number;
+  /** How far ahead bookable slots exist; `low` when under 7 days. */
+  slotHorizon?: { lastSlotDate: string | null; daysAhead: number; low: boolean };
   upcomingAppointments: DashboardOverviewAppointment[];
 };
 
@@ -1481,11 +1483,21 @@ export type ReceiptSettings = {
 
 export type BranchSlotGenerationSettings = SlotGenerationDefaults;
 
+export type DayCloseOpenItemsPolicy = "ALERT" | "BLOCK";
+
+export type OperationsSettings = {
+  /** ALERT: day can close with open visits/unpaid invoices if a reason is given. BLOCK: it cannot. */
+  dayCloseOpenItemsPolicy: DayCloseOpenItemsPolicy;
+  /** Largest discount (% of subtotal) reception may apply without a manager. */
+  discountLimitPercentWithoutApproval: number;
+};
+
 export type DashboardSettings = {
   businessIdentity: BusinessIdentitySettings;
   defaultBranchId: string | null;
   vatSettings: VatSettings;
   receiptSettings: ReceiptSettings;
+  operationsSettings?: OperationsSettings;
   branches: DashboardBranch[];
 };
 
@@ -3562,6 +3574,18 @@ export async function updateDashboardVatSettings(
   );
 }
 
+export async function updateDashboardOperationsSettings(
+  accessToken: string,
+  payload: Partial<OperationsSettings>,
+): Promise<DashboardSettings> {
+  return jsonMutation<DashboardSettings>(
+    accessToken,
+    "/dashboard/settings/operations",
+    "PATCH",
+    payload,
+  );
+}
+
 export async function updateDashboardReceiptSettings(
   accessToken: string,
   payload: Partial<ReceiptSettings>,
@@ -5288,6 +5312,30 @@ export type DashboardDailyClosingSummaryResponse = {
   }>;
   snapshot: Record<string, unknown>;
   draftNotes: string | null;
+  openItems?: DashboardDailyClosingOpenItems;
+  openItemsPolicy?: DayCloseOpenItemsPolicy;
+  carryOverReason?: string | null;
+};
+
+export type DashboardDailyClosingOpenItems = {
+  openVisits: Array<{
+    queueEntryId: string;
+    bookingId: string | null;
+    status: string;
+    checkedInAt: string;
+    clientName: string;
+    clientPhone: string | null;
+    serviceSummary: string | null;
+  }>;
+  unpaidInvoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    bookingId: string;
+    client: { id: string; fullName: string; phone: string } | null;
+    totalAmount: number;
+    paidAmount: number;
+    remainingAmount: number;
+  }>;
 };
 
 export type DashboardDailyClosingReport = {
@@ -5457,12 +5505,145 @@ export async function getDashboardDailyClosing(
 export async function closeDashboardDailyClosing(
   accessToken: string,
   id: string,
-  payload: { notes?: string },
+  payload: { notes?: string; carryOverReason?: string },
 ): Promise<DashboardDailyClosingReport> {
   return jsonMutation<DashboardDailyClosingReport>(
     accessToken,
     `/dashboard/daily-closing/${id}/close`,
     "POST",
     payload,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Slot horizon + Holidays & closures (Batch 3)
+// ---------------------------------------------------------------------------
+
+export type DashboardSlotHorizonStatus = {
+  branchId: string;
+  todayYmd: string;
+  lastSlotDate: string | null;
+  /** Days between today and the last day that has slots; -1 when there are none. */
+  daysAhead: number;
+  horizonDays: number;
+  /** False until slot defaults (working days/hours) were saved — automatic slots need them. */
+  autoGenerationConfigured: boolean;
+  low: boolean;
+};
+
+export type DashboardClosureAffectedBooking = {
+  id: string;
+  status: string;
+  client: { id: string; fullName: string; phone: string } | null;
+  slot: { date: string; startTime: string; endTime: string };
+};
+
+export type DashboardBranchClosure = {
+  id: string;
+  branchId: string;
+  startDate: string;
+  endDate: string;
+  reason: string;
+  createdAt: string;
+  state: "PAST" | "ACTIVE" | "UPCOMING";
+  closedSlotCount: number;
+  affectedBookings: DashboardClosureAffectedBooking[];
+};
+
+export type DashboardClosureInput = {
+  startDate: string;
+  endDate: string;
+  reason: string;
+};
+
+export async function getDashboardSlotHorizon(
+  accessToken: string,
+  branchId: string,
+): Promise<DashboardSlotHorizonStatus> {
+  const res = await fetch(
+    apiUrl(`/dashboard/branches/${branchId}/slots/horizon`),
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) throw await parseApiError(res);
+  return (await res.json()) as DashboardSlotHorizonStatus;
+}
+
+export async function ensureDashboardSlotHorizon(
+  accessToken: string,
+  branchId: string,
+): Promise<{
+  createdCount: number;
+  closedDaysSkipped: number;
+  dateFrom: string;
+  dateTo: string;
+  status: DashboardSlotHorizonStatus;
+}> {
+  return jsonMutation(
+    accessToken,
+    `/dashboard/branches/${branchId}/slots/ensure-horizon`,
+    "POST",
+    {},
+  );
+}
+
+export async function getDashboardClosures(
+  accessToken: string,
+  branchId: string,
+  opts?: { includePast?: boolean },
+): Promise<{
+  data: DashboardBranchClosure[];
+  horizon: DashboardSlotHorizonStatus;
+}> {
+  const res = await fetch(
+    apiUrl(
+      `/dashboard/branches/${branchId}/closures${opts?.includePast ? "?includePast=true" : ""}`,
+    ),
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) throw await parseApiError(res);
+  return (await res.json()) as {
+    data: DashboardBranchClosure[];
+    horizon: DashboardSlotHorizonStatus;
+  };
+}
+
+export async function previewDashboardClosure(
+  accessToken: string,
+  branchId: string,
+  payload: DashboardClosureInput,
+): Promise<{
+  affectedBookings: DashboardClosureAffectedBooking[];
+  openSlotCount: number;
+}> {
+  return jsonMutation(
+    accessToken,
+    `/dashboard/branches/${branchId}/closures/preview`,
+    "POST",
+    payload,
+  );
+}
+
+export async function createDashboardClosure(
+  accessToken: string,
+  branchId: string,
+  payload: DashboardClosureInput,
+): Promise<DashboardBranchClosure> {
+  return jsonMutation<DashboardBranchClosure>(
+    accessToken,
+    `/dashboard/branches/${branchId}/closures`,
+    "POST",
+    payload,
+  );
+}
+
+export async function deleteDashboardClosure(
+  accessToken: string,
+  branchId: string,
+  closureId: string,
+): Promise<{ id: string; reopenedSlots: number; createdSlots: number }> {
+  return jsonMutation(
+    accessToken,
+    `/dashboard/branches/${branchId}/closures/${closureId}`,
+    "DELETE",
   );
 }

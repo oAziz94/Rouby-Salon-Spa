@@ -1039,7 +1039,16 @@ function QueueDetailsDrawer({
             <DetailRow label="Status" value={booking?.status ?? row?.status ?? "—"} />
             <DetailRow label="Source" value={booking?.source ?? row?.source ?? "—"} />
             <DetailRow label="Date" value={booking?.slot?.date ?? "—"} />
-            <DetailRow label="Time" value={booking?.slot ? `${formatTimeAmPm(booking.slot.startTime)} - ${formatTimeAmPm(booking.slot.endTime)}` : "—"} />
+            <DetailRow
+              label={booking?.source === "WALK_IN" ? "Arrived" : "Time"}
+              value={
+                booking?.slot
+                  ? booking.source === "WALK_IN" || booking.slot.startTime === booking.slot.endTime
+                    ? formatTimeAmPm(booking.slot.startTime)
+                    : `${formatTimeAmPm(booking.slot.startTime)} - ${formatTimeAmPm(booking.slot.endTime)}`
+                  : "—"
+              }
+            />
           </DetailSection>
 
           <DetailSection title="Services">

@@ -15,6 +15,7 @@ import type { PatchSlotGenerationDto } from '../slots/dto/patch-slot-generation.
 import { SYSTEM_SETTINGS_ID } from './settings.constants';
 import type { PatchBusinessIdentityDto } from './dto/patch-business-identity.dto';
 import type { PatchDefaultBranchDto } from './dto/patch-default-branch.dto';
+import type { PatchOperationsSettingsDto } from './dto/patch-operations-settings.dto';
 import type { PatchPaymentPolicyDto } from './dto/patch-payment-policy.dto';
 import type { PatchReceiptSettingsDto } from './dto/patch-receipt-settings.dto';
 import type { PatchVatSettingsDto } from './dto/patch-vat-settings.dto';
@@ -292,6 +293,12 @@ export class SettingsService {
         showPaymentBreakdown: row.showPaymentBreakdown,
         showCashierName: row.showCashierName,
       },
+      operationsSettings: {
+        dayCloseOpenItemsPolicy: row.dayCloseOpenItemsPolicy,
+        discountLimitPercentWithoutApproval: this.decimalToNumber(
+          row.discountLimitPercentWithoutApproval,
+        ),
+      },
       branches: branches.map((b) => ({
         id: b.id,
         name: b.name,
@@ -300,6 +307,46 @@ export class SettingsService {
         isActive: b.isActive,
       })),
     };
+  }
+
+  /** Front-desk rules the owner can tune: day-close policy and the reception discount cap. */
+  async patchOperationsSettings(
+    user: DashboardJwtUser,
+    dto: PatchOperationsSettingsDto,
+  ) {
+    const before = await this.getRow();
+    const updated = await this.prisma.systemSettings.update({
+      where: { id: SYSTEM_SETTINGS_ID },
+      data: {
+        dayCloseOpenItemsPolicy: dto.dayCloseOpenItemsPolicy ?? undefined,
+        discountLimitPercentWithoutApproval:
+          dto.discountLimitPercentWithoutApproval === undefined
+            ? undefined
+            : new Prisma.Decimal(
+                dto.discountLimitPercentWithoutApproval.toString(),
+              ),
+        updatedBy: { connect: { id: user.userId } },
+      },
+    });
+    await this.audit.log({
+      userId: user.userId,
+      action: 'settings.operations.updated',
+      module: 'settings',
+      entityId: updated.id,
+      oldValue: {
+        dayCloseOpenItemsPolicy: before.dayCloseOpenItemsPolicy,
+        discountLimitPercentWithoutApproval: this.decimalToNumber(
+          before.discountLimitPercentWithoutApproval,
+        ),
+      },
+      newValue: {
+        dayCloseOpenItemsPolicy: updated.dayCloseOpenItemsPolicy,
+        discountLimitPercentWithoutApproval: this.decimalToNumber(
+          updated.discountLimitPercentWithoutApproval,
+        ),
+      },
+    });
+    return this.getDashboardSettings(user);
   }
 
   async patchBusinessIdentity(

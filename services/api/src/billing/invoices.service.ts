@@ -15,6 +15,7 @@ import {
   QueueEntrySource,
 } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
+import { presentBookingSlot } from '../common/cairo-slot-time';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { buildListMeta } from '../catalog/catalog.utils';
@@ -442,6 +443,7 @@ export class InvoicesService {
             select: {
               id: true,
               source: true,
+              createdAt: true,
               branchId: true,
               branch: { select: { id: true, name: true } },
               slot: {
@@ -614,11 +616,7 @@ export class InvoicesService {
         slot: invoice.booking.slot
           ? {
               id: invoice.booking.slot.id,
-              date: invoice.booking.slot.date.toISOString().slice(0, 10),
-              startTime: invoice.booking.slot.startTime
-                .toISOString()
-                .slice(11, 19),
-              endTime: invoice.booking.slot.endTime.toISOString().slice(11, 19),
+              ...presentBookingSlot(invoice.booking.slot, invoice.booking),
             }
           : null,
         servicesSummary,
@@ -968,6 +966,7 @@ export class InvoicesService {
     booking: {
       id: string;
       source: BookingSource;
+      createdAt: Date;
       branchId: string;
       branch: { id: string; name: string } | null;
       slot: { date: Date; startTime: Date; endTime: Date } | null;
@@ -987,11 +986,7 @@ export class InvoicesService {
         branchId: inv.booking.branchId,
         branchName: inv.booking.branch?.name ?? null,
         slot: inv.booking.slot
-          ? {
-              date: inv.booking.slot.date.toISOString().slice(0, 10),
-              startTime: inv.booking.slot.startTime.toISOString().slice(11, 19),
-              endTime: inv.booking.slot.endTime.toISOString().slice(11, 19),
-            }
+          ? presentBookingSlot(inv.booking.slot, inv.booking)
           : null,
       },
     };

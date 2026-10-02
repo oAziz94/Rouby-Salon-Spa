@@ -402,6 +402,7 @@ export default function DashboardHomePage() {
 
   return (
     <section className="space-y-6 md:space-y-8">
+      <SlotHorizonBanner token={token} />
       <header className="rounded-2xl bg-white/90 p-6 shadow-[0_8px_30px_rgba(31,36,32,0.05)] ring-1 ring-[#E8E0D4]/70 md:p-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -1127,6 +1128,39 @@ export default function DashboardHomePage() {
         />
       ) : null}
     </section>
+  );
+}
+
+/** Amber banner when clients can book fewer than 7 days ahead (slots are running out). */
+function SlotHorizonBanner({ token }: { token: string | null }) {
+  const [horizon, setHorizon] = useState<DashboardOverviewTodayResponse["slotHorizon"] | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    getDashboardOverviewToday(token)
+      .then((d) => {
+        if (!cancelled) setHorizon(d.slotHorizon ?? null);
+      })
+      .catch(() => {
+        /* the banner is best-effort */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+  if (!horizon?.low) return null;
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50/90 px-5 py-4 text-sm text-amber-950 shadow-sm">
+      <span className="font-semibold">
+        {horizon.lastSlotDate
+          ? `Online booking is only open for the next ${Math.max(horizon.daysAhead, 0)} day${horizon.daysAhead === 1 ? "" : "s"}.`
+          : "There are no bookable time slots — clients cannot book online."}
+      </span>{" "}
+      Time slots are normally added automatically 28 days ahead.{" "}
+      <Link href="/dashboard/holidays-closures" className="font-semibold underline">
+        Check slots &amp; closures
+      </Link>
+    </div>
   );
 }
 

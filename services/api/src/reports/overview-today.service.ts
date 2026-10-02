@@ -109,6 +109,29 @@ export class OverviewTodayService {
         }),
       ]);
 
+    // "Running out of bookable slots" warning: last future slot date across the visible branches.
+    const lastSlot = await this.prisma.bookingSlot.findFirst({
+      where: {
+        deletedAt: null,
+        isWalkInBucket: false,
+        date: { gte: slotToday },
+        ...(queueBranch.branchId
+          ? {
+              branchId:
+                queueBranch.branchId as Prisma.BookingSlotWhereInput['branchId'],
+            }
+          : {}),
+      },
+      orderBy: { date: 'desc' },
+      select: { date: true },
+    });
+    const lastSlotDate = lastSlot
+      ? lastSlot.date.toISOString().slice(0, 10)
+      : null;
+    const slotDaysAhead = lastSlot
+      ? Math.round((lastSlot.date.getTime() - slotToday.getTime()) / 86_400_000)
+      : -1;
+
     const count = (status: QueueEntryStatus) =>
       queueRows.find((r) => r.status === status)?._count._all ?? 0;
 
@@ -150,6 +173,11 @@ export class OverviewTodayService {
         completed: count(QueueEntryStatus.COMPLETED),
       },
       unpaidInvoicesToday: unpaidInvoices,
+      slotHorizon: {
+        lastSlotDate,
+        daysAhead: slotDaysAhead,
+        low: slotDaysAhead < 7,
+      },
       upcomingAppointments,
     };
   }

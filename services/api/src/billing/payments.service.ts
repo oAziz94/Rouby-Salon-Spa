@@ -12,6 +12,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
+import { presentBookingSlot } from '../common/cairo-slot-time';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildListMeta } from '../catalog/catalog.utils';
 import { SIMPLE_PAYMENT_STATUS_REFERENCE } from './billing.constants';
@@ -402,13 +403,7 @@ export class PaymentsService {
       : '';
 
     const slot = p.booking.slot;
-    const slotPayload = slot
-      ? {
-          date: slot.date.toISOString().slice(0, 10),
-          startTime: slot.startTime.toISOString().slice(11, 19),
-          endTime: slot.endTime.toISOString().slice(11, 19),
-        }
-      : null;
+    const slotPayload = slot ? presentBookingSlot(slot, p.booking) : null;
 
     const shortRef = `PAY-${p.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 
@@ -973,13 +968,7 @@ export class PaymentsService {
     }
     const slot = p.booking.slot;
     const paidAtIso = p.paidAt ? p.paidAt.toISOString() : null;
-    const bookingSlot = slot
-      ? {
-          date: slot.date.toISOString().slice(0, 10),
-          startTime: slot.startTime.toISOString().slice(11, 19),
-          endTime: slot.endTime.toISOString().slice(11, 19),
-        }
-      : null;
+    const bookingSlot = slot ? presentBookingSlot(slot, p.booking) : null;
     return {
       paymentId: p.id,
       paymentReference: displayRef,

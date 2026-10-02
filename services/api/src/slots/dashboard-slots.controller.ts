@@ -23,6 +23,7 @@ import { PatchSlotOnlineBookableDto } from './dto/patch-slot-online-bookable.dto
 import { PatchSlotStatusDto } from './dto/patch-slot-status.dto';
 import { GenerateWeekSlotsDto } from './dto/generate-week-slots.dto';
 import { PatchSlotDto } from './dto/patch-slot.dto';
+import { slotHorizonDays } from './slot-generation.utils';
 import { SlotsService } from './slots.service';
 
 @ApiTags('dashboard-booking-slots')
@@ -52,6 +53,39 @@ export class DashboardSlotsController {
     @Body() dto: GenerateWeekSlotsDto,
   ) {
     return this.slots.generateWeekSlots(user, branchId, dto);
+  }
+
+  @Get('horizon')
+  @RequirePermissions('slots.read')
+  @ApiOperation({
+    summary: 'How far ahead bookable slots exist (rolling horizon status)',
+  })
+  horizon(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+  ) {
+    return this.slots.dashboardSlotHorizonStatus(
+      user,
+      branchId,
+      slotHorizonDays(),
+    );
+  }
+
+  @Post('ensure-horizon')
+  @RequirePermissions('slots.create')
+  @ApiOperation({
+    summary:
+      'Fill missing slots from today through the horizon using the saved defaults',
+  })
+  ensureHorizon(
+    @CurrentDashboardUser() user: DashboardJwtUser,
+    @Param('branchId', ParseUUIDPipe) branchId: string,
+  ) {
+    return this.slots.dashboardEnsureSlotHorizon(
+      user,
+      branchId,
+      slotHorizonDays(),
+    );
   }
 
   @Get(':slotId')

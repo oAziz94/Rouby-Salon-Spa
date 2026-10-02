@@ -58,6 +58,10 @@ export function formatWallClockRange12h(
   end: string,
   separator = " – ",
 ): string {
+  // Walk-ins carry their arrival time as both start and end: show it once.
+  if (start === end) {
+    return formatWallClock12h(start);
+  }
   return `${formatWallClock12h(start)}${separator}${formatWallClock12h(end)}`;
 }
 

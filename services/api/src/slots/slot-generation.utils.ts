@@ -346,3 +346,17 @@ export function pickOverridesFromSlotDto(
   }
   return patch;
 }
+
+/** Rolling horizon for automatic slot generation (`SLOT_HORIZON_DAYS`, default 28, clamped 7–90). */
+export function slotHorizonDays(): number {
+  const raw = Number.parseInt(process.env.SLOT_HORIZON_DAYS ?? '', 10);
+  if (Number.isNaN(raw)) {
+    return 28;
+  }
+  return Math.min(90, Math.max(7, raw));
+}
+
+/** Automatic generation can be switched off with `SLOT_AUTOGEN_ENABLED=false`. */
+export function slotAutoGenerationEnabled(): boolean {
+  return (process.env.SLOT_AUTOGEN_ENABLED ?? 'true').toLowerCase() !== 'false';
+}
