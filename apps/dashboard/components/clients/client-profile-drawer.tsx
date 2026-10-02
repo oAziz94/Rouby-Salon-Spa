@@ -10,7 +10,7 @@ import {
   type DashboardClient,
   type DashboardInvoiceListItem,
 } from "@rouby/api-client";
-import { formatDateTimeAmPm, formatWallClockRange12h } from "@rouby/wall-clock";
+import { formatDateTimeAmPm, formatDayLabel, formatWallClockRange12h } from "@rouby/wall-clock";
 import {
   Calendar,
   CreditCard,
@@ -331,7 +331,7 @@ export function ClientProfileDrawer({
                   label="Last visit"
                   value={
                     metrics.lastVisit?.slot?.date
-                      ? `${metrics.lastVisit.slot.date} · ${formatWallClockRange12h(metrics.lastVisit.slot.startTime, metrics.lastVisit.slot.endTime)}`
+                      ? `${formatDayLabel(metrics.lastVisit.slot.date)} · ${formatWallClockRange12h(metrics.lastVisit.slot.startTime, metrics.lastVisit.slot.endTime)}`
                       : metrics.lastVisit
                         ? formatDateTimeAmPm(metrics.lastVisit.createdAt)
                         : "—"
@@ -342,7 +342,7 @@ export function ClientProfileDrawer({
                   label="Next booking"
                   value={
                     metrics.upcoming?.slot?.date
-                      ? `${metrics.upcoming.slot.date} · ${formatWallClockRange12h(metrics.upcoming.slot.startTime, metrics.upcoming.slot.endTime)}`
+                      ? `${formatDayLabel(metrics.upcoming.slot.date)} · ${formatWallClockRange12h(metrics.upcoming.slot.startTime, metrics.upcoming.slot.endTime)}`
                       : metrics.upcoming
                         ? formatDateTimeAmPm(metrics.upcoming.createdAt)
                         : "—"
@@ -438,7 +438,7 @@ export function ClientProfileDrawer({
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {b.slot?.date
-                            ? `${b.slot.date} · ${formatWallClockRange12h(b.slot.startTime, b.slot.endTime)}`
+                            ? `${formatDayLabel(b.slot.date)} · ${formatWallClockRange12h(b.slot.startTime, b.slot.endTime)}`
                             : formatDateTimeAmPm(b.createdAt)}
                           {b.branchName ? ` · ${b.branchName}` : null}
                         </p>

@@ -22,7 +22,7 @@ import {
   type DashboardSlot,
   type DashboardStaffAvailabilityResponse,
 } from "@rouby/api-client";
-import { cairoTodayYmd, formatDateTimeAmPm, formatWallClock12h, formatWallClockRange12h } from "@rouby/wall-clock";
+import { cairoTodayYmd, formatDateTimeAmPm, formatDayLabel, formatWallClock12h, formatWallClockRange12h } from "@rouby/wall-clock";
 import {
   AlertCircle,
   CalendarClock,
@@ -42,6 +42,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
+import { itemTypeLabel, lineStatusLabel, sourceLabel } from "@/lib/labels";
 import {
   DashboardServiceVariantLinesBlock,
   type DashboardServiceVariantLinesBlockHandle,
@@ -182,12 +183,12 @@ function formatAppointmentFromListRow(row: DashboardBookingsListItem): string {
   }
   const { date, startTime, endTime } = row.slot;
   if (startTime && endTime) {
-    return `${date} · ${formatWallClockRange12h(startTime, endTime)}`;
+    return `${formatDayLabel(date)} · ${formatWallClockRange12h(startTime, endTime)}`;
   }
   if (startTime) {
-    return `${date} · ${formatWallClock12h(startTime)}`;
+    return `${formatDayLabel(date)} · ${formatWallClock12h(startTime)}`;
   }
-  return date;
+  return formatDayLabel(date);
 }
 
 function formatAppointmentFromDetail(detail: DashboardBookingDetail): string {
@@ -195,7 +196,7 @@ function formatAppointmentFromDetail(detail: DashboardBookingDetail): string {
     return `Walk-in · ${formatDateTimeAmPm(detail.createdAt)}`;
   }
   if (detail.slot) {
-    return `${detail.slot.date} · ${formatWallClockRange12h(detail.slot.startTime, detail.slot.endTime)}`;
+    return `${formatDayLabel(detail.slot.date)} · ${formatWallClockRange12h(detail.slot.startTime, detail.slot.endTime)}`;
   }
   return `Slot ID: ${detail.slotId}`;
 }
@@ -1209,7 +1210,7 @@ export default function DashboardBookingsPage() {
                           </span>
                         </span>
                       </td>
-                      <td className="border-b border-[#F7F4EE] px-3 py-4 text-[#5E574C]">{row.source}</td>
+                      <td className="border-b border-[#F7F4EE] px-3 py-4 text-[#5E574C]">{sourceLabel(row.source)}</td>
                       <td className="border-b border-[#F7F4EE] px-3 py-4 text-right font-semibold tabular-nums">
                         {formatEGP(row.totalAmount)}
                       </td>
@@ -1285,7 +1286,7 @@ export default function DashboardBookingsPage() {
                     {row.branchName ?? branchNameById.get(row.branchId) ?? "—"}
                   </p>
                   <p className="mt-1 text-xs text-[#7A6A58]">
-                    <span className="font-medium text-[#5E574C]">Source:</span> {row.source}
+                    <span className="font-medium text-[#5E574C]">Source:</span> {sourceLabel(row.source)}
                   </p>
                   <div className="mt-4 flex items-center justify-between gap-2 border-t border-[#F0EBE3] pt-3">
                     <p className="text-sm font-semibold tabular-nums text-[#1F2420]">{formatEGP(row.totalAmount)}</p>
@@ -1354,7 +1355,7 @@ export default function DashboardBookingsPage() {
                           {statusLabel(detail.status)}
                         </span>
                         <span className="rounded-full border border-[#E8E0D4] bg-[#FFFCF7] px-2.5 py-1 text-xs font-medium text-[#5E574C]">
-                          {detail.source}
+                          {sourceLabel(detail.source)}
                         </span>
                       </div>
                     ) : null}
@@ -1521,7 +1522,7 @@ export default function DashboardBookingsPage() {
                                         <div className="min-w-0">
                                           <p className="text-sm font-medium text-[#1F2420]">{item.nameSnapshot}</p>
                                           <p className="mt-1 text-xs text-[#7A6A58]">
-                                            {item.itemType} · Qty {item.quantity} · {formatEGP(item.priceSnapshot)} ·{" "}
+                                            {itemTypeLabel(item.itemType)} · Qty {item.quantity} · {formatEGP(item.priceSnapshot)} ·{" "}
                                             {item.durationMinutesSnapshot} min
                                             {item.discountAmount ? (
                                               <span className="text-[#8B4428]">
@@ -1588,7 +1589,7 @@ export default function DashboardBookingsPage() {
                                           ) : null}
                                           {showLineOps ? (
                                             <p className="mt-1 text-xs text-[#5C5348]">
-                                              <span className="font-medium">Line status:</span> {lineSt}
+                                              <span className="font-medium">Line status:</span> {lineStatusLabel(lineSt)}
                                               {item.staffDisplayName ? (
                                                 <>
                                                   {" "}
@@ -1879,16 +1880,6 @@ export default function DashboardBookingsPage() {
                         <div className="mt-4 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
                           <p className="text-xs font-semibold text-[#1F2420]">Request handling</p>
                           <div className="mt-2 flex flex-wrap gap-2">
-                            {canConfirm ? (
-                              <button
-                                type="button"
-                                onClick={() => void triggerAction("confirm")}
-                                disabled={actionLoading !== null}
-                                className={primaryActionClass}
-                              >
-                                Confirm
-                              </button>
-                            ) : null}
                             {canReject ? (
                               <button
                                 type="button"
@@ -1970,7 +1961,7 @@ export default function DashboardBookingsPage() {
                                   .filter((slot) => slot.id !== detail.slotId)
                                   .map((slot) => (
                                     <option key={slot.id} value={slot.id}>
-                                      {slot.date} {formatWallClockRange12h(slot.startTime, slot.endTime, " – ")} ({slot.status})
+                                      {formatDayLabel(slot.date)} · {formatWallClockRange12h(slot.startTime, slot.endTime, " – ")}{slot.status !== "AVAILABLE" ? ` (${slot.status.toLowerCase()})` : ""}
                                     </option>
                                   ))}
                               </select>

@@ -26,7 +26,8 @@ import {
   type DashboardQueueEntry,
   type DashboardStaffAvailabilityResponse,
 } from "@rouby/api-client";
-import { cairoTodayYmd, formatDateTimeAmPm } from "@rouby/wall-clock";
+import { cairoTodayYmd, formatDateTimeAmPm, formatDayLabel } from "@rouby/wall-clock";
+import { bookingStatusLabel, lineStatusLabel, queueStatusLabel, sourceLabel } from "@/lib/labels";
 import {
   AlertCircle,
   Building2,
@@ -1037,9 +1038,9 @@ function QueueDetailsDrawer({
 
         <div className="mt-5 space-y-5">
           <DetailSection title="Booking Details">
-            <DetailRow label="Status" value={booking?.status ?? row?.status ?? "—"} />
-            <DetailRow label="Source" value={booking?.source ?? row?.source ?? "—"} />
-            <DetailRow label="Date" value={booking?.slot?.date ?? "—"} />
+            <DetailRow label="Status" value={booking ? bookingStatusLabel(booking.status) : queueStatusLabel(row?.status)} />
+            <DetailRow label="Source" value={sourceLabel(booking?.source ?? row?.source)} />
+            <DetailRow label="Date" value={formatDayLabel(booking?.slot?.date)} />
             <DetailRow
               label={booking?.source === "WALK_IN" ? "Arrived" : "Time"}
               value={
@@ -1073,7 +1074,7 @@ function QueueDetailsDrawer({
                         <p className="mt-0.5 text-xs text-[#7A6A58]">
                           {(item.lineStatus ?? "PENDING") === "CANCELLED"
                             ? `Removed · not charged${item.staffDisplayName ? ` · ${item.staffDisplayName}` : ""}`
-                            : `${item.lineStatus ?? "PENDING"} · ${item.staffDisplayName ?? "No staff assigned"}`}
+                            : `${lineStatusLabel(item.lineStatus)} · ${item.staffDisplayName ?? "No staff yet"}`}
                         </p>
                       </div>
                       <span className="flex shrink-0 items-center gap-2">

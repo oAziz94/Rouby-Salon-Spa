@@ -11,7 +11,7 @@ import {
   type DashboardClient,
   type DashboardSlot,
 } from "@rouby/api-client";
-import { formatWallClockRange12h } from "@rouby/wall-clock";
+import { formatDayLabel, formatWallClockRange12h } from "@rouby/wall-clock";
 import { AlertCircle, Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -387,7 +387,7 @@ export function DashboardCreateBookingDialog({
                 <option value="">{slotsLoading ? "Loading slots…" : slots.length === 0 ? "No slots this day" : "Select slot"}</option>
                 {slots.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.date} · {formatWallClockRange12h(s.startTime, s.endTime)} ({s.status})
+                    {formatDayLabel(s.date)} · {formatWallClockRange12h(s.startTime, s.endTime)}{s.status !== "AVAILABLE" ? ` (${s.status.toLowerCase()})` : ""}
                   </option>
                 ))}
               </select>

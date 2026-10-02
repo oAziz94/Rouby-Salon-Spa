@@ -22,7 +22,8 @@ import {
   type DashboardPaymentListRow,
   type SimplePaymentAggregateStatus,
 } from "@rouby/api-client";
-import { formatDateTimeAmPm, formatWallClockRange12h } from "@rouby/wall-clock";
+import { formatDateTimeAmPm, formatDayLabel, formatWallClock12h, formatWallClockRange12h } from "@rouby/wall-clock";
+import { bookingStatusLabel } from "@/lib/labels";
 import {
   Banknote,
   Building2,
@@ -1051,7 +1052,7 @@ export default function DashboardPaymentsPage() {
                             </span>
                             {r.bookingSlot ? (
                               <p className="mt-1 text-xs text-[#7A6A58]">
-                                {r.bookingSlot.date} · {r.bookingSlot.startTime}
+                                {formatDayLabel(r.bookingSlot.date)} · {formatWallClock12h(r.bookingSlot.startTime)}
                               </p>
                             ) : null}
                           </td>
@@ -1189,7 +1190,7 @@ export default function DashboardPaymentsPage() {
                       <option value="">Choose booking</option>
                       {bookingRows.map((row) => (
                         <option key={row.id} value={row.id}>
-                          {bookingRefFromList(row)} — {row.status}
+                          {bookingRefFromList(row)} — {bookingStatusLabel(row.status)}
                         </option>
                       ))}
                     </select>
@@ -1482,7 +1483,7 @@ export default function DashboardPaymentsPage() {
                     </p>
                     {drawerData.booking.slot ? (
                       <p className="text-sm text-[#7A6A58]">
-                        Slot {drawerData.booking.slot.date}{" "}
+                        {formatDayLabel(drawerData.booking.slot.date)}{" "}
                         {formatWallClockRange12h(drawerData.booking.slot.startTime, drawerData.booking.slot.endTime)}
                       </p>
                     ) : null}

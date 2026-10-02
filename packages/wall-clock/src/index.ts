@@ -66,6 +66,21 @@ export function formatWallClockRange12h(
 }
 
 /** ISO timestamps (e.g. booking `createdAt`) with date + 12-hour time. */
+/** `2026-10-03` -> `Sat 3 Oct 2026`. The calendar day as stored; no timezone shift. */
+export function formatDayLabel(ymd: string | null | undefined, empty = "—"): string {
+  if (!ymd) return empty;
+  if (!/^\d{4}-\d{2}-\d{2}/.test(ymd)) return ymd;
+  const d = new Date(`${ymd.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return ymd;
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(d);
+}
+
 export function formatDateTimeAmPm(iso: string | undefined | null, empty = "—"): string {
   if (iso == null || iso === "") {
     return empty;

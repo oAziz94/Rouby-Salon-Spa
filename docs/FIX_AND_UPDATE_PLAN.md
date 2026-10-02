@@ -2,7 +2,7 @@
 
 Inputs: code audit, Owner walkthrough of 30 pages, Receptionist end-to-end walkthrough on the dev branch, industry research (Fresha, Zenoti, Phorest, Booksy). Business rules: `docs/VISIT_WORKFLOW_SPEC_V2.md` (approved 2 Oct 2026).
 
-Done so far: DST freeze fixed and deployed; `/health/ready`; `next` advisory; dev branch isolation; Receptionist test account; **Batch 1** (4ea8050), **Batch 2** (da61b21), **Batch 2b** (treatment picker), the override-dialog fix (25b2ee1), remove-a-service mid-visit (0ee4977) **Batch 3** (slots, closures, day close), pre-check-in booking edits + line discounts (108d794, 5a83a51) and **Batch 4** (reliability & speed) shipped.
+Done so far: DST freeze fixed and deployed; `/health/ready`; `next` advisory; dev branch isolation; Receptionist test account; **Batch 1** (4ea8050), **Batch 2** (da61b21), **Batch 2b** (treatment picker), the override-dialog fix (25b2ee1), remove-a-service mid-visit (0ee4977) **Batch 3** (slots, closures, day close), pre-check-in booking edits + line discounts (108d794, 5a83a51) **Batch 4** (reliability & speed) and **Batch 5** (clarity pass) shipped.
 
 ## Guiding rules for every batch
 - Backend enforces every rule; UI only reflects it.
@@ -43,6 +43,8 @@ Spec §3a: single search across services/variants/packages/add-ons; large side p
 
 ## Batch 5 — Clarity pass (Medium)
 One date formatter; humanised statuses; single primary action per card/detail (remove duplicate Confirm); labels/aria on icon buttons; calendar copy; receipt from Completed cards.
+
+**As built:** `formatDayLabel` in wall-clock for every stored calendar day (bookings list/detail, queue drawer, invoices, payments, client profile, slot picker); `apps/dashboard/lib/labels.ts` (booking / queue / line / payment status, source, item type) applied to the queue drawer, Bookings page, Overview and Payments; duplicate Confirm removed from the booking drawer's secondary block. Receipt-on-completed and aria labels on icon buttons were already in place.
 
 ## Batch 6 — Security, tests, observability (Medium–Large)
 Audit-log branch scoping; no-branch users fail closed; shorter JWT + refresh; helmet; remaining `npm audit` highs; tests for queue lifecycle per role, booking create/confirm/check-in, payment totals, Cairo dates; structured logs; uptime alert on `/health/ready`; reminder cron single-instance guard; `processingMinutes` on services (processing-time model) and staff "free during processing" on the calendar.

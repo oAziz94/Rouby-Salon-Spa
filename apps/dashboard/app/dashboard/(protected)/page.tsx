@@ -31,6 +31,7 @@ import {
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
+import { bookingStatusLabel, paymentStatusLabel } from "@/lib/labels";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState } from "react";
 import { DashboardCreateBookingDialog } from "@/components/dashboard-create-booking-dialog";
@@ -656,10 +657,10 @@ export default function DashboardHomePage() {
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-col sm:items-end">
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-[0.65rem] font-medium ${statusChipClass(row.status)}`}>
-                        {row.status}
+                        {bookingStatusLabel(row.status)}
                       </span>
                       {row.paymentStatus ? (
-                        <span className="text-[0.65rem] text-[#7A6A58]">Pay: {row.paymentStatus}</span>
+                        <span className="text-[0.65rem] text-[#7A6A58]">Pay: {paymentStatusLabel(row.paymentStatus)}</span>
                       ) : null}
                       <span className="text-[0.65rem] text-[#9A8B7A]">{sourceLabel(row.source)}</span>
                     </div>

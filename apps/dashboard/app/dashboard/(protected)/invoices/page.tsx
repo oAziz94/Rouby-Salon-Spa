@@ -16,7 +16,7 @@ import {
   type DashboardInvoicePaymentStatus,
   type DashboardListMeta,
 } from "@rouby/api-client";
-import { formatDateTimeAmPm, formatWallClock12h, formatWallClockRange12h } from "@rouby/wall-clock";
+import { formatDateTimeAmPm, formatDayLabel, formatWallClock12h, formatWallClockRange12h } from "@rouby/wall-clock";
 import {
   Banknote,
   Calendar,
@@ -960,7 +960,7 @@ export default function DashboardInvoicesPage() {
                                   {b.slot?.date ? (
                                     <>
                                       {" "}
-                                      · {b.slot.date} {b.slot.startTime ? formatWallClock12h(b.slot.startTime) : ""}
+                                      · {formatDayLabel(b.slot.date)} {b.slot.startTime ? formatWallClock12h(b.slot.startTime) : ""}
                                     </>
                                   ) : null}
                                   {" · "}
@@ -1309,7 +1309,7 @@ export default function DashboardInvoicesPage() {
                               <dt className="text-xs text-[#7A6A58]">Slot</dt>
                               <dd>
                                 {detail.booking.slot
-                                  ? `${detail.booking.source === "WALK_IN" ? "Walk-in · " : ""}${detail.booking.slot.date} · ${formatWallClockRange12h(detail.booking.slot.startTime, detail.booking.slot.endTime)}`
+                                  ? `${detail.booking.source === "WALK_IN" ? "Walk-in · " : ""}${formatDayLabel(detail.booking.slot.date)} · ${formatWallClockRange12h(detail.booking.slot.startTime, detail.booking.slot.endTime)}`
                                   : "—"}
                               </dd>
                             </div>
