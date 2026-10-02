@@ -129,6 +129,7 @@ export class StaffServicesRevenueReportService {
       id: string;
       priceSnapshot: Prisma.Decimal;
       quantity: number;
+      discountAmount?: Prisma.Decimal;
     },
     invoice: {
       status: InvoiceStatus;
@@ -151,7 +152,12 @@ export class StaffServicesRevenueReportService {
     paymentStatus: PaymentBucket | null;
     excludedReason: 'CANCELLED_INVOICE' | null;
   } {
-    const gross = money(item.priceSnapshot) * item.quantity;
+    const grossBeforeLineDiscount = money(item.priceSnapshot) * item.quantity;
+    const gross = Math.max(
+      0,
+      grossBeforeLineDiscount -
+        (item.discountAmount ? money(item.discountAmount) : 0),
+    );
 
     if (!invoice) {
       return {

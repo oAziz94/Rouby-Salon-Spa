@@ -435,7 +435,11 @@ export class ReportsService {
       for (const line of invoice.lines) {
         const key = `${line.itemType}:${line.nameSnapshot}`;
         const gross = money(line.priceSnapshot) * line.quantity;
-        const proratedDiscount = (gross / invoiceSubtotal) * invoiceDiscount;
+        // Line discount first; the receipt discount is spread over the net lines (= subtotal).
+        const lineDiscount = Math.min(gross, money(line.discountAmount));
+        const proratedDiscount =
+          ((gross - lineDiscount) / invoiceSubtotal) * invoiceDiscount +
+          lineDiscount;
         const row = salesItemMap.get(key) ?? {
           itemName: line.nameSnapshot,
           itemType:
@@ -1125,7 +1129,7 @@ export class ReportsService {
     const branchIdForMeta = this.reportBranchMeta(query, bf);
     const bookingWhere = this.bookingWhere(range, bf);
 
-    const [bookings, paymentMethodRows, paymentsAgg, invoiceAgg] =
+    const [bookings, paymentMethodRows, paymentsAgg, invoiceAgg, lineDiscAgg] =
       await Promise.all([
         this.prisma.booking.findMany({
           where: bookingWhere,
@@ -1165,6 +1169,17 @@ export class ReportsService {
             discountAmount: true,
           },
         }),
+        this.prisma.invoiceLine.aggregate({
+          where: {
+            invoice: {
+              is: {
+                createdAt: { gte: range.from, lte: range.to },
+                ...(Object.keys(bf).length ? { booking: { is: bf } } : {}),
+              },
+            },
+          },
+          _sum: { discountAmount: true },
+        }),
       ]);
 
     const revenueByDay = new Map<string, number>();
@@ -1190,7 +1205,10 @@ export class ReportsService {
       ),
       invoiceTotals: Number(invoiceAgg._sum.totalAmount?.toString() ?? '0'),
       vatAmount: Number(invoiceAgg._sum.vatAmount?.toString() ?? '0'),
-      discounts: Number(invoiceAgg._sum.discountAmount?.toString() ?? '0'),
+      // Receipt-level discounts plus discounts given on single lines.
+      discounts:
+        Number(invoiceAgg._sum.discountAmount?.toString() ?? '0') +
+        Number(lineDiscAgg._sum.discountAmount?.toString() ?? '0'),
     };
   }
 
