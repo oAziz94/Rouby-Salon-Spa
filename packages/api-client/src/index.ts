@@ -508,9 +508,24 @@ export type DashboardAuditLogTarget = {
 };
 
 export type DashboardAuditLogChange = {
+  /** Human field name, e.g. "Payment method". */
   field: string;
-  before: unknown;
-  after: unknown;
+  /** Formatted for reading ("EGP 300.00", "Yes"); empty when there was no value. */
+  before: string;
+  after: string;
+};
+
+export type DashboardAuditLogCategory =
+  | "money"
+  | "overrides"
+  | "bookings"
+  | "staff_users"
+  | "settings";
+
+export type DashboardAuditLogLinks = {
+  bookingId: string | null;
+  clientId: string | null;
+  invoiceId: string | null;
 };
 
 export type DashboardAuditLogItem = {
@@ -523,7 +538,15 @@ export type DashboardAuditLogItem = {
   branch?: DashboardAuditLogBranch | null;
   actor: DashboardAuditLogActor;
   severity: DashboardAuditLogSeverity;
+  /** Short plain-language name, e.g. "Payment voided". */
+  title: string;
+  /** One sentence: who did what, to whom, with amounts and the reason. */
   summary: string;
+  category: DashboardAuditLogCategory;
+  /** A rule was bypassed (shown as an "Override" tag). */
+  isOverride: boolean;
+  reason: string | null;
+  links: DashboardAuditLogLinks;
   previousValue?: unknown;
   newValue?: unknown;
   metadata?: unknown;
@@ -541,6 +564,11 @@ export type DashboardAuditLogsQuery = {
   branchId?: string;
   severity?: DashboardAuditLogSeverity;
   entityId?: string;
+  category?: DashboardAuditLogCategory;
+  overridesOnly?: boolean;
+  bookingId?: string;
+  clientId?: string;
+  /** YYYY-MM-DD (a Cairo calendar day) or an ISO instant. */
   dateFrom?: string;
   dateTo?: string;
   page?: number;
@@ -556,9 +584,13 @@ export type DashboardAuditLogDetail = DashboardAuditLogItem & {
   changes: DashboardAuditLogChange[];
   technical: {
     auditLogId: string;
+    action: string;
     entityId: string | null;
     userId: string | null;
     branchId: string | null;
+    bookingId: string | null;
+    clientId: string | null;
+    invoiceId: string | null;
   };
 };
 
@@ -5268,6 +5300,10 @@ export async function getDashboardAuditLogs(
       branchId: query.branchId,
       severity: query.severity,
       entityId: query.entityId,
+      category: query.category,
+      overridesOnly: query.overridesOnly ? "true" : undefined,
+      bookingId: query.bookingId,
+      clientId: query.clientId,
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
       page: query.page,
