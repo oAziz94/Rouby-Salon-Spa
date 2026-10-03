@@ -75,6 +75,15 @@ model SystemSettings {
   discountLimitPercentWithoutApproval Decimal @default(15) @map("discount_limit_percent_without_approval") @db.Decimal(5, 2)
   /// Day close with open visits / unpaid invoices: ALERT = allowed with a carry-over reason, BLOCK = refused.
   dayCloseOpenItemsPolicy DayCloseOpenItemsPolicy @default(ALERT) @map("day_close_open_items_policy")
+  /// Loyalty program (price-list card): points per EGP paid, redemption block, visit reward.
+  loyaltyEnabled          Boolean   @default(false) @map("loyalty_enabled")
+  loyaltyPointsPerEgp     Decimal   @default(1) @map("loyalty_points_per_egp") @db.Decimal(8, 4)
+  loyaltyRedeemPoints     Int       @default(1000) @map("loyalty_redeem_points")
+  loyaltyRedeemValue      Decimal   @default(50) @map("loyalty_redeem_value") @db.Decimal(12, 2)
+  loyaltyVisitsForReward  Int       @default(5) @map("loyalty_visits_for_reward")
+  loyaltyRewardServiceId  String?   @map("loyalty_reward_service_id") @db.Uuid
+  /// Payments and visits count from this moment (set when the program is first enabled).
+  loyaltyStartedAt        DateTime? @map("loyalty_started_at")
   /// Global defaults for dashboard "generate week slots" (JSON: schemaVersion, workingDays, times, etc.).
   slotGenerationDefaults  Json?                @map("slot_generation_defaults")
   updatedByUserId         String?              @map("updated_by_user_id") @db.Uuid
@@ -632,6 +641,7 @@ model Client {
 
   @@unique([phone])
   @@map("clients")
+  loyaltyTransactions LoyaltyTransaction[]
 }
 
 enum ClientOtpPurpose {
@@ -969,6 +979,36 @@ enum PaymentMethod {
   INSTAPAY
   MOBILE_WALLET
   BANK_TRANSFER
+  /// Loyalty redemption (points or the free-service reward). Created only by the loyalty service.
+  LOYALTY
+}
+
+enum LoyaltyTransactionType {
+  REDEEM_POINTS
+  REWARD
+  ADJUST
+}
+
+/// Loyalty ledger. Earned points are *computed* from paid payments; only redemptions, visit
+/// rewards used and manual adjustments are stored. A redemption counts while its payment is PAID.
+model LoyaltyTransaction {
+  id              String                 @id @default(uuid()) @db.Uuid
+  clientId        String                 @map("client_id") @db.Uuid
+  type            LoyaltyTransactionType
+  /// Signed: negative for REDEEM_POINTS, +/- for ADJUST, 0 for REWARD.
+  points          Int
+  amountEgp       Decimal?               @map("amount_egp") @db.Decimal(12, 2)
+  paymentId       String?                @unique @map("payment_id") @db.Uuid
+  bookingId       String?                @map("booking_id") @db.Uuid
+  note            String?
+  createdByUserId String?                @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at")
+
+  client  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+  @@map("loyalty_transactions")
 }
 
 enum PaymentStatus {
@@ -1012,6 +1052,7 @@ model Payment {
   @@index([bookingId])
   @@index([clientId])
   @@map("payments")
+  loyaltyTransaction LoyaltyTransaction?
 }
 
 model Invoice {

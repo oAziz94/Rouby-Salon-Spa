@@ -28,6 +28,7 @@ import {
 } from "@rouby/api-client";
 import { cairoTodayYmd, formatDateTimeAmPm, formatDayLabel } from "@rouby/wall-clock";
 import { bookingStatusLabel, lineStatusLabel, queueStatusLabel, sourceLabel } from "@/lib/labels";
+import { LoyaltyCheckoutCard } from "@/components/loyalty-checkout-card";
 import {
   AlertCircle,
   Building2,
@@ -1345,6 +1346,8 @@ export default function DashboardQueuePage() {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentRow, setPaymentRow] = useState<DashboardQueueEntry | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
+  // Remaining after a loyalty redemption made inside the dialog (null = use the row's value).
+  const [paymentRemaining, setPaymentRemaining] = useState<number | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentNotes, setPaymentNotes] = useState("");
@@ -1421,6 +1424,7 @@ export default function DashboardQueuePage() {
   function openCollectPaymentModal(row: DashboardQueueEntry) {
     setPaymentRow(row);
     setPaymentAmount(String(row.invoiceSummary?.remainingAmount ?? 0));
+    setPaymentRemaining(null);
     setPaymentMethod("CASH");
     setPaymentReference("");
     setPaymentNotes("");
@@ -2985,8 +2989,24 @@ export default function DashboardQueuePage() {
             <div className="w-full max-w-md rounded-3xl border border-[#E8E0D4] bg-[#FFFCF7] p-6 shadow-2xl">
               <h2 className="text-lg font-semibold text-[#062A2D]">Collect payment</h2>
               <p className="mt-1 text-xs text-[#7A6A58]">
-                Remaining amount: {formatEGP(paymentRow.invoiceSummary?.remainingAmount ?? 0)}
+                Remaining amount: {formatEGP(paymentRemaining ?? paymentRow.invoiceSummary?.remainingAmount ?? 0)}
               </p>
+              {token ? (
+                <LoyaltyCheckoutCard
+                  token={token}
+                  queueEntryId={paymentRow.id}
+                  canRedeem={hasPermission("loyalty.redeem")}
+                  onRedeemed={(remaining) => {
+                    setPaymentRemaining(remaining);
+                    setPaymentAmount(String(remaining));
+                    void loadQueue();
+                    if (remaining <= 0) {
+                      setPaymentOpen(false);
+                      setPaymentRow(null);
+                    }
+                  }}
+                />
+              ) : null}
               <div className="mt-4 space-y-3">
                 <label className="block text-xs font-medium text-[#7A6A58]">
                   Amount

@@ -429,6 +429,7 @@ export default function DailyClosingPage() {
                 {[
                   ["Gross sales", data.salesSummary.grossSales],
                   ["Discounts given", data.salesSummary.totalDiscounts ?? 0],
+                  ["Paid with loyalty", data.salesSummary.loyaltyRedeemed ?? 0],
                   ["Total collected", data.salesSummary.totalCollected],
                   ["Outstanding", data.salesSummary.outstandingBalance],
                   ["Invoices", data.invoiceSummary.finalizedCount],

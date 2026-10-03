@@ -113,6 +113,12 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
         permission: "clients.read",
         icon: Users,
       },
+      {
+        label: "Loyalty",
+        href: "/dashboard/loyalty",
+        permission: "loyalty.read",
+        icon: Star,
+      },
     ],
   },
   {

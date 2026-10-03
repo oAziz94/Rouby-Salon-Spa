@@ -327,7 +327,16 @@ export class DailyClosingService {
       BANK_TRANSFER: { amount: 0, count: 0 },
       OTHER: { amount: 0, count: 0 },
     };
+    // Loyalty redemptions settle invoices but are not money received: kept out of the
+    // collected total and the method breakdown, reported on their own line.
+    let loyaltyRedeemed = 0;
+    let loyaltyCount = 0;
     for (const g of paymentMethodGroups) {
+      if (g.method === 'LOYALTY') {
+        loyaltyRedeemed += num(g._sum.amount);
+        loyaltyCount += g._count;
+        continue;
+      }
       const key = g.method in breakdown ? g.method : 'OTHER';
       breakdown[key].amount += num(g._sum.amount);
       breakdown[key].count += g._count;
@@ -341,7 +350,7 @@ export class DailyClosingService {
       num(lineDiscountAgg._sum.discountAmount);
     const totalPaidOnInvoices = num(invoiceAgg._sum.paidAmount);
     const totalRemainingOnInvoices = num(invoiceAgg._sum.remainingAmount);
-    const totalCollected = num(paymentTotalAgg._sum.amount);
+    const totalCollected = num(paymentTotalAgg._sum.amount) - loyaltyRedeemed;
     const outstandingBalance = num(outstandingAgg._sum.remainingAmount);
 
     let drawerBlock: Record<string, unknown> = { state: 'NONE' };
@@ -399,7 +408,8 @@ export class DailyClosingService {
       partiallyPaidInvoiceCount: partialInvoiceAgg,
       unpaidInvoiceCount: unpaidInvoiceAgg,
       outstandingBalance,
-      paymentCount: paymentTotalAgg._count,
+      paymentCount: paymentTotalAgg._count - loyaltyCount,
+      loyaltyRedeemed,
       paymentBreakdown: breakdown,
       cashDrawer: drawerBlock,
       bookingCount: bookingTotal,
@@ -532,6 +542,7 @@ export class DailyClosingService {
       salesSummary: {
         grossSales: snapshot.grossSales,
         totalDiscounts: snapshot.totalDiscounts,
+        loyaltyRedeemed: snapshot.loyaltyRedeemed,
         totalCollected: snapshot.totalCollected,
         outstandingBalance: snapshot.outstandingBalance,
       },

@@ -5542,6 +5542,8 @@ export type DashboardDailyClosingSummaryResponse = {
     grossSales: number;
     /** Receipt + single-line discounts on the day's invoices. */
     totalDiscounts?: number;
+    /** Invoice amounts settled with loyalty points / the visit reward (not money received). */
+    loyaltyRedeemed?: number;
     totalCollected: number;
     outstandingBalance: number;
   };
@@ -5910,4 +5912,132 @@ export async function deleteDashboardClosure(
     `/dashboard/branches/${branchId}/closures/${closureId}`,
     "DELETE",
   );
+}
+
+// ---------------------------------------------------------------------------
+// Loyalty program
+// ---------------------------------------------------------------------------
+
+export type DashboardLoyaltyRules = {
+  enabled: boolean;
+  pointsPerEgp: number;
+  redeemPoints: number;
+  redeemValue: number;
+  visitsForReward: number;
+  rewardServiceId: string | null;
+  rewardServiceName: string | null;
+  startedAt: string | null;
+};
+
+export type DashboardLoyaltySummary = {
+  enabled: boolean;
+  clientId: string;
+  points: number;
+  earnedPoints: number;
+  redeemedPoints: number;
+  adjustedPoints: number;
+  redeemBlockPoints: number;
+  redeemBlockValue: number;
+  redeemableBlocks: number;
+  visits: number;
+  visitsForReward: number;
+  rewardsEarned: number;
+  rewardsUsed: number;
+  rewardsAvailable: number;
+  visitsToNextReward: number;
+  rewardServiceId: string | null;
+  rewardServiceName: string | null;
+};
+
+export type DashboardLoyaltyVisitSummary = DashboardLoyaltySummary & {
+  invoiceRemaining: number | null;
+  rewardLineOnVisit: boolean;
+  alreadyRedeemedOnVisit: number;
+};
+
+export type DashboardLoyaltyClientRow = DashboardLoyaltySummary & {
+  fullName: string;
+  phone: string;
+};
+
+export type DashboardLoyaltyClientDetail = DashboardLoyaltySummary & {
+  client: { id: string; fullName: string };
+  history: Array<{
+    id: string;
+    type: "REDEEM_POINTS" | "REWARD" | "ADJUST";
+    points: number;
+    amountEgp: number | null;
+    note: string | null;
+    createdAt: string;
+    reversed: boolean;
+  }>;
+};
+
+async function loyaltyGet<T>(accessToken: string, path: string): Promise<T> {
+  const res = await apiFetch(apiUrl(path), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw await parseApiError(res);
+  return (await res.json()) as T;
+}
+
+export function getDashboardLoyaltySettings(accessToken: string): Promise<DashboardLoyaltyRules> {
+  return loyaltyGet(accessToken, "/dashboard/loyalty/settings");
+}
+
+export function updateDashboardLoyaltySettings(
+  accessToken: string,
+  payload: Partial<{
+    enabled: boolean;
+    pointsPerEgp: number;
+    redeemPoints: number;
+    redeemValue: number;
+    visitsForReward: number;
+    rewardServiceId: string | null;
+  }>,
+): Promise<DashboardLoyaltyRules> {
+  return jsonMutation(accessToken, "/dashboard/loyalty/settings", "PATCH", payload);
+}
+
+export function getDashboardLoyaltyClients(
+  accessToken: string,
+): Promise<{ rules: DashboardLoyaltyRules; data: DashboardLoyaltyClientRow[] }> {
+  return loyaltyGet(accessToken, "/dashboard/loyalty/clients");
+}
+
+export function getDashboardLoyaltyClient(
+  accessToken: string,
+  clientId: string,
+): Promise<DashboardLoyaltyClientDetail> {
+  return loyaltyGet(accessToken, `/dashboard/loyalty/clients/${clientId}`);
+}
+
+export function adjustDashboardLoyaltyPoints(
+  accessToken: string,
+  clientId: string,
+  payload: { points: number; note: string },
+): Promise<DashboardLoyaltySummary> {
+  return jsonMutation(accessToken, `/dashboard/loyalty/clients/${clientId}/adjust`, "POST", payload);
+}
+
+export function getDashboardQueueLoyalty(
+  accessToken: string,
+  queueEntryId: string,
+): Promise<DashboardLoyaltyVisitSummary> {
+  return loyaltyGet(accessToken, `/dashboard/queue/${queueEntryId}/loyalty`);
+}
+
+export function redeemDashboardQueueLoyaltyPoints(
+  accessToken: string,
+  queueEntryId: string,
+  blocks = 1,
+): Promise<{ redeemedPoints: number; amount: number; loyalty: DashboardLoyaltySummary }> {
+  return jsonMutation(accessToken, `/dashboard/queue/${queueEntryId}/loyalty/redeem-points`, "POST", { blocks });
+}
+
+export function redeemDashboardQueueLoyaltyReward(
+  accessToken: string,
+  queueEntryId: string,
+): Promise<{ amount: number; loyalty: DashboardLoyaltySummary }> {
+  return jsonMutation(accessToken, `/dashboard/queue/${queueEntryId}/loyalty/redeem-reward`, "POST");
 }

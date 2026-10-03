@@ -18,6 +18,7 @@ import { ContentModule } from './content/content.module';
 import { AuditModule } from './audit/audit.module';
 import { ReportsModule } from './reports/reports.module';
 import { ClientsModule } from './clients/clients.module';
+import { LoyaltyModule } from './loyalty/loyalty.module';
 import { QueueModule } from './queue/queue.module';
 import { MediaModule } from './media/media.module';
 import { FinanceModule } from './finance/finance.module';
@@ -49,6 +50,7 @@ import { StaffModule } from './staff/staff.module';
     ReportsModule,
     ClientsModule,
     QueueModule,
+    LoyaltyModule,
     MediaModule,
     FinanceModule,
     UsersModule,

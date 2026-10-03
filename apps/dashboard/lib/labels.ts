@@ -86,3 +86,16 @@ const ITEM_TYPE: Record<string, string> = {
 export function itemTypeLabel(code: string | null | undefined): string {
   return (code && ITEM_TYPE[code]) || fallback(code);
 }
+
+const PAYMENT_METHOD: Record<string, string> = {
+  CASH: "Cash",
+  CARD: "Card",
+  INSTAPAY: "InstaPay",
+  MOBILE_WALLET: "Mobile wallet",
+  BANK_TRANSFER: "Bank transfer",
+  LOYALTY: "Loyalty",
+};
+
+export function paymentMethodLabel(code: string | null | undefined): string {
+  return (code && PAYMENT_METHOD[code]) || fallback(code);
+}

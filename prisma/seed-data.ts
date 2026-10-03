@@ -367,6 +367,9 @@ export const PERMISSION_SEED_ROWS: Array<{
 
   { key: "reviews.manage", module: "reviews", description: "Full testimonial management (legacy bundle)" },
   { key: "reviews.read", module: "reviews", description: "View testimonials" },
+  { key: "loyalty.read", module: "loyalty", description: "See client loyalty points and rewards" },
+  { key: "loyalty.redeem", module: "loyalty", description: "Redeem points or the visit reward at checkout" },
+  { key: "loyalty.manage", module: "loyalty", description: "Adjust points and change loyalty rules" },
   { key: "reviews.create", module: "reviews", description: "Create testimonials" },
   { key: "reviews.update", module: "reviews", description: "Edit testimonials and reorder" },
   { key: "reviews.deactivate", module: "reviews", description: "Activate or deactivate testimonials" },
@@ -479,6 +482,9 @@ export const ADMIN_PERMISSION_KEYS = ALL_KEYS.filter(
 
 /** Branch Manager: branch-scoped operations per RBAC_MATRIX (Full/Branch/Read as documented). */
 export const BRANCH_MANAGER_PERMISSION_KEYS = [
+  "loyalty.read",
+  "loyalty.redeem",
+  "loyalty.manage",
   "overview.read",
   "bookings.read",
   "bookings.create",
@@ -561,6 +567,8 @@ export const BRANCH_MANAGER_PERMISSION_KEYS = [
 
 /** Receptionist: daily ops; no client create/update; no sensitive notes; no discount; schedules read only. */
 export const RECEPTIONIST_PERMISSION_KEYS = [
+  "loyalty.read",
+  "loyalty.redeem",
   "overview.read",
   "bookings.read",
   "bookings.create",
