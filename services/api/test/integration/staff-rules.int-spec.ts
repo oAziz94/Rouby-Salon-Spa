@@ -56,7 +56,11 @@ describe('staff rules on booking and service start', () => {
     expect(otp.status).toBeLessThan(300);
     const verified = await api.http
       .post('/api/v1/client/auth/otp/verify')
-      .send({ phone, code: otp.body.devCode, fullName: 'Website Guest' });
+      .send({
+        phone,
+        code: (otp.body as { devCode: string }).devCode,
+        fullName: 'Website Guest',
+      });
     expect(verified.status).toBeLessThan(300);
     const clientToken = verified.body.accessToken as string;
     expect(clientToken).toBeTruthy();
