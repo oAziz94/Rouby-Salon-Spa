@@ -26,6 +26,7 @@ import { cairoTodayYmd, formatDateTimeAmPm, formatDayLabel, formatWallClock12h, 
 import {
   AlertCircle,
   CalendarClock,
+  ChevronDown,
   ChevronRight,
   ClipboardList,
   ListTodo,
@@ -42,7 +43,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
-import { itemTypeLabel, lineStatusLabel, slotStatusLabel, sourceLabel } from "@/lib/labels";
+import { BookingActionBar, type DrawerAction, type DrawerPanel } from "@/components/bookings/booking-action-bar";
+import { bookingStatusLabel, itemTypeLabel, lineStatusLabel, slotStatusLabel, sourceLabel } from "@/lib/labels";
 import {
   DashboardServiceVariantLinesBlock,
   type DashboardServiceVariantLinesBlockHandle,
@@ -95,18 +97,7 @@ function statusBadge(status: string): string {
 }
 
 function statusLabel(status: string): string {
-  const map: Record<string, string> = {
-    PENDING: "Pending",
-    CONFIRMED: "Confirmed",
-    RESCHEDULED: "Rescheduled",
-    ARRIVED: "Arrived",
-    IN_PROGRESS: "In progress",
-    COMPLETED: "Completed",
-    CANCELLED: "Cancelled",
-    REJECTED: "Rejected",
-    NO_SHOW: "No-show",
-  };
-  return map[status] ?? status.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+  return bookingStatusLabel(status);
 }
 
 function toDateInput(value: Date): string {
@@ -227,25 +218,6 @@ function canDirectlyChangeBooking(status: string): boolean {
   return !isTerminalBookingStatus(status) && status !== "IN_PROGRESS";
 }
 
-type DrawerAction =
-  | "confirm"
-  | "reject"
-  | "reschedule"
-  | "confirm-reschedule"
-  | "cancel"
-  | "mark-arrived"
-  | "mark-in-progress"
-  | "mark-no-show"
-  | "recalculate-pricing"
-  | "discount";
-
-const primaryActionClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#062A2D] px-3.5 py-2 text-xs font-semibold text-[#F6F2EA] shadow-sm transition hover:bg-[#0A3F35] disabled:cursor-not-allowed disabled:opacity-50";
-const secondaryActionClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#E8E0D4] bg-white px-3.5 py-2 text-xs font-semibold text-[#1F2420] shadow-sm transition hover:border-[#B9974A]/45 hover:text-[#062A2D] disabled:cursor-not-allowed disabled:opacity-50";
-const dangerOutlineClass =
-  "inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#E7B9A4]/90 bg-[#FFF9F6] px-3.5 py-2 text-xs font-semibold text-[#8B4428] shadow-sm transition hover:bg-[#FFF1EC] disabled:cursor-not-allowed disabled:opacity-50";
-
 /** True once the appointment's slot start (Cairo wall clock) is now or in the past. */
 function slotStartHasPassed(slot?: { date?: string | null; startTime?: string | null } | null): boolean {
   if (!slot?.date || !slot.startTime) return true;
@@ -290,8 +262,11 @@ export default function DashboardBookingsPage() {
   const [detail, setDetail] = useState<DashboardBookingDetail | null>(null);
   const [slotsForReschedule, setSlotsForReschedule] = useState<DashboardSlot[]>([]);
   const [rescheduleSlotId, setRescheduleSlotId] = useState<string>("");
+  const [rescheduleDate, setRescheduleDate] = useState<string>("");
   const [discountAmount, setDiscountAmount] = useState<string>("");
   const [discountReason, setDiscountReason] = useState<string>("");
+  const [drawerPanel, setDrawerPanel] = useState<DrawerPanel>(null);
+  const [pricingOpen, setPricingOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState<DrawerAction | null>(null);
   const [actionError, setActionError] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -339,10 +314,11 @@ export default function DashboardBookingsPage() {
   const canDiscount = hasPermission("bookings.discount.apply");
   const canReadBranches = hasPermission("branches.read");
   const canCreateBooking = hasPermission("bookings.create");
-  const canStartServiceLine = hasPermission("bookingServiceItems.start");
+  const canQueueRead = hasPermission("queue.read");
+  const canReadAudit = hasPermission("audit.read");
+  const canStartServiceLine =hasPermission("bookingServiceItems.start");
   const canCompleteServiceLine = hasPermission("bookingServiceItems.complete");
 
-  const drawerCanRequestDecision = detail?.status === "PENDING";
   // Spec v2 §1: Arrived / In progress / Completed are derived from the visit (check-in, start, close).
   // Spec v2 §6: No-show is offered only once the appointment start time has passed.
   const drawerCanMarkNoShow = detail
@@ -355,12 +331,8 @@ export default function DashboardBookingsPage() {
     canQueueManage &&
     canProgress &&
     ["CONFIRMED", "RESCHEDULED", "ARRIVED"].includes(detail.status);
-  const drawerHasPrimaryActions =
-    detail != null &&
-    ((canConfirm && drawerCanRequestDecision) ||
-      (canReject && drawerCanRequestDecision) ||
-      (canProgress && drawerCanMarkNoShow) ||
-      drawerCanQueueCheckIn);
+  // Users who can reschedule/cancel directly do not need the approval-request form for that type.
+  const showRequestChange = canUpdate && (!canReschedule || !canCancel);
 
   const branchNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -382,6 +354,24 @@ export default function DashboardBookingsPage() {
     return { count: rows.length, pageTotal, byStatus };
   }, [rows]);
 
+  /** Reschedule panel: load the slots of another day. */
+  async function changeRescheduleDate(nextDate: string) {
+    if (!token || !detail || !nextDate) return;
+    setRescheduleDate(nextDate);
+    setRescheduleSlotId("");
+    try {
+      const slotsResponse = await getDashboardSlots(token, detail.branchId, {
+        dateFrom: nextDate,
+        dateTo: nextDate,
+        page: 1,
+        pageSize: 100,
+      });
+      setSlotsForReschedule(slotsResponse.data);
+    } catch {
+      setSlotsForReschedule([]);
+    }
+  }
+
   function openDrawer(bookingId: string) {
     setDrawerOpen(true);
     setSelectedBookingId(bookingId);
@@ -391,6 +381,8 @@ export default function DashboardBookingsPage() {
   function closeDrawer() {
     setScheduleReload((n) => n + 1);
     setDrawerOpen(false);
+    setDrawerPanel(null);
+    setPricingOpen(false);
     setSelectedBookingId("");
     setDetail(null);
     setDetailError("");
@@ -493,6 +485,7 @@ export default function DashboardBookingsPage() {
       setStaffChangeSlotId("");
       setStaffChangeError("");
       setStaffChangeSuccess("");
+      setRescheduleDate(slotDate);
       if (canReschedule) {
         try {
           const slotsResponse = await getDashboardSlots(token, response.branchId, {
@@ -917,6 +910,7 @@ export default function DashboardBookingsPage() {
       } else {
         await postDashboardBookingAction(token, selectedBookingId, action);
       }
+      setDrawerPanel(null);
       await Promise.all([loadList(), loadDetail(selectedBookingId)]);
     } catch (requestError) {
       setActionError(formatApiError(requestError));
@@ -1458,48 +1452,10 @@ export default function DashboardBookingsPage() {
                         <p className="mt-1">Contact the client to reschedule, or confirm anyway.</p>
                       </div>
                     ) : null}
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#F0EBE3] pt-3">
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A6A58]">Remaining</p>
-                        <p className="text-base font-semibold tabular-nums text-[#8B4428]">
-                          {formatEGP(detail.remainingAmount)}
-                        </p>
-                      </div>
-                      {drawerHasPrimaryActions ? (
-                        <div className="flex flex-wrap justify-end gap-2">
-                          {canConfirm && drawerCanRequestDecision ? (
-                            <button
-                              type="button"
-                              onClick={() => void triggerAction("confirm")}
-                              disabled={actionLoading !== null}
-                              className={primaryActionClass}
-                            >
-                              Confirm
-                            </button>
-                          ) : null}
-                          {drawerCanQueueCheckIn ? (
-                            <button
-                              type="button"
-                              onClick={() => void checkInToQueue()}
-                              disabled={checkInLoading || actionLoading !== null || Boolean(detail.activeQueueEntryId)}
-                              className={secondaryActionClass}
-                            >
-                              {checkInLoading ? "Checking in..." : detail.activeQueueEntryId ? "In queue" : "Check in"}
-                            </button>
-                          ) : null}
-                          {canReject && drawerCanRequestDecision ? (
-                            <button
-                              type="button"
-                              onClick={() => void triggerAction("reject")}
-                              disabled={actionLoading !== null}
-                              className={dangerOutlineClass}
-                            >
-                              Reject
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
+                    <p className="mt-3 border-t border-[#F0EBE3] pt-2 text-[11px] text-[#7A6A58]">
+                      {detail.client?.email ? <>{detail.client.email} · </> : null}
+                      Created {formatDateTimeAmPm(detail.createdAt)} · Updated {formatDateTimeAmPm(detail.updatedAt)}
+                    </p>
                   </div>
                 ) : null}
               </div>
@@ -1520,35 +1476,6 @@ export default function DashboardBookingsPage() {
 
                 {detail ? (
                   <div className="space-y-4">
-                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
-                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
-                        <UserRound className="h-4 w-4 text-[#B9974A]" aria-hidden />
-                        Booking summary
-                      </div>
-                      <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-                        <div className="min-w-0 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
-                          <p className="text-xs font-semibold text-[#7A6A58]">Client</p>
-                          <p className="mt-1 truncate font-semibold text-[#1F2420]">
-                            {detail.client?.fullName ?? "—"}
-                          </p>
-                          <p className="mt-1 truncate text-[#5E574C]">{detail.client?.phone ?? "Phone: —"}</p>
-                          {detail.client?.email ? (
-                            <p className="mt-1 truncate text-xs text-[#7A6A58]">{detail.client.email}</p>
-                          ) : null}
-                        </div>
-                        <div className="min-w-0 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
-                          <p className="text-xs font-semibold text-[#7A6A58]">Appointment</p>
-                          <p className="mt-1 font-semibold text-[#1F2420]">{formatAppointmentFromDetail(detail)}</p>
-                          <p className="mt-1 truncate text-[#5E574C]">
-                            {branchNameById.get(detail.branchId) ?? detail.branchId}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="mt-3 text-xs text-[#7A6A58]">
-                        Created {formatDateTimeAmPm(detail.createdAt)} · Updated{" "}
-                        {formatDateTimeAmPm(detail.updatedAt)}
-                      </p>
-                    </section>
 
                     <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1768,52 +1695,80 @@ export default function DashboardBookingsPage() {
                     </section>
 
                     <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
-                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
-                        <Receipt className="h-4 w-4 text-[#B9974A]" aria-hidden />
-                        Pricing summary
+                      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Receipt className="h-4 w-4 shrink-0 text-[#B9974A]" aria-hidden />
+                          <p className="text-sm text-[#1F2420]">
+                            <span className="text-[#7A6A58]">Total</span>{" "}
+                            <span className="font-semibold tabular-nums">{formatEGP(detail.totalAmount)}</span>
+                            <span className="text-[#B5A896]"> · </span>
+                            <span className="text-[#7A6A58]">Paid</span>{" "}
+                            <span className="font-semibold tabular-nums text-[#0E342B]">{formatEGP(detail.paidAmount)}</span>
+                            <span className="text-[#B5A896]"> · </span>
+                            <span className="text-[#7A6A58]">Remaining</span>{" "}
+                            <span className="font-semibold tabular-nums text-[#8B4428]">
+                              {formatEGP(detail.remainingAmount)}
+                            </span>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPricingOpen((open) => !open)}
+                          aria-expanded={pricingOpen}
+                          aria-controls="booking-pricing-details"
+                          className="inline-flex items-center gap-1 rounded-lg border border-[#E8E0D4] bg-white px-2.5 py-1 text-xs font-semibold text-[#062A2D] shadow-sm hover:border-[#B9974A]/45"
+                        >
+                          Details
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 transition-transform ${pricingOpen ? "rotate-180" : ""}`}
+                            aria-hidden
+                          />
+                        </button>
                       </div>
-                      <dl className="mt-3 space-y-2 text-sm text-[#1F2420]">
-                        <div className="flex justify-between gap-4">
-                          <dt className="text-[#7A6A58]">Subtotal</dt>
-                          <dd className="font-medium tabular-nums">{formatEGP(detail.subtotal)}</dd>
-                        </div>
-                        <div className="flex justify-between gap-4">
-                          <dt className="text-[#7A6A58]">Discount</dt>
-                          <dd className="font-medium tabular-nums">{formatEGP(detail.discountAmount)}</dd>
-                        </div>
-                        {detail.discountAmount > 0 && detail.discountReason ? (
-                          <div className="rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] px-3 py-2">
-                            <dt className="text-xs font-medium text-[#7A6A58]">Discount reason</dt>
-                            <dd className="mt-1 text-sm leading-relaxed text-[#1F2420]">
-                              {detail.discountReason}
+                      {pricingOpen ? (
+                        <dl id="booking-pricing-details" className="mt-3 space-y-2 border-t border-[#F0EBE3] pt-3 text-sm text-[#1F2420]">
+                          <div className="flex justify-between gap-4">
+                            <dt className="text-[#7A6A58]">Subtotal</dt>
+                            <dd className="font-medium tabular-nums">{formatEGP(detail.subtotal)}</dd>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <dt className="text-[#7A6A58]">Discount</dt>
+                            <dd className="font-medium tabular-nums">{formatEGP(detail.discountAmount)}</dd>
+                          </div>
+                          {detail.discountAmount > 0 && detail.discountReason ? (
+                            <div className="rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] px-3 py-2">
+                              <dt className="text-xs font-medium text-[#7A6A58]">Discount reason</dt>
+                              <dd className="mt-1 text-sm leading-relaxed text-[#1F2420]">
+                                {detail.discountReason}
+                              </dd>
+                            </div>
+                          ) : null}
+                          <div className="flex justify-between gap-4">
+                            <dt className="text-[#7A6A58]">VAT ({(detail.vatRate * 100).toFixed(0)}%)</dt>
+                            <dd className="font-medium tabular-nums">{formatEGP(detail.vatAmount)}</dd>
+                          </div>
+                          <div className="flex justify-between gap-4 border-t border-[#F0EBE3] pt-2 text-base font-semibold">
+                            <dt>Total</dt>
+                            <dd className="tabular-nums">{formatEGP(detail.totalAmount)}</dd>
+                          </div>
+                          {detail.appliedPromoCode ? (
+                            <div className="flex justify-between gap-4 text-sm">
+                              <dt className="text-[#7A6A58]">Promo code</dt>
+                              <dd className="font-medium text-[#1F2420]">{detail.appliedPromoCode}</dd>
+                            </div>
+                          ) : null}
+                          <div className="flex justify-between gap-4 text-sm">
+                            <dt className="text-[#7A6A58]">Paid</dt>
+                            <dd className="font-medium tabular-nums text-[#0E342B]">{formatEGP(detail.paidAmount)}</dd>
+                          </div>
+                          <div className="flex justify-between gap-4 text-sm">
+                            <dt className="text-[#7A6A58]">Remaining</dt>
+                            <dd className="font-medium tabular-nums text-[#8B4428]">
+                              {formatEGP(detail.remainingAmount)}
                             </dd>
                           </div>
-                        ) : null}
-                        <div className="flex justify-between gap-4">
-                          <dt className="text-[#7A6A58]">VAT ({(detail.vatRate * 100).toFixed(0)}%)</dt>
-                          <dd className="font-medium tabular-nums">{formatEGP(detail.vatAmount)}</dd>
-                        </div>
-                        <div className="flex justify-between gap-4 border-t border-[#F0EBE3] pt-2 text-base font-semibold">
-                          <dt>Total</dt>
-                          <dd className="tabular-nums">{formatEGP(detail.totalAmount)}</dd>
-                        </div>
-                        {detail.appliedPromoCode ? (
-                          <div className="flex justify-between gap-4 text-sm">
-                            <dt className="text-[#7A6A58]">Promo code</dt>
-                            <dd className="font-medium text-[#1F2420]">{detail.appliedPromoCode}</dd>
-                          </div>
-                        ) : null}
-                        <div className="flex justify-between gap-4 text-sm">
-                          <dt className="text-[#7A6A58]">Paid</dt>
-                          <dd className="font-medium tabular-nums text-[#0E342B]">{formatEGP(detail.paidAmount)}</dd>
-                        </div>
-                        <div className="flex justify-between gap-4 text-sm">
-                          <dt className="text-[#7A6A58]">Remaining</dt>
-                          <dd className="font-medium tabular-nums text-[#8B4428]">
-                            {formatEGP(detail.remainingAmount)}
-                          </dd>
-                        </div>
-                      </dl>
+                        </dl>
+                      ) : null}
                       {detail.finalizedInvoice ? (
                         <div className="mt-3 border-t border-[#F0EBE3] pt-3">
                           <p className="text-xs text-[#7A6A58]">
@@ -1847,11 +1802,11 @@ export default function DashboardBookingsPage() {
                       </p>
                     </section>
 
-                    {canUpdate ? (
+                    {showRequestChange ? (
                       <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
                           <ListTodo className="h-4 w-4 text-[#B9974A]" aria-hidden />
-                          Request cancellation / reschedule
+                          Request a change
                         </div>
                         <p className="mt-1 text-xs leading-relaxed text-[#B5A896]">
                           Use this when reception needs approval before changing the booking. It appears on{" "}
@@ -1872,8 +1827,8 @@ export default function DashboardBookingsPage() {
                           className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-[#FFFCF7] px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50"
                         >
                           <option value="">Choose…</option>
-                          <option value="CANCEL">Cancellation</option>
-                          <option value="RESCHEDULE">Reschedule</option>
+                          {!canCancel ? <option value="CANCEL">Cancellation</option> : null}
+                          {!canReschedule ? <option value="RESCHEDULE">Reschedule</option> : null}
                         </select>
                         {staffChangeType === "RESCHEDULE" ? (
                           <div className="mt-3 space-y-2">
@@ -1947,195 +1902,42 @@ export default function DashboardBookingsPage() {
                       </section>
                     ) : null}
 
-                    <section className="rounded-2xl border border-[#E8E0D4]/70 bg-white p-4 shadow-sm ring-1 ring-[#F7F4EE]/80">
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-[#7A6A58]">
-                        More actions
-                      </h3>
-                      <p className="mt-1 text-xs leading-relaxed text-[#B5A896]">
-                        Secondary actions for this booking. The top of the drawer keeps the next most likely action
-                        visible.
-                      </p>
-
-                      {(canConfirm || canReject) && drawerCanRequestDecision ? (
-                        <div className="mt-4 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
-                          <p className="text-xs font-semibold text-[#1F2420]">Request handling</p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {canReject ? (
-                              <button
-                                type="button"
-                                onClick={() => void triggerAction("reject")}
-                                disabled={actionLoading !== null}
-                                className={dangerOutlineClass}
-                              >
-                                Reject
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {canProgress && drawerCanMarkNoShow ? (
-                        <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
-                          <p className="text-xs font-semibold text-[#1F2420]">Appointment progress</p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {drawerCanMarkNoShow ? (
-                              <button
-                                type="button"
-                                onClick={() => void triggerAction("mark-no-show")}
-                                disabled={actionLoading !== null}
-                                className={dangerOutlineClass}
-                              >
-                                No-show
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {detail && drawerCanQueueCheckIn ? (
-                        <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
-                          <p className="text-xs font-semibold text-[#1F2420]">Queue</p>
-                          <p className="mt-1 text-[0.7rem] leading-relaxed text-[#B5A896]">
-                            Adds this booking to the operational queue. Confirmed or rescheduled bookings are also
-                            marked arrived when applicable.
-                          </p>
-                          <div className="mt-2 flex flex-col gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void checkInToQueue()}
-                              disabled={
-                                checkInLoading ||
-                                actionLoading !== null ||
-                                Boolean(detail.activeQueueEntryId)
-                              }
-                              className={secondaryActionClass}
-                            >
-                              {checkInLoading ? "Checking in…" : "Check in to Queue"}
-                            </button>
-                            {detail.activeQueueEntryId ? (
-                              <p className="text-[0.7rem] text-[#7A6A58]">
-                                Already in queue — complete or cancel the visit from{" "}
-                                <Link href="/dashboard/queue" className="font-semibold underline underline-offset-2">
-                                  Queue
-                                </Link>
-                                .
-                              </p>
-                            ) : null}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {(canReschedule || canCancel) && drawerCanDirectChange ? (
-                        <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
-                          <p className="text-xs font-semibold text-[#1F2420]">Apply booking change now</p>
-                          {canReschedule ? (
-                            <div className="mt-2 space-y-2">
-                              <label className="block text-xs font-medium text-[#7A6A58]">New slot</label>
-                              <select
-                                value={rescheduleSlotId}
-                                onChange={(event) => setRescheduleSlotId(event.target.value)}
-                                className="w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm text-[#1F2420] shadow-sm outline-none focus:border-[#B9974A]/50"
-                              >
-                                <option value="">Select new slot</option>
-                                {slotsForReschedule
-                                  .filter((slot) => slot.id !== detail.slotId)
-                                  .map((slot) => (
-                                    <option key={slot.id} value={slot.id}>
-                                      {formatDayLabel(slot.date)} · {formatWallClockRange12h(slot.startTime, slot.endTime, " – ")}{slot.status !== "AVAILABLE" ? ` (${slotStatusLabel(slot.status).toLowerCase()})` : ""}
-                                    </option>
-                                  ))}
-                              </select>
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => void triggerAction("reschedule")}
-                                  disabled={actionLoading !== null || !rescheduleSlotId}
-                                  className={secondaryActionClass}
-                                >
-                                  Reschedule
-                                </button>
-                                {canConfirm && detail.status === "RESCHEDULED" ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => void triggerAction("confirm-reschedule")}
-                                    disabled={actionLoading !== null}
-                                    className={secondaryActionClass}
-                                  >
-                                    Confirm reschedule
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                          ) : null}
-                          {canCancel ? (
-                            <div className={canReschedule ? "mt-3 border-t border-[#F0EBE3] pt-3" : "mt-2"}>
-                              <button
-                                type="button"
-                                onClick={() => void triggerAction("cancel")}
-                                disabled={actionLoading !== null}
-                                className={dangerOutlineClass}
-                              >
-                                Cancel booking
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      {canUpdate || canDiscount ? (
-                        <div className="mt-3 rounded-xl border border-[#F0EBE3] bg-[#FFFCF7] p-3">
-                          <p className="text-xs font-semibold text-[#1F2420]">Pricing</p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {canUpdate ? (
-                              <button
-                                type="button"
-                                onClick={() => void triggerAction("recalculate-pricing")}
-                                disabled={actionLoading !== null}
-                                className={secondaryActionClass}
-                              >
-                                Recalculate
-                              </button>
-                            ) : null}
-                          </div>
-                          {canDiscount ? (
-                            <div className="mt-3 space-y-2 border-t border-[#F0EBE3] pt-3">
-                              <input
-                                type="number"
-                                min={0}
-                                value={discountAmount}
-                                onChange={(event) => setDiscountAmount(event.target.value)}
-                                placeholder="Discount amount"
-                                className="w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-[#B9974A]/50"
-                              />
-                              <input
-                                value={discountReason}
-                                onChange={(event) => setDiscountReason(event.target.value)}
-                                placeholder="Reason (optional)"
-                                className="w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-[#B9974A]/50"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => void triggerAction("discount")}
-                                disabled={actionLoading !== null}
-                                className={primaryActionClass}
-                              >
-                                Apply discount
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      {actionError ? (
-                        <p className="mt-4 flex gap-2 rounded-xl border border-[#E7B9A4]/70 bg-[#FFF1EC] px-3 py-2 text-sm text-[#8B4428]">
-                          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
-                          {actionError}
-                        </p>
-                      ) : null}
-                    </section>
                   </div>
                 ) : null}
               </div>
+              {detail ? (
+                <BookingActionBar
+                  detail={detail}
+                  canConfirm={canConfirm}
+                  canReject={canReject}
+                  canCancel={canCancel}
+                  canReschedule={canReschedule}
+                  canUpdate={canUpdate}
+                  canDiscount={canDiscount}
+                  canProgress={canProgress}
+                  canQueueRead={canQueueRead}
+                  canReadAudit={canReadAudit}
+                  canMarkNoShow={drawerCanMarkNoShow}
+                  canDirectChange={drawerCanDirectChange}
+                  canQueueCheckIn={drawerCanQueueCheckIn}
+                  busy={actionLoading !== null}
+                  checkInLoading={checkInLoading}
+                  actionError={actionError}
+                  panel={drawerPanel}
+                  onPanelChange={setDrawerPanel}
+                  onAction={(action) => void triggerAction(action)}
+                  onCheckIn={() => void checkInToQueue()}
+                  slots={slotsForReschedule}
+                  rescheduleDate={rescheduleDate}
+                  onRescheduleDateChange={(d) => void changeRescheduleDate(d)}
+                  rescheduleSlotId={rescheduleSlotId}
+                  onRescheduleSlotChange={setRescheduleSlotId}
+                  discountAmount={discountAmount}
+                  onDiscountAmountChange={setDiscountAmount}
+                  discountReason={discountReason}
+                  onDiscountReasonChange={setDiscountReason}
+                />
+              ) : null}
 
               {addItemsOpen && detail ? (
                 <div className="absolute inset-0 z-[60] flex items-center justify-center bg-[#062A2D]/35 p-4 backdrop-blur-[1px]">

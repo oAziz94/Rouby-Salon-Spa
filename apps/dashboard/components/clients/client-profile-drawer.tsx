@@ -84,6 +84,8 @@ type ClientProfileDrawerProps = {
   canWalkIn: boolean;
   canReadInvoices: boolean;
   canReadLoyalty: boolean;
+  /** Shows the "History" link to the audit log (needs audit.read). */
+  canReadAudit?: boolean;
   onClose: () => void;
   onEdit: (client: DashboardClient) => void;
   onCreateBooking: (client: DashboardClient) => void;
@@ -103,6 +105,7 @@ export function ClientProfileDrawer({
   canWalkIn,
   canReadInvoices,
   canReadLoyalty,
+  canReadAudit = false,
   onClose,
   onEdit,
   onCreateBooking,
@@ -332,6 +335,14 @@ export function ClientProfileDrawer({
                       <Pencil className="h-3.5 w-3.5" aria-hidden />
                       Edit
                     </button>
+                  ) : null}
+                  {canReadAudit && clientId ? (
+                    <Link
+                      href={`/dashboard/audit-logs?clientId=${encodeURIComponent(clientId)}`}
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-white px-3 py-2 text-xs font-medium text-foreground shadow-sm sm:flex-none"
+                    >
+                      History
+                    </Link>
                   ) : null}
                 </div>
               </header>

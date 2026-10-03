@@ -751,6 +751,7 @@ export default function DashboardClientsPage() {
           canWalkIn={canWalkIn}
           canReadInvoices={canReadInvoices}
           canReadLoyalty={canReadLoyalty}
+          canReadAudit={hasPermission("audit.read")}
           externalClient={drawerClientOverride}
           onClose={() => {
             setDrawerOpen(false);
