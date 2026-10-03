@@ -1137,12 +1137,17 @@ export default function DashboardHomePage() {
 /** Amber banner when clients can book fewer than 7 days ahead (slots are running out). */
 function SlotHorizonBanner({ token }: { token: string | null }) {
   const [horizon, setHorizon] = useState<DashboardOverviewTodayResponse["slotHorizon"] | null>(null);
+  const [notifications, setNotifications] = useState<DashboardOverviewTodayResponse["notifications"] | null>(
+    null,
+  );
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
     getDashboardOverviewToday(token)
       .then((d) => {
-        if (!cancelled) setHorizon(d.slotHorizon ?? null);
+        if (cancelled) return;
+        setHorizon(d.slotHorizon ?? null);
+        setNotifications(d.notifications ?? null);
       })
       .catch(() => {
         /* the banner is best-effort */
@@ -1151,8 +1156,32 @@ function SlotHorizonBanner({ token }: { token: string | null }) {
       cancelled = true;
     };
   }, [token]);
-  if (!horizon?.low) return null;
+  const whatsappBanner =
+    notifications && (notifications.down || notifications.failed24h > 0) ? (
+      <div
+        className={`rounded-2xl border px-5 py-4 text-sm shadow-sm ${
+          notifications.down
+            ? "border-red-200 bg-red-50/90 text-red-950"
+            : "border-amber-200 bg-amber-50/90 text-amber-950"
+        }`}
+      >
+        <span className="font-semibold">
+          {notifications.down
+            ? `WhatsApp messages are not going out: ${notifications.failed24h} failed in the last 24 hours and none were delivered.`
+            : `${notifications.failed24h} WhatsApp message${notifications.failed24h === 1 ? "" : "s"} failed in the last 24 hours.`}
+        </span>{" "}
+        {notifications.down
+          ? "Clients are not receiving confirmations, reminders or login codes. Check the Wapilot token and that the salon phone is connected."
+          : "Check the numbers and retry from the log."}{" "}
+        <Link href="/dashboard/notification-logs" className="font-semibold underline">
+          Notification logs
+        </Link>
+      </div>
+    ) : null;
+  if (!horizon?.low) return whatsappBanner;
   return (
+    <>
+    {whatsappBanner}
     <div className="rounded-2xl border border-amber-200 bg-amber-50/90 px-5 py-4 text-sm text-amber-950 shadow-sm">
       <span className="font-semibold">
         {horizon.lastSlotDate
@@ -1164,6 +1193,7 @@ function SlotHorizonBanner({ token }: { token: string | null }) {
         Check slots &amp; closures
       </Link>
     </div>
+    </>
   );
 }
 

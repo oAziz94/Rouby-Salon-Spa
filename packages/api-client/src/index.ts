@@ -931,6 +931,14 @@ export type DashboardOverviewTodayResponse = {
   unpaidInvoicesToday: number;
   /** How far ahead bookable slots exist; `low` when under 7 days. */
   slotHorizon?: { lastSlotDate: string | null; daysAhead: number; low: boolean };
+  /** WhatsApp delivery over the last 24 h; `down` = failures and no successes. */
+  notifications?: {
+    failed24h: number;
+    sent24h: number;
+    lastSentAt: string | null;
+    lastFailedAt: string | null;
+    down: boolean;
+  };
   upcomingAppointments: DashboardOverviewAppointment[];
 };
 
@@ -5532,6 +5540,8 @@ export type DashboardDailyClosingSummaryResponse = {
   drawerSessionStatus: string | null;
   salesSummary: {
     grossSales: number;
+    /** Receipt + single-line discounts on the day's invoices. */
+    totalDiscounts?: number;
     totalCollected: number;
     outstandingBalance: number;
   };
@@ -5603,6 +5613,7 @@ export type DashboardDailyClosingReport = {
   totals: {
     totalInvoices: number;
     grossSales: number;
+    totalDiscounts?: number;
     totalCollected: number;
     cashCollected: number;
     cardCollected: number;

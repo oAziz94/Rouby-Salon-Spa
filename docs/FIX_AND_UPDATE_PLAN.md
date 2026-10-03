@@ -67,6 +67,8 @@ Audit-log branch scoping; no-branch users fail closed; shorter JWT + refresh; he
 
 **Deferred from Batch 6:** nullable `bookings.slot_id` for walk-ins. ~150 queries filter through `slot.date`; the walk-in bucket row is invisible to users since Batch 3 (real arrival time everywhere), so the schema change buys nothing visible and risks every report. Revisit only together with a `visit_date` column and a reporting refactor.
 
+**Follow-ups (2026-10-03):** WhatsApp had been failing silently since 30 May (Wapilot token invalid; fixed by the owner, instance `instance5759`). Guards added: automatic reminder retries stop after 3 failures; `GET /health/notifications` returns 503 when the last 24 h has failures and no successes, polled by the uptime workflow; the Overview shows a red/amber WhatsApp banner from `overview/today.notifications`. Also: "Discounts given" (receipt + line) on the daily-closing screen and print (`snapshot.totalDiscounts`); "Start service" on the Bookings page only once the client is checked in.
+
 ## Dependencies
 1 → 2 (payload + permissions first) → 2b (picker; independent of 3) → 3 (needs lifecycle stable before touching slots/walk-in schema). 4 and 5 can run alongside 2–3. 6 last.
 

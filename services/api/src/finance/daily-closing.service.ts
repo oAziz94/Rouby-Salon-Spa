@@ -203,11 +203,17 @@ export class DailyClosingService {
       queueVisits,
       queueCompleted,
       queueActiveSameDay,
+      lineDiscountAgg,
     ] = await Promise.all([
       this.prisma.invoice.aggregate({
         where: this.invoiceOnBusinessDayWhere(branchId, dateStr),
         _count: true,
-        _sum: { totalAmount: true, paidAmount: true, remainingAmount: true },
+        _sum: {
+          totalAmount: true,
+          paidAmount: true,
+          remainingAmount: true,
+          discountAmount: true,
+        },
       }),
       this.prisma.invoice.count({
         where: {
@@ -307,6 +313,10 @@ export class DailyClosingService {
           },
         },
       }),
+      this.prisma.invoiceLine.aggregate({
+        where: { invoice: this.invoiceOnBusinessDayWhere(branchId, dateStr) },
+        _sum: { discountAmount: true },
+      }),
     ]);
 
     const breakdown: Record<string, { amount: number; count: number }> = {
@@ -325,6 +335,10 @@ export class DailyClosingService {
 
     const grossSales = num(invoiceAgg._sum.totalAmount);
     const totalInvoiced = grossSales;
+    // Receipt-level + single-line discounts given on the day's finalized invoices.
+    const totalDiscounts =
+      num(invoiceAgg._sum.discountAmount) +
+      num(lineDiscountAgg._sum.discountAmount);
     const totalPaidOnInvoices = num(invoiceAgg._sum.paidAmount);
     const totalRemainingOnInvoices = num(invoiceAgg._sum.remainingAmount);
     const totalCollected = num(paymentTotalAgg._sum.amount);
@@ -374,6 +388,7 @@ export class DailyClosingService {
       branchId,
       businessDate: dateStr,
       grossSales,
+      totalDiscounts,
       totalCollected,
       totalInvoices: totalInvoiced,
       totalPaidOnInvoices,
@@ -516,6 +531,7 @@ export class DailyClosingService {
           : null,
       salesSummary: {
         grossSales: snapshot.grossSales,
+        totalDiscounts: snapshot.totalDiscounts,
         totalCollected: snapshot.totalCollected,
         outstandingBalance: snapshot.outstandingBalance,
       },
@@ -851,6 +867,11 @@ export class DailyClosingService {
       totals: {
         totalInvoices: num(row.totalInvoices),
         grossSales: num(row.grossSales),
+        totalDiscounts:
+          typeof (row.snapshot as Record<string, unknown> | null)
+            ?.totalDiscounts === 'number'
+            ? ((row.snapshot as Record<string, number>).totalDiscounts ?? 0)
+            : 0,
         totalCollected: num(row.totalCollected),
         cashCollected: num(row.cashCollected),
         cardCollected: num(row.cardCollected),

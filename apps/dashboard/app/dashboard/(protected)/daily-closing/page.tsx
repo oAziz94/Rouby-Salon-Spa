@@ -428,6 +428,7 @@ export default function DailyClosingPage() {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {[
                   ["Gross sales", data.salesSummary.grossSales],
+                  ["Discounts given", data.salesSummary.totalDiscounts ?? 0],
                   ["Total collected", data.salesSummary.totalCollected],
                   ["Outstanding", data.salesSummary.outstandingBalance],
                   ["Invoices", data.invoiceSummary.finalizedCount],
@@ -762,6 +763,10 @@ export default function DailyClosingPage() {
                 <li className="flex justify-between">
                   <span>Gross sales</span>
                   <span>{formatEGP(data.salesSummary.grossSales)}</span>
+                </li>
+                <li className="flex justify-between">
+                  <span>Discounts given</span>
+                  <span>{formatEGP(data.salesSummary.totalDiscounts ?? 0)}</span>
                 </li>
                 <li className="flex justify-between">
                   <span>Total collected</span>

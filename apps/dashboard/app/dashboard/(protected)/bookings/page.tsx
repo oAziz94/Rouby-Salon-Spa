@@ -1640,7 +1640,9 @@ export default function DashboardBookingsPage() {
                                       </div>
                                       {showLineOps ? (
                                         <div className="flex flex-wrap gap-2 border-t border-[#F0EBE3] pt-2">
-                                          {lineSt === "PENDING" && canStartServiceLine ? (
+                                          {lineSt === "PENDING" &&
+                                          canStartServiceLine &&
+                                          (detail.status === "ARRIVED" || detail.status === "IN_PROGRESS") ? (
                                             <button
                                               type="button"
                                               onClick={() => {

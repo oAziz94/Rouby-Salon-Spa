@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { computeNotificationHealth } from '../notifications/notification-health';
 import {
   BookingStatus,
   InvoiceStatus,
@@ -178,6 +179,7 @@ export class OverviewTodayService {
         daysAhead: slotDaysAhead,
         low: slotDaysAhead < 7,
       },
+      notifications: await computeNotificationHealth(this.prisma),
       upcomingAppointments,
     };
   }

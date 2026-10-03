@@ -120,6 +120,10 @@ export default function DailyClosingPrintPage() {
                     <td className="py-1 text-right">{formatEGP(report.totals.grossSales)}</td>
                   </tr>
                   <tr>
+                    <td className="py-1">Discounts given</td>
+                    <td className="py-1 text-right">{formatEGP(report.totals.totalDiscounts ?? 0)}</td>
+                  </tr>
+                  <tr>
                     <td className="py-1">Total collected</td>
                     <td className="py-1 text-right">{formatEGP(report.totals.totalCollected)}</td>
                   </tr>

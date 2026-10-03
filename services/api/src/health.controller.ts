@@ -1,5 +1,6 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
+import { computeNotificationHealth } from './notifications/notification-health';
 import { PrismaService } from './prisma/prisma.service';
 
 @ApiExcludeController()
@@ -11,6 +12,22 @@ export class HealthController {
   @Get()
   health(): { status: string } {
     return { status: 'ok' };
+  }
+
+  /**
+   * WhatsApp delivery health: 503 when messages failed in the last 24 h and none went out.
+   * Polled by the uptime workflow so a dead provider token is noticed the same day.
+   */
+  @Get('notifications')
+  async notifications() {
+    const health = await computeNotificationHealth(this.prisma);
+    if (health.down) {
+      throw new ServiceUnavailableException({
+        status: 'whatsapp_down',
+        ...health,
+      });
+    }
+    return { status: 'ok', ...health };
   }
 
   /** Readiness: the database answers within 3s. Use this as the Render health check. */

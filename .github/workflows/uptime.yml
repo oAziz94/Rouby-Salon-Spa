@@ -29,3 +29,19 @@ jobs:
           done
           echo "::error::$URL is not ready (last status $code)"
           exit 1
+
+  whatsapp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check /health/notifications (WhatsApp delivery over the last 24 h)
+        env:
+          URL: ${{ vars.API_HEALTH_URL }}
+        run: |
+          if [ -z "$URL" ]; then exit 0; fi
+          N="${URL%/ready}/notifications"
+          code=$(curl -s -o /tmp/body -w "%{http_code}" --max-time 25 "$N" || echo "000")
+          echo "HTTP $code: $(head -c 300 /tmp/body)"
+          if [ "$code" = "503" ]; then
+            echo "::error::WhatsApp delivery is down (failures and no successes in 24h). Check the Wapilot token/instance."
+            exit 1
+          fi
