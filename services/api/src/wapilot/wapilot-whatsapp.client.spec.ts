@@ -16,8 +16,11 @@ describe('WapilotWhatsAppClient', () => {
     global.fetch = originalFetch;
   });
 
-  function client(): WapilotWhatsAppClient {
+  function client(onlyTo?: string): WapilotWhatsAppClient {
     const config = {
+      get: jest.fn((key: string) =>
+        key === 'WHATSAPP_ONLY_TO' ? onlyTo : undefined,
+      ),
       getOrThrow: jest.fn((key: string) => {
         if (key === 'WAPILOT_INSTANCE_ID') return 'inst-1';
         if (key === 'WAPILOT_API_TOKEN') return 'secret-token';
@@ -49,6 +52,15 @@ describe('WapilotWhatsAppClient', () => {
         }),
       }),
     );
+  });
+
+  it('with WHATSAPP_ONLY_TO set, sends only to the listed numbers', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200 });
+    const c = client('+20 100 151 9873');
+    await c.sendTextMessage('201001234567', 'to a real client');
+    expect(fetchMock).not.toHaveBeenCalled();
+    await c.sendTextMessage('201001519873', 'to the tester');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not include message body secrets in error logs on failure', async () => {
