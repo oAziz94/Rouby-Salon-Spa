@@ -26,6 +26,22 @@ export class NotificationLogService {
     return Boolean(row);
   }
 
+  /**
+   * Automatic retries give up after `maxAttempts` failures for the same booking + type, so a
+   * broken provider token does not produce a message attempt every scheduler tick. A manual
+   * "Retry" from Notification logs still works (it bypasses this check).
+   */
+  async hasExhaustedAutomaticAttempts(
+    bookingId: string,
+    type: NotificationType,
+    maxAttempts = 3,
+  ): Promise<boolean> {
+    const failed = await this.prisma.notificationLog.count({
+      where: { bookingId, type, status: NotificationStatus.FAILED },
+    });
+    return failed >= maxAttempts;
+  }
+
   async hasSuccessfulChangeRequestNotification(
     changeRequestId: string,
   ): Promise<boolean> {

@@ -467,7 +467,8 @@ export class BookingNotificationService {
   ): Promise<{ id: string; status: NotificationStatus } | null> {
     if (
       !opts?.force &&
-      (await this.logs.hasSuccessfulBookingNotification(bookingId, type))
+      ((await this.logs.hasSuccessfulBookingNotification(bookingId, type)) ||
+        (await this.logs.hasExhaustedAutomaticAttempts(bookingId, type)))
     ) {
       return null;
     }
