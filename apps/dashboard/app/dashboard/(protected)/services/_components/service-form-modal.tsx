@@ -38,6 +38,8 @@ type ServiceFormState = {
   basePrice: string;
   basePriceMax: string;
   durationMinutes: string;
+  processingMinutes: string;
+  processingStartsAfterMinutes: string;
   isActive: boolean;
   bookingAvailability: boolean;
 };
@@ -104,6 +106,8 @@ export function ServiceFormModal({
     basePrice: "",
     basePriceMax: "",
     durationMinutes: "",
+    processingMinutes: "",
+    processingStartsAfterMinutes: "",
     isActive: true,
     bookingAvailability: true,
   });
@@ -148,6 +152,8 @@ export function ServiceFormModal({
       basePrice: "",
       basePriceMax: "",
       durationMinutes: "",
+      processingMinutes: "",
+      processingStartsAfterMinutes: "",
       isActive: true,
       bookingAvailability: true,
     });
@@ -176,6 +182,10 @@ export function ServiceFormModal({
         basePrice: service.basePrice?.toString() ?? "",
         basePriceMax: service.basePriceMax?.toString() ?? "",
         durationMinutes: service.durationMinutes?.toString() ?? "",
+        processingMinutes: service.processingMinutes ? String(service.processingMinutes) : "",
+        processingStartsAfterMinutes: service.processingStartsAfterMinutes
+          ? String(service.processingStartsAfterMinutes)
+          : "",
         isActive: service.isActive,
         bookingAvailability: service.bookingAvailability,
       });
@@ -382,6 +392,10 @@ export function ServiceFormModal({
         basePrice: serviceForm.basePrice ? Number(serviceForm.basePrice) : null,
         basePriceMax: serviceForm.basePriceMax ? Number(serviceForm.basePriceMax) : null,
         durationMinutes: serviceForm.durationMinutes ? Number(serviceForm.durationMinutes) : null,
+        processingMinutes: serviceForm.processingMinutes ? Number(serviceForm.processingMinutes) : 0,
+        processingStartsAfterMinutes: serviceForm.processingStartsAfterMinutes
+          ? Number(serviceForm.processingStartsAfterMinutes)
+          : 0,
         branchIds: branchIdsPayload,
         isActive: serviceForm.isActive,
         bookingAvailability: serviceForm.bookingAvailability,
@@ -743,6 +757,44 @@ export function ServiceFormModal({
                       <p className="mt-1.5 text-xs text-danger">{fieldErrors.duration}</p>
                     ) : null}
                   </label>
+                  <div className="sm:col-span-2 rounded-lg border border-dashed border-border bg-[#FBF9F5] p-3">
+                    <p className="text-sm font-medium text-[#1F2420]">Processing time (optional)</p>
+                    <p className="mb-2 text-xs text-[#7A6A58]">
+                      For colour, keratin or masks: the minutes the client sits while the product works. The
+                      stylist counts as free during that window and can start another client.
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-sm">
+                        <span className="mb-1.5 block text-[#1F2420]">Processing (minutes)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={600}
+                          value={serviceForm.processingMinutes}
+                          onChange={(event) =>
+                            setServiceForm((prev) => ({ ...prev, processingMinutes: event.target.value }))
+                          }
+                          className="w-full rounded-lg border border-border bg-white px-3 py-2.5 shadow-sm outline-none ring-accent/30 transition focus:ring-2"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="mb-1.5 block text-[#1F2420]">Starts after (minutes of application)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={600}
+                          value={serviceForm.processingStartsAfterMinutes}
+                          onChange={(event) =>
+                            setServiceForm((prev) => ({
+                              ...prev,
+                              processingStartsAfterMinutes: event.target.value,
+                            }))
+                          }
+                          className="w-full rounded-lg border border-border bg-white px-3 py-2.5 shadow-sm outline-none ring-accent/30 transition focus:ring-2"
+                        />
+                      </label>
+                    </div>
+                  </div>
                   <label className="block text-sm sm:col-span-2">
                     <span className="mb-1.5 block font-medium text-[#1F2420]">Badge label</span>
                     <input

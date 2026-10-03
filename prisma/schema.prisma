@@ -278,6 +278,11 @@ model Service {
   basePrice           Decimal?         @map("base_price") @db.Decimal(12, 2)
   basePriceMax        Decimal?         @map("base_price_max") @db.Decimal(12, 2)
   durationMinutes     Int?             @map("duration_minutes")
+  /// Processing-time model: minutes inside the service during which the stylist is free
+  /// (colour developing, mask setting). 0 = stylist is hands-on the whole time.
+  processingMinutes   Int              @default(0) @map("processing_minutes")
+  /// Hands-on minutes before the processing window starts (application time).
+  processingStartsAfterMinutes Int     @default(0) @map("processing_starts_after_minutes")
   isTaxable           Boolean          @default(true) @map("is_taxable")
   bookingAvailability Boolean          @default(true) @map("booking_availability")
   preparationNotes    String?          @map("preparation_notes")

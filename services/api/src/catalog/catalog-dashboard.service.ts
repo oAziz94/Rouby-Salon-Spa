@@ -236,6 +236,8 @@ export class CatalogDashboardService {
     basePrice: Prisma.Decimal | null;
     basePriceMax: Prisma.Decimal | null;
     durationMinutes: number | null;
+    processingMinutes: number;
+    processingStartsAfterMinutes: number;
     isTaxable: boolean;
     bookingAvailability: boolean;
     preparationNotes: string | null;
@@ -287,6 +289,8 @@ export class CatalogDashboardService {
       basePrice: decimalToNumber(row.basePrice),
       basePriceMax: decimalToNumber(row.basePriceMax),
       durationMinutes: row.durationMinutes,
+      processingMinutes: row.processingMinutes,
+      processingStartsAfterMinutes: row.processingStartsAfterMinutes,
       isTaxable: row.isTaxable,
       bookingAvailability: row.bookingAvailability,
       preparationNotes: row.preparationNotes,
@@ -710,6 +714,8 @@ export class CatalogDashboardService {
               ? null
               : new Prisma.Decimal(dto.basePriceMax),
           durationMinutes: dto.durationMinutes ?? null,
+          processingMinutes: dto.processingMinutes ?? 0,
+          processingStartsAfterMinutes: dto.processingStartsAfterMinutes ?? 0,
           isTaxable: dto.isTaxable ?? true,
           bookingAvailability: dto.bookingAvailability ?? true,
           preparationNotes: dto.preparationNotes ?? null,
@@ -899,6 +905,12 @@ export class CatalogDashboardService {
           }),
           ...(dto.durationMinutes !== undefined && {
             durationMinutes: dto.durationMinutes,
+          }),
+          ...(dto.processingMinutes !== undefined && {
+            processingMinutes: dto.processingMinutes,
+          }),
+          ...(dto.processingStartsAfterMinutes !== undefined && {
+            processingStartsAfterMinutes: dto.processingStartsAfterMinutes,
           }),
           ...(dto.isTaxable !== undefined && { isTaxable: dto.isTaxable }),
           ...(dto.bookingAvailability !== undefined && {

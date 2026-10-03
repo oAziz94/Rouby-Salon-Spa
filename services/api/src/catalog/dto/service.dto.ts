@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -9,6 +10,7 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  Max,
   Min,
   MinLength,
   ValidateIf,
@@ -104,6 +106,27 @@ export class CreateServiceDto {
   @IsInt()
   @Min(0)
   durationMinutes?: number | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Minutes inside the service during which the stylist is free (colour developing). 0 = hands-on throughout.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(600)
+  processingMinutes?: number;
+
+  @ApiPropertyOptional({
+    description: 'Hands-on minutes before the processing window starts.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(600)
+  processingStartsAfterMinutes?: number;
 
   @IsOptional()
   @IsBoolean()
@@ -213,6 +236,27 @@ export class PatchServiceDto {
   @IsInt()
   @Min(0)
   durationMinutes?: number | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Minutes inside the service during which the stylist is free (colour developing). 0 = hands-on throughout.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(600)
+  processingMinutes?: number;
+
+  @ApiPropertyOptional({
+    description: 'Hands-on minutes before the processing window starts.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(600)
+  processingStartsAfterMinutes?: number;
 
   @IsOptional()
   @IsBoolean()

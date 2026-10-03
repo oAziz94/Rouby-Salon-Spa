@@ -864,7 +864,9 @@ export default function DashboardHomePage() {
                         {s.status === "busy"
                           ? "Busy"
                           : s.status === "available"
-                            ? "Available"
+                            ? (s.processingNow ?? 0) > 0
+                              ? "Free while a client's colour processes"
+                              : "Available"
                             : "Off"}{" "}
                         · {formatCount(s.servicesCompletedToday)} completed today
                         {typeof s.workloadPercent === "number"

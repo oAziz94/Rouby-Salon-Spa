@@ -63,6 +63,10 @@ Audit-log branch scoping; no-branch users fail closed; shorter JWT + refresh; he
 - Logs: Nest `ConsoleLogger({ json: true })` in production; `requestLogMiddleware` writes one line per 4xx/5xx or >1.5 s request with method, path, status, ms, requestId, userId.
 - Uptime: `.github/workflows/uptime.yml` curls `/health/ready` every 10 min (3 tries) and fails the run — GitHub emails the owner. Needs the repository variable `API_HEALTH_URL`.
 
+**As built — 6c processing time (2026-10-03):** `services.processing_minutes` + `processing_starts_after_minutes` (Services form → "Processing time"). Busy is now "hands-on right now": an IN_PROGRESS line inside its processing window (`startedAt + startsAfter … + processing`) leaves the stylist free, read live from the service (no snapshot, so a catalog edit applies at once). Applies to the start-service SOFT check (shift and busy are now reported as separate issues), the staff picker and the Overview staff card ("Free while a client's colour processes", `processingNow`). Covered by 3 integration tests.
+
+**Deferred from Batch 6:** nullable `bookings.slot_id` for walk-ins. ~150 queries filter through `slot.date`; the walk-in bucket row is invisible to users since Batch 3 (real arrival time everywhere), so the schema change buys nothing visible and risks every report. Revisit only together with a `visit_date` column and a reporting refactor.
+
 ## Dependencies
 1 → 2 (payload + permissions first) → 2b (picker; independent of 3) → 3 (needs lifecycle stable before touching slots/walk-in schema). 4 and 5 can run alongside 2–3. 6 last.
 
@@ -71,6 +75,7 @@ Audit-log branch scoping; no-branch users fail closed; shorter JWT + refresh; he
 - B2: backup branch → `migrate deploy` → deploy.
 - B3: backup branch → `migrate deploy` + backfill script → deploy; set `SLOT_HORIZON_DAYS=28`.
 - B4: set pooled `DATABASE_URL`; deploy.
+- B6c: `migrate deploy` (service processing columns, additive) → deploy.
 - B6a: `migrate deploy` (refresh tokens) → `db:sync-role-permissions` → deploy; optionally set `JWT_EXPIRES_IN=30m` on Render (the code default is 30m when unset; the current Render value 24h would override it — remove it or set 30m).
 
 ## Complexity

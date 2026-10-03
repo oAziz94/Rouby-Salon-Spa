@@ -201,6 +201,8 @@ export type DashboardReportsOverviewResponse = {
       staffProfileId: string;
       displayName: string;
       status: "available" | "busy" | "off";
+      /** In-progress lines currently in their processing window (stylist is free meanwhile). */
+      processingNow?: number;
       scheduledStart?: string | null;
       scheduledEnd?: string | null;
       bookingsCountToday?: number;
@@ -1772,6 +1774,9 @@ export type DashboardService = {
   basePrice: number | null;
   basePriceMax: number | null;
   durationMinutes: number | null;
+  /** Minutes during which the stylist is free (colour developing); 0 = hands-on throughout. */
+  processingMinutes?: number;
+  processingStartsAfterMinutes?: number;
   isTaxable: boolean;
   bookingAvailability: boolean;
   preparationNotes: string | null;

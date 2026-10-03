@@ -106,13 +106,46 @@ export class StaffAvailabilityService {
     return !!row;
   }
 
+  /**
+   * Busy = an IN_PROGRESS line whose stylist is hands-on right now. A line inside its
+   * processing window (colour developing…) leaves the stylist free for another client.
+   * Processing values are read live from the service, so a catalog edit applies at once.
+   */
   async hasInProgressElsewhere(
     staffProfileId: string,
     excludeBookingItemId?: string,
+    now: Date = new Date(),
   ): Promise<boolean> {
-    const count = await this.prisma.bookingItem.count({
+    const state = await this.inProgressStateFor([staffProfileId], now);
+    const s = state.get(staffProfileId);
+    if (!s) return false;
+    if (excludeBookingItemId && s.handsOnItemIds.size === 1) {
+      return !s.handsOnItemIds.has(excludeBookingItemId);
+    }
+    return s.handsOn > 0;
+  }
+
+  /**
+   * Per staff: how many in-progress lines are hands-on vs. in their processing window.
+   * One query for a set of profiles (overview, staff pickers).
+   */
+  async inProgressStateFor(
+    staffProfileIds: string[],
+    now: Date = new Date(),
+  ): Promise<
+    Map<
+      string,
+      { handsOn: number; processing: number; handsOnItemIds: Set<string> }
+    >
+  > {
+    const out = new Map<
+      string,
+      { handsOn: number; processing: number; handsOnItemIds: Set<string> }
+    >();
+    if (staffProfileIds.length === 0) return out;
+    const rows = await this.prisma.bookingItem.findMany({
       where: {
-        staffProfileId,
+        staffProfileId: { in: staffProfileIds },
         lineStatus: BookingItemLineStatus.IN_PROGRESS,
         booking: {
           status: {
@@ -124,10 +157,51 @@ export class StaffAvailabilityService {
             ],
           },
         },
-        ...(excludeBookingItemId ? { id: { not: excludeBookingItemId } } : {}),
+      },
+      select: {
+        id: true,
+        staffProfileId: true,
+        startedAt: true,
+        service: {
+          select: {
+            processingMinutes: true,
+            processingStartsAfterMinutes: true,
+          },
+        },
+        serviceVariant: {
+          select: {
+            service: {
+              select: {
+                processingMinutes: true,
+                processingStartsAfterMinutes: true,
+              },
+            },
+          },
+        },
       },
     });
-    return count > 0;
+    for (const r of rows) {
+      if (!r.staffProfileId) continue;
+      const svc = r.service ?? r.serviceVariant?.service ?? null;
+      const inProcessing = isInProcessingWindow(
+        r.startedAt,
+        svc?.processingStartsAfterMinutes ?? 0,
+        svc?.processingMinutes ?? 0,
+        now,
+      );
+      const s = out.get(r.staffProfileId) ?? {
+        handsOn: 0,
+        processing: 0,
+        handsOnItemIds: new Set<string>(),
+      };
+      if (inProcessing) s.processing += 1;
+      else {
+        s.handsOn += 1;
+        s.handsOnItemIds.add(r.id);
+      }
+      out.set(r.staffProfileId, s);
+    }
+    return out;
   }
 
   /**
@@ -299,7 +373,8 @@ export class StaffAvailabilityService {
         });
         continue;
       }
-      if (await this.hasInProgressElsewhere(p.id)) {
+      const state = (await this.inProgressStateFor([p.id])).get(p.id);
+      if (state && state.handsOn > 0) {
         out.push({
           staffProfileId: p.id,
           displayName: p.displayName,
@@ -316,6 +391,9 @@ export class StaffAvailabilityService {
         email: p.user.email,
         phone: p.user.phone,
         status: 'AVAILABLE',
+        ...(state && state.processing > 0
+          ? { reason: 'Free while a client’s colour/treatment is processing' }
+          : {}),
       });
     }
     return out;
@@ -328,4 +406,21 @@ export class StaffAvailabilityService {
   cairoTodayYmd(): string {
     return cairoTodayYmd();
   }
+}
+
+/**
+ * True when `now` falls inside the service's processing window:
+ * [startedAt + startsAfter, startedAt + startsAfter + processing).
+ */
+export function isInProcessingWindow(
+  startedAt: Date | null | undefined,
+  processingStartsAfterMinutes: number,
+  processingMinutes: number,
+  now: Date = new Date(),
+): boolean {
+  if (!startedAt || processingMinutes <= 0) return false;
+  const from = startedAt.getTime() + processingStartsAfterMinutes * 60_000;
+  const to = from + processingMinutes * 60_000;
+  const t = now.getTime();
+  return t >= from && t < to;
 }

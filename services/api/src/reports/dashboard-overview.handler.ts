@@ -840,27 +840,14 @@ export async function buildDashboardOverview(
         orderBy: { displayName: 'asc' },
       });
 
-      const busyRows = await prisma.bookingItem.groupBy({
-        by: ['staffProfileId'],
-        where: {
-          staffProfileId: { not: null },
-          lineStatus: BookingItemLineStatus.IN_PROGRESS,
-          booking: {
-            branchId: { in: branchIdsForOps },
-            status: {
-              notIn: [
-                BookingStatus.CANCELLED,
-                BookingStatus.REJECTED,
-                BookingStatus.COMPLETED,
-                BookingStatus.NO_SHOW,
-              ],
-            },
-          },
-        },
-        _count: { _all: true },
-      });
+      // Hands-on lines make a stylist busy; a line in its processing window does not.
+      const inProgressState = await staffAvailability.inProgressStateFor(
+        profiles.map((p) => p.id),
+      );
       const busySet = new Set(
-        busyRows.map((r) => r.staffProfileId).filter(Boolean) as string[],
+        [...inProgressState.entries()]
+          .filter(([, v]) => v.handsOn > 0)
+          .map(([k]) => k),
       );
 
       const completedRows = await prisma.bookingItem.findMany({
@@ -997,6 +984,7 @@ export async function buildDashboardOverview(
           staffProfileId: p.id,
           displayName: p.displayName,
           status,
+          processingNow: inProgressState.get(p.id)?.processing ?? 0,
           scheduledStart: intervals[0]?.start ?? null,
           scheduledEnd: intervals[intervals.length - 1]?.end ?? null,
           bookingsCountToday: bookingsTodayByStaff.get(p.id) ?? 0,

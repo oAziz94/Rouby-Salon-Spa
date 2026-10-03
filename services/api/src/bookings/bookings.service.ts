@@ -1778,12 +1778,22 @@ export class BookingsService {
         message: `${profile.displayName} is not listed for this service`,
       });
     }
-    if (!avail.ok) {
+    // Shift and busy are reported independently so an off-shift stylist who is also
+    // mid-service shows both; a line in its processing window does not count as busy.
+    const busy = await this.staffAvailability.hasInProgressElsewhere(
+      staffProfileId,
+      itemId,
+    );
+    if (!avail.ok && !avail.reason.toLowerCase().includes('in progress')) {
       softIssues.push({
-        code: avail.reason.toLowerCase().includes('in progress')
-          ? 'STAFF_BUSY'
-          : 'STAFF_NOT_AVAILABLE',
+        code: 'STAFF_NOT_AVAILABLE',
         message: `${profile.displayName}: ${avail.reason}`,
+      });
+    }
+    if (busy) {
+      softIssues.push({
+        code: 'STAFF_BUSY',
+        message: `${profile.displayName} already has a service in progress`,
       });
     }
     const reason = overrideReason?.trim() || null;
