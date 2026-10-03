@@ -1,13 +1,24 @@
 import { Prisma } from '@prisma/client';
 
-/** Postgres aborts one of two overlapping SERIALIZABLE transactions; Prisma reports it as P2034. */
+/** Postgres SQLSTATEs for "lost the race, run it again". */
+const PG_RETRY_CODES = new Set(['40001', '40P01']);
+
+/**
+ * Postgres aborts one of two overlapping SERIALIZABLE transactions. Prisma reports it as
+ * P2034 for model queries, but a `$executeRaw`/`$queryRaw` inside the same transaction (the
+ * slot-capacity UPDATE) surfaces as P2010 "raw query failed" with the SQLSTATE in `meta.code`.
+ */
 export function isSerializationFailure(err: unknown): boolean {
-  return (
-    err instanceof Prisma.PrismaClientKnownRequestError &&
-    (err.code === 'P2034' ||
-      // Transaction API timed out waiting for a connection / conflict under load.
-      err.code === 'P2028')
-  );
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (err.code === 'P2034') return true;
+  // Transaction API timed out waiting for a connection / conflict under load.
+  if (err.code === 'P2028') return true;
+  if (err.code === 'P2010') {
+    const pg = (err.meta as { code?: unknown } | undefined)?.code;
+    if (typeof pg === 'string' && PG_RETRY_CODES.has(pg)) return true;
+    return /could not serialize access|deadlock detected/i.test(err.message);
+  }
+  return false;
 }
 
 /**

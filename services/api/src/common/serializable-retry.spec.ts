@@ -1,5 +1,8 @@
 import { Prisma } from '@prisma/client';
-import { withSerializableRetry } from './serializable-retry';
+import {
+  isSerializationFailure,
+  withSerializableRetry,
+} from './serializable-retry';
 
 function p2034(): Prisma.PrismaClientKnownRequestError {
   return new Prisma.PrismaClientKnownRequestError(
@@ -7,6 +10,23 @@ function p2034(): Prisma.PrismaClientKnownRequestError {
     { code: 'P2034', clientVersion: 'test' },
   );
 }
+
+describe('isSerializationFailure', () => {
+  it('recognises a raw-query serialization failure (P2010 + SQLSTATE 40001)', () => {
+    const raw = new Prisma.PrismaClientKnownRequestError('Raw query failed', {
+      code: 'P2010',
+      clientVersion: 'test',
+      meta: { code: '40001', message: 'could not serialize access' },
+    });
+    expect(isSerializationFailure(raw)).toBe(true);
+    const other = new Prisma.PrismaClientKnownRequestError('Raw query failed', {
+      code: 'P2010',
+      clientVersion: 'test',
+      meta: { code: '23505' },
+    });
+    expect(isSerializationFailure(other)).toBe(false);
+  });
+});
 
 describe('withSerializableRetry', () => {
   it('retries a serialization failure and returns the later result', async () => {

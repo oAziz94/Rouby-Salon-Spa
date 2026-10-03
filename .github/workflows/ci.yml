@@ -9,6 +9,25 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rouby_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rouby_test?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/rouby_test?schema=public
+      JWT_SECRET: ci-jwt-secret-do-not-use-in-production-32-chars
+      NOTIFICATIONS_ENABLED: "false"
+      OTP_PROVIDER: dummy
     steps:
       - uses: actions/checkout@v4
 
@@ -24,8 +43,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
+      - name: Unit tests
         run: npm run test
+
+      - name: Integration tests (real Postgres)
+        run: npm run test:int -w api
 
       - name: Build
         run: npm run build

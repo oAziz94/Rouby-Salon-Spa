@@ -1,0 +1,31 @@
+name: Uptime check
+
+# Pings the production API readiness endpoint every 10 minutes. A failed run emails the
+# repository owner (GitHub's default notification for failed workflows). Set the repository
+# variable API_HEALTH_URL to e.g. https://<api-host>/health/ready (Settings → Secrets and
+# variables → Actions → Variables).
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ready:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check /health/ready
+        env:
+          URL: ${{ vars.API_HEALTH_URL }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "::warning::API_HEALTH_URL repository variable is not set; nothing checked."
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /tmp/body -w "%{http_code}" --max-time 25 "$URL" || echo "000")
+            echo "attempt $attempt → HTTP $code: $(cat /tmp/body | head -c 200)"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 20
+          done
+          echo "::error::$URL is not ready (last status $code)"
+          exit 1

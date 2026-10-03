@@ -56,6 +56,13 @@ Audit-log branch scoping; no-branch users fail closed; shorter JWT + refresh; he
 - Audit log list/detail/facets are scoped to the viewer's branches unless all-access; unstamped (global) entries stay owner/admin-only.
 - `npm audit fix` applied (body-parser, multer, nanoid, qs, sharp, js-yaml). Left: `postcss` inside `next@15` (build-time only; needs Next 16), `deepmerge-ts` inside the Prisma CLI (migration tooling; needs Prisma 7), `js-yaml` inside `@nestjs/swagger` (Swagger is off in production).
 
+**As built — 6b tests & observability (2026-10-03):**
+- Integration suite against a real Postgres: `npm run test:int -w api` with `TEST_DATABASE_URL` (refuses anything that is not local or named `*test*`, and refuses `schema=` tricks because the API's raw SQL follows `search_path`). `globalSetup` runs `migrate deploy` (direct host, not the pooler) + the idempotent seed with fixed test passwords. CI runs it on a `postgres:16` service container. Locally: a `rouby_test` database on the Neon dev branch.
+- 16 tests: sessions (rotation, reuse → family revoked + CRITICAL audit, logout, expiry, login throttle), booking → confirm → check-in → start → line done → finalize → partial/full payment → close (status derived through ARRIVED/IN_PROGRESS/COMPLETED), two confirmed bookings racing for one seat, SOFT confirm into a full slot, walk-in arrival time, line discount on the invoice, role gates (staff vs receptionist vs owner), fail-closed branch access, deactivation and owner password reset ending sessions.
+- The race test found a real bug: the slot-capacity `UPDATE` is raw SQL, and Postgres' serialization failure surfaces as Prisma `P2010` + SQLSTATE `40001`, not `P2034` — it was neither retried nor mapped, so the losing receptionist got a 500. `isSerializationFailure` now covers it (retry → clean `SLOT_AT_CAPACITY`).
+- Logs: Nest `ConsoleLogger({ json: true })` in production; `requestLogMiddleware` writes one line per 4xx/5xx or >1.5 s request with method, path, status, ms, requestId, userId.
+- Uptime: `.github/workflows/uptime.yml` curls `/health/ready` every 10 min (3 tries) and fails the run — GitHub emails the owner. Needs the repository variable `API_HEALTH_URL`.
+
 ## Dependencies
 1 → 2 (payload + permissions first) → 2b (picker; independent of 3) → 3 (needs lifecycle stable before touching slots/walk-in schema). 4 and 5 can run alongside 2–3. 6 last.
 

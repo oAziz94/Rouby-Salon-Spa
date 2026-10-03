@@ -1,4 +1,4 @@
-import { ValidationPipe, RequestMethod } from '@nestjs/common';
+import { ConsoleLogger, ValidationPipe, RequestMethod } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -11,9 +11,14 @@ import { resolveUploadsRoot } from './media/uploads-root';
 
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { requestIdMiddleware } from './common/request-id.middleware';
+import { requestLogMiddleware } from './common/request-log.middleware';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const isProd = process.env.NODE_ENV === 'production';
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    // JSON lines in production so Render's log search can filter by requestId / status.
+    logger: new ConsoleLogger({ json: isProd, colors: !isProd }),
+  });
   app.enableShutdownHooks();
   const configService = app.get(ConfigService);
   const uploadsRoot = resolveUploadsRoot(configService);
@@ -55,6 +60,7 @@ async function bootstrap(): Promise<void> {
     );
   }
   app.use(requestIdMiddleware);
+  app.use(requestLogMiddleware);
   // JSON API + Swagger + uploaded images: CSP is left to the Next.js apps; images are
   // embedded cross-origin by the dashboard/website, so CORP must allow that.
   app.use(
