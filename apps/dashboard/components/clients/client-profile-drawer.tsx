@@ -5,10 +5,12 @@ import {
   getDashboardBookings,
   getDashboardClientById,
   getDashboardInvoices,
+  getDashboardLoyaltyClient,
   type DashboardBookingsListItem,
   type DashboardBranch,
   type DashboardClient,
   type DashboardInvoiceListItem,
+  type DashboardLoyaltyClientDetail,
 } from "@rouby/api-client";
 import { formatDateTimeAmPm, formatDayLabel, formatWallClockRange12h } from "@rouby/wall-clock";
 import {
@@ -20,6 +22,7 @@ import {
   Phone,
   PlusCircle,
   Sparkles,
+  Star,
   StickyNote,
   UserRound,
   X,
@@ -79,6 +82,7 @@ type ClientProfileDrawerProps = {
   canCreateBooking: boolean;
   canWalkIn: boolean;
   canReadInvoices: boolean;
+  canReadLoyalty: boolean;
   onClose: () => void;
   onEdit: (client: DashboardClient) => void;
   onCreateBooking: (client: DashboardClient) => void;
@@ -97,6 +101,7 @@ export function ClientProfileDrawer({
   canCreateBooking,
   canWalkIn,
   canReadInvoices,
+  canReadLoyalty,
   onClose,
   onEdit,
   onCreateBooking,
@@ -108,6 +113,7 @@ export function ClientProfileDrawer({
   const [bookings, setBookings] = useState<DashboardBookingsListItem[]>([]);
   const [invoices, setInvoices] = useState<DashboardInvoiceListItem[]>([]);
   const [invoiceError, setInvoiceError] = useState(false);
+  const [loyalty, setLoyalty] = useState<DashboardLoyaltyClientDetail | null>(null);
 
   const load = useCallback(async () => {
     if (!open || !clientId || !token) {
@@ -134,15 +140,25 @@ export function ClientProfileDrawer({
       } else {
         setInvoices([]);
       }
+      if (canReadLoyalty) {
+        try {
+          setLoyalty(await getDashboardLoyaltyClient(token, clientId));
+        } catch {
+          setLoyalty(null);
+        }
+      } else {
+        setLoyalty(null);
+      }
     } catch (e) {
       setError(formatApiError(e));
       setClient(null);
       setBookings([]);
       setInvoices([]);
+      setLoyalty(null);
     } finally {
       setLoading(false);
     }
-  }, [open, clientId, token, canReadInvoices]);
+  }, [open, clientId, token, canReadInvoices, canReadLoyalty]);
 
   useEffect(() => {
     void load();
@@ -318,6 +334,37 @@ export function ClientProfileDrawer({
                   ) : null}
                 </div>
               </header>
+
+              {loyalty && (loyalty.enabled || loyalty.points > 0) ? (
+                <section className="rounded-2xl border border-[#B9974A]/40 bg-[#FBF6E8] p-4 shadow-sm">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Star className="h-4 w-4 text-[#B9974A]" aria-hidden />
+                    Loyalty
+                  </h3>
+                  <div className="mt-3 flex items-end justify-between gap-3">
+                    <p className="text-2xl font-semibold tabular-nums text-foreground">
+                      {loyalty.points.toLocaleString("en-US")}
+                      <span className="ml-1 text-xs font-medium text-muted-foreground">points</span>
+                    </p>
+                    <p className="text-right text-xs text-muted-foreground">
+                      {loyalty.redeemableBlocks > 0
+                        ? `Can take ${formatEGP(loyalty.redeemableBlocks * loyalty.redeemBlockValue)} off now`
+                        : `${Math.max(0, loyalty.redeemBlockPoints - loyalty.points).toLocaleString("en-US")} more for ${formatEGP(loyalty.redeemBlockValue)} off`}
+                    </p>
+                  </div>
+                  <p className="mt-2 text-xs text-foreground">
+                    {loyalty.visits} completed visit{loyalty.visits === 1 ? "" : "s"}
+                    {loyalty.rewardServiceName
+                      ? loyalty.rewardsAvailable > 0
+                        ? ` · free ${loyalty.rewardServiceName} ready to use`
+                        : ` · ${loyalty.visitsToNextReward} more to a free ${loyalty.rewardServiceName}`
+                      : null}
+                  </p>
+                  {!loyalty.enabled ? (
+                    <p className="mt-2 text-xs text-muted-foreground">The loyalty program is switched off.</p>
+                  ) : null}
+                </section>
+              ) : null}
 
               <section className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <MetricCard label="Total bookings" value={String(bookings.length)} />

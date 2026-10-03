@@ -127,6 +127,20 @@ describe('loyalty program', () => {
     expect((after1.body as Loyalty).visits).toBe(1);
     expect((after1.body as Loyalty).rewardsAvailable).toBe(0);
 
+    // The receipt prints the balance and what this visit earned.
+    const inv1 = await prisma.invoice.findFirstOrThrow({
+      where: { bookingId: v1.bookingId },
+    });
+    const receipt = await rec.get(
+      `/api/v1/dashboard/invoices/${inv1.id}/receipt`,
+    );
+    expect(receipt.status).toBe(200);
+    expect(receipt.body.loyalty.pointsBalance).toBe(Math.floor(v1.total));
+    expect(receipt.body.loyalty.pointsEarnedThisVisit).toBe(
+      Math.floor(v1.total),
+    );
+    expect(receipt.body.loyalty.visits).toBe(1);
+
     // Reception cannot adjust balances; the owner can, with a reason.
     expect(
       (

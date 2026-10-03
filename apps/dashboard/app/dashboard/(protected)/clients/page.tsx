@@ -186,6 +186,7 @@ export default function DashboardClientsPage() {
   const canCreateBooking = hasPermission("bookings.create");
   const canReadBranches = hasPermission("branches.read");
   const canReadInvoices = hasPermission("invoices.read");
+  const canReadLoyalty = hasPermission("loyalty.read");
   const canWalkIn = hasPermission("queue.manage") && hasPermission("bookings.create");
 
   const canAccessMultipleBranches = user?.branchId === null && canReadBranches;
@@ -749,6 +750,7 @@ export default function DashboardClientsPage() {
           canCreateBooking={canCreateBooking}
           canWalkIn={canWalkIn}
           canReadInvoices={canReadInvoices}
+          canReadLoyalty={canReadLoyalty}
           externalClient={drawerClientOverride}
           onClose={() => {
             setDrawerOpen(false);

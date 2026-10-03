@@ -31,6 +31,10 @@ import type {
   InvoicePaymentStatusFilter,
 } from './dto/invoice-list-query.dto';
 import type { PatchInvoiceDto } from './dto/patch-invoice.dto';
+import {
+  computeLoyaltySummary,
+  loadLoyaltyRules,
+} from '../loyalty/loyalty-balance';
 
 type InvoicePaymentSummaryStatus = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
 
@@ -722,6 +726,10 @@ export class InvoicesService {
         showCashierName: true,
       },
     });
+    const loyalty = await this.receiptLoyalty(
+      invoice.booking.client.id,
+      payments,
+    );
 
     return {
       invoice: {
@@ -800,11 +808,44 @@ export class InvoicesService {
       showVatOnInvoice: settings?.showVatOnInvoice ?? true,
       showVatBreakdown: settings?.showVatBreakdown ?? true,
       showPaymentBreakdown: settings?.showPaymentBreakdown ?? true,
+      loyalty,
       receiptTitle: settings?.receiptTitle || 'Receipt',
       receiptWidth: settings?.receiptWidth || '80mm',
       footerMessage:
         settings?.receiptFooterMessage ||
         'Thank you for visiting Alrouby Salon & Spa. This receipt was generated from a finalized invoice record.',
+    };
+  }
+
+  /** Points block for the receipt; null while the loyalty program is off. */
+  private async receiptLoyalty(
+    clientId: string,
+    payments: Array<{
+      method: PaymentMethod;
+      amount: Prisma.Decimal;
+      createdAt: Date;
+    }>,
+  ) {
+    const rules = await loadLoyaltyRules(this.prisma);
+    if (!rules.enabled || !rules.startedAt) {
+      return null;
+    }
+    const since = new Date(rules.startedAt);
+    const summary = await computeLoyaltySummary(this.prisma, clientId, rules);
+    // Same rule as the balance: money paid earns points, a loyalty redemption does not.
+    const paidThisVisit = payments
+      .filter((p) => p.method !== PaymentMethod.LOYALTY && p.createdAt >= since)
+      .reduce((sum, p) => sum + Number(p.amount.toString()), 0);
+    return {
+      pointsEarnedThisVisit: Math.floor(paidThisVisit * rules.pointsPerEgp),
+      pointsBalance: summary.points,
+      redeemBlockPoints: summary.redeemBlockPoints,
+      redeemBlockValue: summary.redeemBlockValue,
+      visits: summary.visits,
+      visitsForReward: summary.visitsForReward,
+      visitsToNextReward: summary.visitsToNextReward,
+      rewardsAvailable: summary.rewardsAvailable,
+      rewardServiceName: summary.rewardServiceName,
     };
   }
 

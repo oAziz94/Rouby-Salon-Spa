@@ -20,41 +20,16 @@ import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SYSTEM_SETTINGS_ID } from '../settings/settings.constants';
 import type { PatchLoyaltySettingsDto } from './dto/loyalty.dto';
+import {
+  computeLoyaltySummary,
+  loadLoyaltyRules,
+  type LoyaltyRules,
+  type LoyaltySummary,
+} from './loyalty-balance';
 
 type Db = PrismaService | Prisma.TransactionClient;
 
-export type LoyaltyRules = {
-  enabled: boolean;
-  pointsPerEgp: number;
-  redeemPoints: number;
-  redeemValue: number;
-  visitsForReward: number;
-  rewardServiceId: string | null;
-  rewardServiceName: string | null;
-  startedAt: string | null;
-};
-
-export type LoyaltySummary = {
-  enabled: boolean;
-  clientId: string;
-  /** Spendable balance right now. */
-  points: number;
-  earnedPoints: number;
-  redeemedPoints: number;
-  adjustedPoints: number;
-  /** How many redemption blocks the balance covers, and what each is worth. */
-  redeemBlockPoints: number;
-  redeemBlockValue: number;
-  redeemableBlocks: number;
-  visits: number;
-  visitsForReward: number;
-  rewardsEarned: number;
-  rewardsUsed: number;
-  rewardsAvailable: number;
-  visitsToNextReward: number;
-  rewardServiceId: string | null;
-  rewardServiceName: string | null;
-};
+export type { LoyaltyRules, LoyaltySummary };
 
 function business(status: HttpStatus, code: string, message: string) {
   return new HttpException(
@@ -83,35 +58,8 @@ export class LoyaltyService {
     private readonly audit: AuditService,
   ) {}
 
-  async getRules(db: Db = this.prisma): Promise<LoyaltyRules> {
-    const s = await db.systemSettings.findUnique({
-      where: { id: SYSTEM_SETTINGS_ID },
-      select: {
-        loyaltyEnabled: true,
-        loyaltyPointsPerEgp: true,
-        loyaltyRedeemPoints: true,
-        loyaltyRedeemValue: true,
-        loyaltyVisitsForReward: true,
-        loyaltyRewardServiceId: true,
-        loyaltyStartedAt: true,
-      },
-    });
-    const rewardService = s?.loyaltyRewardServiceId
-      ? await db.service.findUnique({
-          where: { id: s.loyaltyRewardServiceId },
-          select: { name: true },
-        })
-      : null;
-    return {
-      enabled: s?.loyaltyEnabled ?? false,
-      pointsPerEgp: num(s?.loyaltyPointsPerEgp ?? 1),
-      redeemPoints: s?.loyaltyRedeemPoints ?? 1000,
-      redeemValue: num(s?.loyaltyRedeemValue ?? 50),
-      visitsForReward: s?.loyaltyVisitsForReward ?? 5,
-      rewardServiceId: s?.loyaltyRewardServiceId ?? null,
-      rewardServiceName: rewardService?.name ?? null,
-      startedAt: s?.loyaltyStartedAt?.toISOString() ?? null,
-    };
+  getRules(db: Db = this.prisma): Promise<LoyaltyRules> {
+    return loadLoyaltyRules(db);
   }
 
   async patchRules(user: DashboardJwtUser, dto: PatchLoyaltySettingsDto) {
@@ -165,84 +113,11 @@ export class LoyaltyService {
     db: Db = this.prisma,
     rulesIn?: LoyaltyRules,
   ): Promise<LoyaltySummary> {
-    const rules = rulesIn ?? (await this.getRules(db));
-    const since = rules.startedAt ? new Date(rules.startedAt) : null;
-    const [paid, ledger, visits] = await Promise.all([
-      since
-        ? db.payment.aggregate({
-            where: {
-              clientId,
-              status: PaymentStatus.PAID,
-              method: { not: PaymentMethod.LOYALTY },
-              createdAt: { gte: since },
-            },
-            _sum: { amount: true },
-          })
-        : null,
-      db.loyaltyTransaction.findMany({
-        where: { clientId },
-        select: {
-          type: true,
-          points: true,
-          payment: { select: { status: true } },
-        },
-      }),
-      since
-        ? db.queueEntry.count({
-            where: {
-              clientId,
-              status: QueueEntryStatus.COMPLETED,
-              checkedInAt: { gte: since },
-            },
-          })
-        : 0,
-    ]);
-    const earnedPoints = Math.floor(
-      num(paid?._sum.amount) * rules.pointsPerEgp,
-    );
-    let redeemedPoints = 0;
-    let adjustedPoints = 0;
-    let rewardsUsed = 0;
-    for (const row of ledger) {
-      // A redemption whose payment was cancelled/refunded gives the points (or reward) back.
-      const live = !row.payment || row.payment.status === PaymentStatus.PAID;
-      if (row.type === LoyaltyTransactionType.ADJUST) {
-        adjustedPoints += row.points;
-      } else if (row.type === LoyaltyTransactionType.REDEEM_POINTS && live) {
-        redeemedPoints += -row.points;
-      } else if (row.type === LoyaltyTransactionType.REWARD && live) {
-        rewardsUsed += 1;
-      }
-    }
-    const points = Math.max(0, earnedPoints + adjustedPoints - redeemedPoints);
-    const rewardsEarned =
-      rules.visitsForReward > 0
-        ? Math.floor(visits / rules.visitsForReward)
-        : 0;
-    const rewardsAvailable = Math.max(0, rewardsEarned - rewardsUsed);
-    return {
-      enabled: rules.enabled,
+    return computeLoyaltySummary(
+      db,
       clientId,
-      points,
-      earnedPoints,
-      redeemedPoints,
-      adjustedPoints,
-      redeemBlockPoints: rules.redeemPoints,
-      redeemBlockValue: rules.redeemValue,
-      redeemableBlocks:
-        rules.redeemPoints > 0 ? Math.floor(points / rules.redeemPoints) : 0,
-      visits,
-      visitsForReward: rules.visitsForReward,
-      rewardsEarned,
-      rewardsUsed,
-      rewardsAvailable,
-      visitsToNextReward:
-        rules.visitsForReward > 0
-          ? rules.visitsForReward - (visits % rules.visitsForReward)
-          : 0,
-      rewardServiceId: rules.rewardServiceId,
-      rewardServiceName: rules.rewardServiceName,
-    };
+      rulesIn ?? (await loadLoyaltyRules(db)),
+    );
   }
 
   async clientSummary(user: DashboardJwtUser, clientId: string) {

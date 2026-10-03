@@ -227,6 +227,41 @@ export default function DashboardInvoiceReceiptPage() {
                 </>
               ) : null}
 
+              {data.loyalty ? (
+                <>
+                  <div className="separator" />
+                  <section className="totals">
+                    <p className="bold">
+                      <span>Loyalty points</span>
+                      <span>{data.loyalty.pointsBalance.toLocaleString("en-US")}</span>
+                    </p>
+                    {data.loyalty.pointsEarnedThisVisit > 0 ? (
+                      <p>
+                        <span>Earned this visit</span>
+                        <span>+{data.loyalty.pointsEarnedThisVisit.toLocaleString("en-US")}</span>
+                      </p>
+                    ) : null}
+                    <p>
+                      <span>Visits</span>
+                      <span>{data.loyalty.visits}</span>
+                    </p>
+                  </section>
+                  <p className="center">
+                    {data.loyalty.redeemBlockPoints.toLocaleString("en-US")} points ={" "}
+                    {formatEGP(data.loyalty.redeemBlockValue)} off
+                  </p>
+                  {data.loyalty.rewardServiceName ? (
+                    <p className="center">
+                      {data.loyalty.rewardsAvailable > 0
+                        ? `Free ${data.loyalty.rewardServiceName} ready on your next visit`
+                        : `${data.loyalty.visitsToNextReward} more visit${
+                            data.loyalty.visitsToNextReward === 1 ? "" : "s"
+                          } to a free ${data.loyalty.rewardServiceName}`}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+
               <div className="separator" />
 
               <footer className="center">

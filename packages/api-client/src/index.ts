@@ -1349,6 +1349,18 @@ export type DashboardInvoiceReceipt = {
   showVatOnInvoice?: boolean;
   showVatBreakdown?: boolean;
   showPaymentBreakdown?: boolean;
+  /** Present only while the loyalty program is running. */
+  loyalty?: {
+    pointsEarnedThisVisit: number;
+    pointsBalance: number;
+    redeemBlockPoints: number;
+    redeemBlockValue: number;
+    visits: number;
+    visitsForReward: number;
+    visitsToNextReward: number;
+    rewardsAvailable: number;
+    rewardServiceName: string | null;
+  } | null;
   receiptTitle?: string;
   receiptWidth?: "58mm" | "80mm" | string;
   footerMessage: string;
