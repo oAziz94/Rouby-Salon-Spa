@@ -3,7 +3,6 @@ import {
   BarChart3,
   BookOpenCheck,
   Boxes,
-  Calendar,
   CalendarClock,
   CalendarX,
   ClipboardCheck,
@@ -53,12 +52,6 @@ export const DASHBOARD_NAV_GROUPS: DashboardNavGroup[] = [
     id: "operations",
     label: "Operations",
     items: [
-      {
-        label: "Calendar",
-        href: "/dashboard/calendar",
-        permission: "bookings.read",
-        icon: Calendar,
-      },
       {
         label: "Queue",
         href: "/dashboard/queue",

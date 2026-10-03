@@ -16,9 +16,32 @@ export type StaffAvailabilityEntry = {
   displayName: string;
   email: string | null;
   phone: string | null;
-  status: 'AVAILABLE' | 'UNAVAILABLE';
+  status: 'AVAILABLE' | 'UNAVAILABLE' | 'NOT_LINKED';
   reason?: string;
 };
+
+/** Per-request cache for staffCoverageWarnings, keyed by branch and day. */
+export type StaffCoverageRoster = Map<
+  string,
+  Promise<
+    Array<{
+      id: string;
+      displayName: string;
+      serviceIds: Set<string>;
+      intervals: Array<{ start: string; end: string }>;
+    }>
+  >
+>;
+
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
 
 function timeFromDbTime(d: Date): string {
   return d.toISOString().slice(11, 19);
@@ -397,6 +420,106 @@ export class StaffAvailabilityService {
       });
     }
     return out;
+  }
+
+  /**
+   * Active, bookable staff of the branch who are NOT linked to the service. Assigning one
+   * is an exception: the start is refused without a reason and audited with one.
+   */
+  async listUnlinkedStaffForService(
+    branchId: string,
+    catalogServiceId: string,
+  ): Promise<StaffAvailabilityEntry[]> {
+    const profiles = await this.prisma.staffProfile.findMany({
+      where: {
+        branchId,
+        isActive: true,
+        isBookable: true,
+        services: { none: { serviceId: catalogServiceId } },
+      },
+      include: { user: { select: { email: true, phone: true } } },
+      orderBy: { displayName: 'asc' },
+    });
+    return profiles.map((p) => ({
+      staffProfileId: p.id,
+      displayName: p.displayName,
+      email: p.user.email,
+      phone: p.user.phone,
+      status: 'NOT_LINKED' as const,
+      reason: 'not linked to this service',
+    }));
+  }
+
+  /**
+   * Warnings for a booking at a slot: services nobody is linked to, whose staff are all
+   * off that day, or whose staff do not work at the slot's start time. Informational only —
+   * booking rules do not depend on staff. Pass one `roster` map per request to reuse the
+   * per-day roster across bookings.
+   */
+  async staffCoverageWarnings(
+    branchId: string,
+    dateYmd: string,
+    startTime: string,
+    services: Array<{ serviceId: string; name: string }>,
+    roster: StaffCoverageRoster = new Map(),
+  ): Promise<string[]> {
+    const key = `${branchId}|${dateYmd}`;
+    let pending = roster.get(key);
+    if (!pending) {
+      pending = this.loadCoverageRoster(branchId, dateYmd);
+      roster.set(key, pending);
+    }
+    const staff = await pending;
+    const day = WEEKDAY_NAMES[cairoWeekdayIndexFromDateString(dateYmd)];
+    const names = (rows: Array<{ displayName: string }>) =>
+      rows.map((r) => r.displayName).join(', ');
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const s of services) {
+      if (seen.has(s.serviceId)) continue;
+      seen.add(s.serviceId);
+      const linked = staff.filter((p) => p.serviceIds.has(s.serviceId));
+      if (linked.length === 0) {
+        out.push(`${s.name}: no bookable staff does this service`);
+        continue;
+      }
+      const working = linked.filter((p) => p.intervals.length > 0);
+      if (working.length === 0) {
+        out.push(
+          `${s.name}: ${names(linked)} ${linked.length === 1 ? 'is' : 'are'} off on ${day}`,
+        );
+        continue;
+      }
+      const atTime = working.some((p) =>
+        p.intervals.some((w) => startTime >= w.start && startTime < w.end),
+      );
+      if (!atTime) {
+        out.push(
+          `${s.name}: ${startTime.slice(0, 5)} is outside the working hours of ${names(working)}`,
+        );
+      }
+    }
+    return out;
+  }
+
+  private async loadCoverageRoster(branchId: string, dateYmd: string) {
+    const profiles = await this.prisma.staffProfile.findMany({
+      where: { branchId, isActive: true, isBookable: true },
+      select: {
+        id: true,
+        displayName: true,
+        services: { select: { serviceId: true } },
+      },
+      orderBy: { displayName: 'asc' },
+    });
+    return Promise.all(
+      profiles.map(async (p) => ({
+        id: p.id,
+        displayName: p.displayName,
+        serviceIds: new Set(p.services.map((x) => x.serviceId)),
+        intervals: await this.buildWorkingIntervals(p.id, branchId, dateYmd),
+      })),
+    );
   }
 
   cairoNowKey(): string {

@@ -52,6 +52,8 @@ import { DashboardCreateBookingDialog } from "@/components/dashboard-create-book
 import { OverrideReasonDialog, useOverrideReason } from "@/components/override-reason-dialog";
 import { useSystemDialog } from "@/components/system-dialog-provider";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
+import { BookingsSchedule, type BookingsScheduleMode } from "@/components/bookings/bookings-schedule";
+import { StaffOptions } from "@/components/staff-options";
 
 type PageState = "loading" | "loaded" | "empty" | "error";
 
@@ -268,6 +270,8 @@ export default function DashboardBookingsPage() {
   const [branches, setBranches] = useState<DashboardBranch[]>([]);
   const [branchId, setBranchId] = useState<string>("");
   const [status, setStatus] = useState<string>("");
+  const [view, setView] = useState<BookingsScheduleMode | "list">("day");
+  const [scheduleReload, setScheduleReload] = useState(0);
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [searchInput, setSearchInput] = useState("");
@@ -379,6 +383,7 @@ export default function DashboardBookingsPage() {
   }
 
   function closeDrawer() {
+    setScheduleReload((n) => n + 1);
     setDrawerOpen(false);
     setSelectedBookingId("");
     setDetail(null);
@@ -949,7 +954,7 @@ export default function DashboardBookingsPage() {
             </div>
           </div>
 
-          {state === "loaded" && pageStats ? (
+          {view === "list" && state === "loaded" && pageStats ? (
             <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-xl border border-[#E8E0D4]/80 bg-[#FFFCF7] p-4 shadow-sm">
                 <p className="text-xs font-medium uppercase tracking-wide text-[#7A6A58]">On this page</p>
@@ -981,7 +986,44 @@ export default function DashboardBookingsPage() {
           ) : null}
         </header>
 
-        <section className="rounded-2xl bg-white p-5 shadow-[0_8px_30px_rgba(31,36,32,0.06)] ring-1 ring-[#E8E0D4]/60 md:p-6">
+        <div className="inline-flex rounded-xl border border-[#E8E0D4] bg-white p-1 shadow-sm" role="tablist">
+          {(
+            [
+              ["day", "Day"],
+              ["week", "Week"],
+              ["list", "List & search"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={view === value}
+              onClick={() => setView(value)}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                view === value ? "bg-[#062A2D] text-[#F6F2EA]" : "text-[#5E574C] hover:text-[#062A2D]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {view !== "list" && token ? (
+          <BookingsSchedule
+            token={token}
+            branchId={branchId}
+            mode={view}
+            onModeChange={setView}
+            onOpen={openDrawer}
+            initialDay={searchParams.get("date") ?? undefined}
+            reloadSignal={`${scheduleReload}-${createDialogOpen}`}
+          />
+        ) : null}
+
+        <section
+          className={`rounded-2xl bg-white p-5 shadow-[0_8px_30px_rgba(31,36,32,0.06)] ring-1 ring-[#E8E0D4]/60 md:p-6 ${view === "list" ? "" : "hidden"}`}
+        >
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#F0EBE3] pb-4">
             <div>
               <h2 className="text-sm font-semibold text-[#1F2420]">Filters</h2>
@@ -1091,7 +1133,7 @@ export default function DashboardBookingsPage() {
           </div>
         </section>
 
-        {state === "loading" ? (
+        {view === "list" && state === "loading" ? (
           <section className="rounded-2xl bg-white p-6 shadow-[0_8px_30px_rgba(31,36,32,0.04)] ring-1 ring-[#E8E0D4]/50 md:p-8">
             <div className="flex items-center gap-3 text-sm text-[#7A6A58]">
               <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#B9974A]" aria-hidden />
@@ -1112,7 +1154,7 @@ export default function DashboardBookingsPage() {
           </section>
         ) : null}
 
-        {state === "error" ? (
+        {view === "list" && state === "error" ? (
           <section className="rounded-2xl bg-[#FFF1EC] p-5 shadow-sm ring-1 ring-[#E7B9A4]/60 md:p-6">
             <div className="flex gap-3">
               <AlertCircle className="h-5 w-5 shrink-0 text-[#8B4428]" aria-hidden />
@@ -1121,7 +1163,7 @@ export default function DashboardBookingsPage() {
           </section>
         ) : null}
 
-        {state === "empty" ? (
+        {view === "list" && state === "empty" ? (
           <section className="rounded-2xl bg-white p-8 text-center shadow-[0_8px_30px_rgba(31,36,32,0.06)] ring-1 ring-[#E8E0D4]/60 md:p-10">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#062A2D]/10 text-[#062A2D]">
               <CalendarClock className="h-6 w-6" strokeWidth={1.75} aria-hidden />
@@ -1140,7 +1182,7 @@ export default function DashboardBookingsPage() {
           </section>
         ) : null}
 
-        {state === "loaded" ? (
+        {view === "list" && state === "loaded" ? (
           <section className="rounded-2xl bg-white shadow-[0_8px_30px_rgba(31,36,32,0.06)] ring-1 ring-[#E8E0D4]/60">
             <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[960px] border-separate border-spacing-0 text-sm">
@@ -1201,6 +1243,14 @@ export default function DashboardBookingsPage() {
                           <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#B9974A]" aria-hidden />
                           {row.servicesSummary ?? "—"}
                         </span>
+                        {(row.staffWarnings?.length ?? 0) > 0 ? (
+                          <span
+                            className="mt-1 inline-flex items-center gap-1 rounded-full border border-[#E7B9A4]/70 bg-[#FFF1EC] px-2 py-0.5 text-[11px] font-semibold text-[#8B4428]"
+                            title={row.staffWarnings?.join("\n")}
+                          >
+                            <AlertCircle className="h-3 w-3" aria-hidden /> Staff issue
+                          </span>
+                        ) : null}
                       </td>
                       <td className="border-b border-[#F7F4EE] px-3 py-4">
                         <span className="inline-flex items-center gap-1.5 text-[#5E574C]">
@@ -1380,6 +1430,18 @@ export default function DashboardBookingsPage() {
                         <p className="mt-0.5 truncate">{branchNameById.get(detail.branchId) ?? detail.branchId}</p>
                       </div>
                     </div>
+                    {(detail.staffWarnings?.length ?? 0) > 0 ? (
+                      <div className="mt-3 rounded-xl border border-[#E7B9A4]/70 bg-[#FFF1EC] px-3 py-2 text-xs text-[#8B4428]">
+                        <p className="flex items-center gap-1.5 font-semibold">
+                          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />
+                          No staff for part of this booking
+                        </p>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                          {detail.staffWarnings?.map((w) => <li key={w}>{w}</li>)}
+                        </ul>
+                        <p className="mt-1">Contact the client to reschedule, or confirm anyway.</p>
+                      </div>
+                    ) : null}
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#F0EBE3] pt-3">
                       <div>
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7A6A58]">Remaining</p>
@@ -2133,12 +2195,7 @@ export default function DashboardBookingsPage() {
                         onChange={(e) => setLineStartStaffPick(e.target.value)}
                       >
                         <option value="">Select…</option>
-                        {lineStartStaffOptions.map((s) => (
-                          <option key={s.staffProfileId} value={s.staffProfileId}>
-                            {s.displayName} ({s.status}
-                            {s.reason ? ` — ${s.reason}` : ""})
-                          </option>
-                        ))}
+                        <StaffOptions staff={lineStartStaffOptions} />
                       </select>
                     </label>
                     {lineStartError ? (

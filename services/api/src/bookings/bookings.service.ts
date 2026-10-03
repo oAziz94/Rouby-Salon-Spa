@@ -40,7 +40,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SlotsService } from '../slots/slots.service';
 import { AuditService } from '../audit/audit.service';
 import { InvoicesService } from '../billing/invoices.service';
-import { StaffAvailabilityService } from '../staff/staff-availability.service';
+import {
+  StaffAvailabilityService,
+  type StaffCoverageRoster,
+} from '../staff/staff-availability.service';
 import {
   BookingPricingService,
   type ResolvedBookingLine,
@@ -832,21 +835,30 @@ export class BookingsService {
           },
           items: {
             orderBy: { createdAt: 'asc' },
-            take: 4,
             select: {
               nameSnapshot: true,
               quantity: true,
+              itemType: true,
+              lineStatus: true,
+              serviceId: true,
+              serviceVariant: { select: { serviceId: true } },
             },
           },
         },
       }),
     ]);
 
+    const roster: StaffCoverageRoster = new Map();
+    const staffWarnings = new Map<string, string[]>();
+    for (const b of rows) {
+      staffWarnings.set(b.id, await this.staffWarningsFor(b, roster));
+    }
+
     return {
       data: rows.map((b) => {
         const slot = b.slot ? presentBookingSlot(b.slot, b) : null;
         const itemsPreview =
-          b.items?.map((it) => ({
+          b.items?.slice(0, 4).map((it) => ({
             nameSnapshot: it.nameSnapshot,
             quantity: it.quantity,
           })) ?? [];
@@ -880,6 +892,7 @@ export class BookingsService {
           createdAt: b.createdAt,
           itemsPreview,
           servicesSummary,
+          staffWarnings: staffWarnings.get(b.id) ?? [],
         };
       }),
       meta: buildListMeta({
@@ -942,6 +955,18 @@ export class BookingsService {
     return {
       ...mapped,
       items,
+      staffWarnings: await this.staffWarningsFor({
+        status: booking.status,
+        branchId: booking.branchId,
+        slot: booking.slot,
+        items: items.map((it) => ({
+          nameSnapshot: it.nameSnapshot,
+          itemType: it.itemType,
+          lineStatus: it.lineStatus,
+          serviceId: it.catalogServiceId,
+          serviceVariant: null,
+        })),
+      }),
       activeQueueEntryId:
         latestQueueEntry &&
         (latestQueueEntry.status === QueueEntryStatus.WAITING ||
@@ -956,6 +981,52 @@ export class BookingsService {
           }
         : null,
     };
+  }
+
+  /**
+   * Staff warnings for a booking that has not arrived yet (see staffCoverageWarnings).
+   * Nothing is enforced: the operator sees them before confirming and can reschedule.
+   */
+  private async staffWarningsFor(
+    booking: {
+      status: BookingStatus;
+      branchId: string;
+      slot: { date: Date; startTime: Date } | null;
+      items: Array<{
+        nameSnapshot: string;
+        itemType: string;
+        lineStatus?: string | null;
+        serviceId: string | null;
+        serviceVariant: { serviceId: string } | null;
+      }>;
+    },
+    roster?: StaffCoverageRoster,
+  ): Promise<string[]> {
+    const upcoming: BookingStatus[] = [
+      BookingStatus.PENDING,
+      BookingStatus.CONFIRMED,
+      BookingStatus.RESCHEDULED,
+    ];
+    if (!booking.slot || !upcoming.includes(booking.status)) return [];
+    const dateYmd = booking.slot.date.toISOString().slice(0, 10);
+    if (dateYmd < this.staffAvailability.cairoTodayYmd()) return [];
+    const services = booking.items
+      .filter((it) => it.lineStatus !== BookingItemLineStatus.CANCELLED)
+      .map((it) => ({
+        serviceId: it.serviceId ?? it.serviceVariant?.serviceId ?? null,
+        name: it.nameSnapshot,
+      }))
+      .filter((x): x is { serviceId: string; name: string } =>
+        Boolean(x.serviceId),
+      );
+    if (services.length === 0) return [];
+    return this.staffAvailability.staffCoverageWarnings(
+      booking.branchId,
+      dateYmd,
+      booking.slot.startTime.toISOString().slice(11, 19),
+      services,
+      roster,
+    );
   }
 
   async dashboardCreateBooking(

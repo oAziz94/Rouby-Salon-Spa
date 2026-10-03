@@ -94,6 +94,32 @@ describe('staff rules on booking and service start', () => {
     const bookingId = created.body.id as string;
     const itemId = created.body.items[0].id as string;
 
+    // The operator is warned on the booking and in the list, but nothing is blocked.
+    const detail = await rec.get(`/api/v1/dashboard/bookings/${bookingId}`);
+    expect(detail.status).toBe(200);
+    const warnings = detail.body.staffWarnings as string[];
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('no bookable staff does this service');
+    const list = await rec.get(
+      `/api/v1/dashboard/bookings?slotId=${slot.id}&branchId=${BRANCH_ID}`,
+    );
+    expect(
+      (list.body.data as Array<{ id: string; staffWarnings: string[] }>).find(
+        (b) => b.id === bookingId,
+      )?.staffWarnings,
+    ).toHaveLength(1);
+
+    // The staff picker offers unlinked staff as an exception.
+    const avail = await rec.get(
+      `/api/v1/dashboard/staff/availability?branchId=${BRANCH_ID}&serviceId=${SVC_MANI}`,
+    );
+    expect(avail.status).toBe(200);
+    expect(
+      (
+        avail.body.staff as Array<{ staffProfileId: string; status: string }>
+      ).find((s) => s.staffProfileId === monaId)?.status,
+    ).toBe('NOT_LINKED');
+
     const q = await rec.post(
       `/api/v1/dashboard/bookings/${bookingId}/check-in`,
     );

@@ -59,6 +59,7 @@ import { PermissionGuard } from "@/components/auth-required";
 import { OverrideReasonDialog } from "@/components/override-reason-dialog";
 import { useSystemDialog } from "@/components/system-dialog-provider";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
+import { linkedStaff, StaffOptions } from "@/components/staff-options";
 
 function formatDuration(seconds: number | null): string {
   if (seconds === null || Number.isNaN(seconds) || seconds < 0) {
@@ -1111,12 +1112,7 @@ function QueueDetailsDrawer({
                                   className="mt-1 w-full rounded-xl border border-[#E8E0D4] bg-white px-3 py-2 text-sm"
                                 >
                                   <option value="">Select staff</option>
-                                  {staffOptions.map((staff) => (
-                                    <option key={staff.staffProfileId} value={staff.staffProfileId}>
-                                      {staff.displayName} ({staff.status}
-                                      {staff.reason ? ` - ${staff.reason}` : ""})
-                                    </option>
-                                  ))}
+                                  <StaffOptions staff={staffOptions} />
                                 </select>
                               </label>
                               {staffLoading ? (
@@ -1765,7 +1761,7 @@ export default function DashboardQueuePage() {
       setDrawerStaffOptions(res.staff);
       setDrawerServiceStaff(
         res.staff.find((staff) => staff.status === "AVAILABLE")?.staffProfileId ??
-          res.staff[0]?.staffProfileId ??
+          linkedStaff(res.staff)[0]?.staffProfileId ??
           "",
       );
     } catch (requestError) {
@@ -2934,17 +2930,12 @@ export default function DashboardQueuePage() {
                           }
                         >
                           <option value="">Select…</option>
-                          {options.map((s) => (
-                            <option key={s.staffProfileId} value={s.staffProfileId}>
-                              {s.displayName} ({s.status}
-                              {s.reason ? ` — ${s.reason}` : ""})
-                            </option>
-                          ))}
+                          <StaffOptions staff={options} />
                         </select>
                       </label>
-                      {!startVisitAvailLoading && options.length === 0 ? (
+                      {!startVisitAvailLoading && linkedStaff(options).length === 0 ? (
                         <p className="mt-2 text-xs text-[#B26A2A]">
-                          No qualified staff found for this service at this time.
+                          No staff is linked to this service. Pick someone under Other staff and give a reason.
                         </p>
                       ) : null}
                     </div>

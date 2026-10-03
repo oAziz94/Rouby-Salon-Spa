@@ -769,6 +769,8 @@ export type DashboardBookingsListItem = {
   itemsPreview?: Array<{ nameSnapshot: string; quantity: number }>;
   /** Short human-readable summary of line items for list rows. */
   servicesSummary?: string;
+  /** Upcoming bookings only: services with no staff linked / working that day or time. */
+  staffWarnings?: string[];
 };
 
 export type DashboardBookingsListResponse = {
@@ -779,6 +781,8 @@ export type DashboardBookingsListResponse = {
 export type DashboardBookingDetail = {
   id: string;
   status: string;
+  /** Upcoming bookings only: services with no staff linked / working that day or time. */
+  staffWarnings?: string[];
   branchId: string;
   slotId: string;
   source: string;

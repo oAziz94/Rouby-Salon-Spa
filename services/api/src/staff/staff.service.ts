@@ -536,6 +536,12 @@ export class StaffService {
       params.serviceId,
       composite,
     );
+    // Listed after the linked staff so an exception stays a deliberate choice.
+    const others = await this.availability.listUnlinkedStaffForService(
+      params.branchId,
+      params.serviceId,
+    );
+    rows.push(...others);
     return {
       branchId: params.branchId,
       serviceId: params.serviceId,

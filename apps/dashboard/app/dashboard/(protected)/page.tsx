@@ -440,7 +440,7 @@ export default function DashboardHomePage() {
             ) : null}
             {canReadBookings ? (
               <Link
-                href="/dashboard/calendar"
+                href="/dashboard/bookings"
                 className="inline-flex items-center gap-1.5 rounded-full border border-[#E8E0D4] bg-[#FFFCF7] px-3 py-1.5 text-xs font-medium text-[#1F2420] shadow-sm transition hover:border-[#B9974A]/45 md:text-sm"
               >
                 <CalendarRange className="h-3.5 w-3.5 text-[#B9974A]" strokeWidth={1.75} aria-hidden />
@@ -626,7 +626,7 @@ export default function DashboardHomePage() {
             <h2 className="text-base font-semibold text-[#1F2420]">Today&apos;s schedule</h2>
             {canReadBookings && todayYmd ? (
               <Link
-                href={`/dashboard/calendar?date=${todayYmd}`}
+                href={`/dashboard/bookings?date=${todayYmd}`}
                 className="text-xs font-medium text-[#B9974A] hover:underline"
               >
                 Open in calendar
@@ -645,7 +645,7 @@ export default function DashboardHomePage() {
               {schedule.map((row) => (
                 <li key={row.bookingId}>
                   <Link
-                    href={`/dashboard/calendar?date=${row.slotDate}`}
+                    href={`/dashboard/bookings?date=${row.slotDate}`}
                     className="flex flex-col gap-1 rounded-xl bg-[#FFFCF7]/90 px-3 py-3 ring-1 ring-[#F0EBE3]/80 transition hover:ring-[#B9974A]/35 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">
@@ -707,7 +707,7 @@ export default function DashboardHomePage() {
                 return (
                   <Link
                     key={ymd}
-                    href={`/dashboard/calendar?date=${ymd}`}
+                    href={`/dashboard/bookings?date=${ymd}`}
                     className={`flex min-w-[2.75rem] flex-col items-center rounded-xl px-2 py-2 text-center transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B9974A] ${
                       active
                         ? "bg-[#B9974A]/90 text-white shadow-sm shadow-[#B9974A]/20 ring-2 ring-[#B9974A]/40"
@@ -931,7 +931,7 @@ export default function DashboardHomePage() {
               {recentBookings.map((b: DashboardOverviewRecentBookingRow) => (
                 <li key={b.bookingId} className="px-5 py-3 md:px-6">
                   <Link
-                    href={`/dashboard/calendar?date=${b.slotDate}`}
+                    href={`/dashboard/bookings?date=${b.slotDate}`}
                     className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">
@@ -1241,7 +1241,7 @@ function FrontDeskToday({ token, canReadBookings }: { token: string | null; canR
       ) : null}
       {canReadBookings ? (
         <div className="mt-5 flex flex-wrap gap-3">
-          <Link href="/dashboard/calendar" className="rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA]">
+          <Link href="/dashboard/bookings" className="rounded-xl bg-[#062A2D] px-4 py-2 text-sm font-semibold text-[#F6F2EA]">
             Open calendar
           </Link>
           <Link href="/dashboard/bookings" className="rounded-xl border border-[#D8CBB8] bg-white px-4 py-2 text-sm font-semibold text-[#1F2420]">
