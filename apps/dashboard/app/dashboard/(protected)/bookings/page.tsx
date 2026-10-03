@@ -42,7 +42,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
-import { itemTypeLabel, lineStatusLabel, sourceLabel } from "@/lib/labels";
+import { itemTypeLabel, lineStatusLabel, slotStatusLabel, sourceLabel } from "@/lib/labels";
 import {
   DashboardServiceVariantLinesBlock,
   type DashboardServiceVariantLinesBlockHandle,
@@ -126,19 +126,25 @@ function formatEGP(amount: number): string {
 function formatApiError(error: unknown): string {
   if (error instanceof ApiClientError) {
     if (error.code === "BOOKING_SLOT_FULL") {
-      return "Selected slot is full (BOOKING_SLOT_FULL).";
+      return "That time slot is full. Choose another slot.";
     }
     if (error.code === "SLOT_NOT_ONLINE") {
-      return "Selected slot is not available online (SLOT_NOT_ONLINE).";
+      return "That slot is not open for online booking.";
+    }
+    if (error.code === "BOOKING_HAS_PAYMENTS") {
+      return "This booking has payments recorded. Void or refund the payments first (Payments page), then cancel the booking.";
+    }
+    if (error.code === "SLOT_IN_PAST") {
+      return "That slot is on a past date. Choose today or a later day.";
     }
     if (error.statusCode === 403) {
-      return "You do not have permission for this action (403 FORBIDDEN).";
+      return "Your role does not allow this action. Ask a manager.";
     }
     if (error.statusCode === 401) {
-      return "Your session expired (401 UNAUTHORIZED). Please sign in again.";
+      return "Your session expired. Please sign in again.";
     }
     if (error.code === "INVALID_STATUS_TRANSITION") {
-      return "Invalid booking status transition for this action.";
+      return "This action is not possible for the booking's current status.";
     }
     if (error.code === "QUEUE_ACTIVE_FOR_BOOKING") {
       return "An active queue entry already exists for this booking.";
@@ -157,7 +163,7 @@ function formatApiError(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
-  return "Unexpected API error.";
+  return "Something went wrong. Please try again.";
 }
 
 function formatBookingRef(id: string): string {
@@ -885,9 +891,19 @@ export default function DashboardBookingsPage() {
           setActionError("Select a slot for reschedule.");
           return;
         }
-        await postDashboardBookingAction(token, selectedBookingId, action, {
-          slotId: rescheduleSlotId,
-        });
+        try {
+          await postDashboardBookingAction(token, selectedBookingId, action, {
+            slotId: rescheduleSlotId,
+          });
+        } catch (firstError) {
+          if (!(firstError instanceof ApiClientError) || !firstError.overridable) throw firstError;
+          const reason = await override.ask(firstError.message);
+          if (!reason) return;
+          await postDashboardBookingAction(token, selectedBookingId, action, {
+            slotId: rescheduleSlotId,
+            overrideReason: reason,
+          });
+        }
       } else if (action === "discount") {
         const parsed = Number(discountAmount);
         if (!Number.isFinite(parsed) || parsed < 0) {
@@ -1887,7 +1903,7 @@ export default function DashboardBookingsPage() {
                                 .map((s) => (
                                   <option key={s.id} value={s.id}>
                                     {s.date}{" "}
-                                    {formatWallClockRange12h(s.startTime, s.endTime, " – ")} ({s.status})
+                                    {formatWallClockRange12h(s.startTime, s.endTime, " – ")} ({slotStatusLabel(s.status)})
                                   </option>
                                 ))}
                             </select>
@@ -2025,7 +2041,7 @@ export default function DashboardBookingsPage() {
                                   .filter((slot) => slot.id !== detail.slotId)
                                   .map((slot) => (
                                     <option key={slot.id} value={slot.id}>
-                                      {formatDayLabel(slot.date)} · {formatWallClockRange12h(slot.startTime, slot.endTime, " – ")}{slot.status !== "AVAILABLE" ? ` (${slot.status.toLowerCase()})` : ""}
+                                      {formatDayLabel(slot.date)} · {formatWallClockRange12h(slot.startTime, slot.endTime, " – ")}{slot.status !== "AVAILABLE" ? ` (${slotStatusLabel(slot.status).toLowerCase()})` : ""}
                                     </option>
                                   ))}
                               </select>

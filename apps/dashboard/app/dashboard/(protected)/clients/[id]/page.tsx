@@ -16,6 +16,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
+import { bookingStatusLabel, sourceLabel } from "@/lib/labels";
 
 type LoadState = "loading" | "loaded" | "error";
 
@@ -358,7 +359,7 @@ export default function DashboardClientProfilePage() {
                     {booking.servicesSummary ?? "Booking"}
                   </p>
                   <p className="mt-1 text-xs text-[#7A6A58]">
-                    {booking.status} • {booking.source} • {formatDateTimeAmPm(booking.createdAt)}
+                    {bookingStatusLabel(booking.status)} • {sourceLabel(booking.source)} • {formatDateTimeAmPm(booking.createdAt)}
                   </p>
                   <p className="mt-1 text-xs text-[#1F2420]">
                     {formatEGP(booking.totalAmount)}

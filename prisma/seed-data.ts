@@ -565,7 +565,7 @@ export const BRANCH_MANAGER_PERMISSION_KEYS = [
   "settings.branch.manage",
 ];
 
-/** Receptionist: daily ops; no client create/update; no sensitive notes; no discount; schedules read only. */
+/** Receptionist: daily ops; can register and edit clients; no sensitive notes; no discount; schedules read only. */
 export const RECEPTIONIST_PERMISSION_KEYS = [
   "loyalty.read",
   "loyalty.redeem",
@@ -588,6 +588,8 @@ export const RECEPTIONIST_PERMISSION_KEYS = [
   "slots.status.manage",
   "slots.delete",
   "clients.read",
+  "clients.create",
+  "clients.update",
   "clients.contact.view",
   "services.read",
   "service_enhancements.read",

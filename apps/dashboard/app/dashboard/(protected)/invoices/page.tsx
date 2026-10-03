@@ -39,6 +39,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PermissionGuard } from "@/components/auth-required";
+import { OverrideReasonDialog, useOverrideReason } from "@/components/override-reason-dialog";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
 
 type ListStatus = "loading" | "ready" | "error";
@@ -404,7 +405,15 @@ export default function DashboardInvoicesPage() {
     if (!bookingId) return;
     setGenerateLoading(true);
     try {
-      const created = await postDashboardBookingInvoice(token, bookingId);
+      let created: DashboardInvoiceDetail;
+      try {
+        created = await postDashboardBookingInvoice(token, bookingId);
+      } catch (firstError) {
+        if (!(firstError instanceof ApiClientError) || !firstError.overridable) throw firstError;
+        const reason = await override.ask(firstError.message);
+        if (!reason) return;
+        created = await postDashboardBookingInvoice(token, bookingId, { overrideReason: reason });
+      }
       await loadList();
       pushToast(`Invoice ${created.invoiceNumber} created.`, "success");
       setGenerateOpen(false);
@@ -448,6 +457,9 @@ export default function DashboardInvoicesPage() {
   const [paymentFieldErrors, setPaymentFieldErrors] = useState<Record<string, string>>({});
   const [paymentSubmitError, setPaymentSubmitError] = useState("");
   const [paymentLoading, setPaymentLoading] = useState(false);
+  /** Guards against a double click sending two payments before React re-renders the disabled button. */
+  const paymentInFlight = useRef(false);
+  const override = useOverrideReason();
 
   const openPaymentModal = useCallback((inv: DashboardInvoiceDetail) => {
     setPaymentOpen(true);
@@ -485,10 +497,11 @@ export default function DashboardInvoicesPage() {
 
   async function onRecordPayment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!token || !detail) return;
+    if (!token || !detail || paymentInFlight.current) return;
     const remaining = detail.remainingAmount;
     if (!validatePaymentForm(remaining)) return;
     const amount = Number.parseFloat(paymentAmount.trim().replace(/,/g, ""));
+    paymentInFlight.current = true;
     setPaymentLoading(true);
     setPaymentSubmitError("");
     try {
@@ -507,6 +520,7 @@ export default function DashboardInvoicesPage() {
       setPaymentSubmitError(msg);
       pushToast(msg, "error");
     } finally {
+      paymentInFlight.current = false;
       setPaymentLoading(false);
     }
   }
@@ -1550,6 +1564,7 @@ export default function DashboardInvoicesPage() {
           </div>
         ) : null}
       </section>
+      <OverrideReasonDialog request={override.request} onClose={override.close} />
     </PermissionGuard>
   );
 }

@@ -224,6 +224,33 @@ describe('loyalty program', () => {
     expect((restored.body as Loyalty).points).toBe(s2.points + 1000);
   });
 
+  it('counts a completed visit toward the reward only once its invoice is fully settled', async () => {
+    const rec = await api.as('receptionist');
+    const client = await createClient('Unsettled Visit');
+    const v = await visitToInvoice(client.id);
+    const closed = await rec.post(
+      `/api/v1/dashboard/queue/${v.queueEntryId}/complete`,
+      { closeWithBalanceReason: 'client will pay tomorrow' },
+    );
+    expect(closed.status).toBe(201);
+    const summary = () =>
+      rec.get(`/api/v1/dashboard/loyalty/clients/${client.id}`);
+    expect(((await summary()).body as Loyalty).visits).toBe(0);
+
+    const inv = await prisma.invoice.findFirstOrThrow({
+      where: { bookingId: v.bookingId },
+    });
+    const paid = await rec.post(
+      `/api/v1/dashboard/invoices/${inv.id}/payments`,
+      {
+        amount: v.total,
+        method: 'CASH',
+      },
+    );
+    expect(paid.status).toBe(201);
+    expect(((await summary()).body as Loyalty).visits).toBe(1);
+  });
+
   it('refuses redemptions while the program is off, and rejects a manual LOYALTY payment', async () => {
     const rec = await api.as('receptionist');
     const owner = await api.as('owner');

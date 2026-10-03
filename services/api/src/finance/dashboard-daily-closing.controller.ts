@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -50,7 +51,7 @@ export class DashboardDailyClosingController {
   @ApiOperation({ summary: 'Get daily closing report by id' })
   getOne(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.dailyClosing.getById(user, id);
   }
@@ -60,7 +61,7 @@ export class DashboardDailyClosingController {
   @ApiOperation({ summary: 'Close business day (final snapshot)' })
   close(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: DailyClosingCloseDto,
   ) {
     return this.dailyClosing.close(user, id, body);

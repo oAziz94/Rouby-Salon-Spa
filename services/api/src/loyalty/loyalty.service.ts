@@ -15,6 +15,7 @@ import {
 } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
+import { lockBookingForPayments } from '../billing/booking-lock';
 import { assertDashboardBranchAccess } from '../billing/dashboard-branch-scope';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,6 +24,7 @@ import type { PatchLoyaltySettingsDto } from './dto/loyalty.dto';
 import {
   computeLoyaltySummary,
   loadLoyaltyRules,
+  SETTLED_INVOICE,
   type LoyaltyRules,
   type LoyaltySummary,
 } from './loyalty-balance';
@@ -180,6 +182,7 @@ export class LoyaltyService {
           status: QueueEntryStatus.COMPLETED,
           checkedInAt: { gte: since },
           clientId: { not: null },
+          booking: { invoices: { some: SETTLED_INVOICE } },
         },
         distinct: ['clientId'],
         select: { clientId: true },
@@ -266,7 +269,7 @@ export class LoyaltyService {
   ) {
     return this.prisma.$transaction(async (tx) => {
       const rules = await this.requireEnabled(tx);
-      const ctx = await this.loadVisit(user, queueEntryId, tx);
+      const ctx = await this.loadVisit(user, queueEntryId, tx, true);
       const invoice = this.requireOpenInvoice(ctx.invoice);
       const summary = await this.summaryForClient(ctx.clientId, tx, rules);
       if (summary.redeemableBlocks < 1) {
@@ -349,7 +352,7 @@ export class LoyaltyService {
   async redeemReward(user: DashboardJwtUser, queueEntryId: string) {
     return this.prisma.$transaction(async (tx) => {
       const rules = await this.requireEnabled(tx);
-      const ctx = await this.loadVisit(user, queueEntryId, tx);
+      const ctx = await this.loadVisit(user, queueEntryId, tx, true);
       const invoice = this.requireOpenInvoice(ctx.invoice);
       const summary = await this.summaryForClient(ctx.clientId, tx, rules);
       if (summary.rewardsAvailable < 1) {
@@ -487,6 +490,7 @@ export class LoyaltyService {
     user: DashboardJwtUser,
     queueEntryId: string,
     db: Db,
+    lockForPayment = false,
   ) {
     const entry = await db.queueEntry.findUnique({
       where: { id: queueEntryId },
@@ -500,6 +504,10 @@ export class LoyaltyService {
         'QUEUE_ENTRY_NO_BOOKING',
         'Queue entry has no linked booking',
       );
+    }
+    if (lockForPayment) {
+      // Same lock as the cashier's payment, so a redemption and a payment cannot both use the balance.
+      await lockBookingForPayments(db, entry.bookingId);
     }
     const booking = await db.booking.findUnique({
       where: { id: entry.bookingId },

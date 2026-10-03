@@ -1,4 +1,10 @@
-import { Controller, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentDashboardUser } from '../auth/decorators/current-dashboard-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
@@ -22,7 +28,7 @@ export class DashboardBookingQueueController {
   })
   checkIn(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.queue.checkInFromBooking(user, bookingId);
   }

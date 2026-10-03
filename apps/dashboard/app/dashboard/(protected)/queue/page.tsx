@@ -27,7 +27,14 @@ import {
   type DashboardStaffAvailabilityResponse,
 } from "@rouby/api-client";
 import { cairoTodayYmd, formatDateTimeAmPm, formatDayLabel } from "@rouby/wall-clock";
-import { bookingStatusLabel, lineStatusLabel, queueStatusLabel, sourceLabel } from "@/lib/labels";
+import {
+  bookingStatusLabel,
+  lineStatusLabel,
+  paymentMethodLabel,
+  paymentStatusLabel,
+  queueStatusLabel,
+  sourceLabel,
+} from "@/lib/labels";
 import { LoyaltyCheckoutCard } from "@/components/loyalty-checkout-card";
 import {
   AlertCircle,
@@ -164,7 +171,19 @@ function formatApiError(error: unknown): string {
       return "Please select a branch first.";
     }
     if (error.code === "WALK_IN_CLIENT_UNRESOLVED") {
-      return "Select an existing client or provide a phone number so a client record can be matched or created.";
+      return "Select an existing client, or enter a phone number so the client can be found or registered.";
+    }
+    if (error.code === "WALK_IN_CLIENT_CREATE_FORBIDDEN") {
+      return "This phone number is not registered yet, and your role cannot register new clients. Ask a manager to add the client, then select them from the list.";
+    }
+    if (error.code === "PHONE_INVALID") {
+      return "That phone number does not look right. Use a mobile number such as 01001234567, or include the country code.";
+    }
+    if (error.code === "BOOKING_HAS_PAYMENTS") {
+      return "This booking has payments recorded. Void or refund the payments first (Payments page), then cancel the booking.";
+    }
+    if (error.code === "PAYMENT_EXCEEDS_REMAINING") {
+      return "That amount is more than what is still owed on this invoice. Check the remaining amount and try again.";
     }
     if (error.code === "WALK_IN_ITEMS_REQUIRED") {
       return "Add at least one service before check-in.";
@@ -303,7 +322,7 @@ function QueueCard({
         <div className="flex justify-between gap-2">
           <dt>Status</dt>
           <dd className="text-right font-semibold capitalize tracking-wide text-[#062A2D]/85">
-            {row.status.replace(/_/g, " ").toLowerCase()}
+            {queueStatusLabel(row.status)}
           </dd>
         </div>
       </dl>
@@ -404,8 +423,7 @@ function QueueCard({
         <div className="mt-4 flex flex-col gap-2 border-t border-[#F0EBE3] pt-3">
           {row.bookingId && !canProgressVisit ? (
             <p className="text-[0.65rem] leading-relaxed text-[#B5A896]">
-              Start and complete require <span className="font-medium">bookings.status.progress</span> when a booking
-              is linked.
+              Your role cannot start or complete visits that come from a booking. Ask a manager.
             </p>
           ) : null}
           {row.status === "WAITING" ? (
@@ -1200,7 +1218,7 @@ function QueueDetailsDrawer({
                 {payments.map((payment) => (
                   <DetailRow
                     key={payment.id}
-                    label={`${payment.method} · ${payment.status}`}
+                    label={`${paymentMethodLabel(payment.method)} · ${paymentStatusLabel(payment.status)}`}
                     value={`${formatEGP(payment.amount)} · ${payment.paidAt ? formatDateTimeAmPm(payment.paidAt) : "Pending"}`}
                   />
                 ))}
@@ -1289,6 +1307,8 @@ export default function DashboardQueuePage() {
     [],
   );
   const { confirm } = useSystemDialog();
+  /** Guards against a double click sending two payments before React re-renders the disabled button. */
+  const paymentInFlight = useRef(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bookingBusyId, setBookingBusyId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -2066,7 +2086,14 @@ export default function DashboardQueuePage() {
         await postDashboardBookingServiceItemComplete(token, detail.id, line.id);
       }
       if (!row.hasFinalizedInvoice) {
-        await postDashboardQueueInvoiceFinalize(token, row.id);
+        try {
+          await postDashboardQueueInvoiceFinalize(token, row.id);
+        } catch (firstError) {
+          if (!(firstError instanceof ApiClientError) || !firstError.overridable) throw firstError;
+          const reason = await askOverride(firstError.message);
+          if (!reason) return;
+          await postDashboardQueueInvoiceFinalize(token, row.id, { overrideReason: reason });
+        }
       }
       await loadQueue();
       const refreshed = await getDashboardBookingById(token, row.bookingId);
@@ -2096,7 +2123,12 @@ export default function DashboardQueuePage() {
         return;
       }
       if (!walkPhone.trim()) {
-        setWalkError("Phone is required for new visitors so a client record can be created or matched.");
+        setWalkError("Enter the client's phone number, or pick an existing client from the list.");
+        return;
+      }
+      const phoneDigits = walkPhone.replace(/\D/g, "");
+      if (phoneDigits.length < 8 || phoneDigits.length > 15) {
+        setWalkError("That phone number does not look right. Use a mobile number such as 01001234567, or include the country code.");
         return;
       }
     }
@@ -2179,12 +2211,13 @@ export default function DashboardQueuePage() {
   }
 
   async function submitCollectPayment(): Promise<void> {
-    if (!token || !paymentRow) return;
+    if (!token || !paymentRow || paymentInFlight.current) return;
     const amount = Number(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setPaymentError("Enter a valid payment amount.");
       return;
     }
+    paymentInFlight.current = true;
     setPaymentSubmitting(true);
     setPaymentError("");
     try {
@@ -2200,6 +2233,7 @@ export default function DashboardQueuePage() {
     } catch (requestError) {
       setPaymentError(formatApiError(requestError));
     } finally {
+      paymentInFlight.current = false;
       setPaymentSubmitting(false);
     }
   }

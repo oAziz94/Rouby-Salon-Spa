@@ -47,6 +47,9 @@ const PAYMENT_STATUS: Record<string, string> = {
   UNPAID: "Unpaid",
   REFUNDED: "Refunded",
   PENDING: "Pending",
+  CANCELLED: "Cancelled",
+  FAILED: "Failed",
+  NOT_LINKED: "No invoice yet",
 };
 
 function fallback(code: string | null | undefined): string {
@@ -73,6 +76,26 @@ export function sourceLabel(code: string | null | undefined): string {
 
 export function paymentStatusLabel(code: string | null | undefined): string {
   return (code && PAYMENT_STATUS[code]) || fallback(code);
+}
+
+const SLOT_STATUS: Record<string, string> = {
+  AVAILABLE: "Open",
+  FILLED: "Full",
+  BLOCKED: "Blocked",
+  CLOSED: "Closed",
+};
+
+export function slotStatusLabel(code: string | null | undefined): string {
+  return (code && SLOT_STATUS[code]) || fallback(code);
+}
+
+const INVOICE_STATUS: Record<string, string> = {
+  FINALIZED: "Final",
+  CANCELLED: "Cancelled",
+};
+
+export function invoiceStatusLabel(code: string | null | undefined): string {
+  return (code && INVOICE_STATUS[code]) || fallback(code);
 }
 
 const ITEM_TYPE: Record<string, string> = {

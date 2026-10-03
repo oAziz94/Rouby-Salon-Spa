@@ -3,6 +3,7 @@ import {
   Get,
   NotFoundException,
   Param,
+  ParseUUIDPipe,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -44,7 +45,7 @@ export class DashboardAuditLogsController {
   @ApiOperation({ summary: 'Get audit log detail by id' })
   async getById(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     const row = await this.audit.getById(id, user);
     if (!row) {

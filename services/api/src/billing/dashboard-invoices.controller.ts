@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -46,7 +47,7 @@ export class DashboardInvoicesController {
   @ApiOperation({ summary: 'Get invoice by id' })
   getOne(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('invoiceId') invoiceId: string,
+    @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
   ) {
     return this.invoices.getDashboardOne(user, invoiceId);
   }
@@ -56,7 +57,7 @@ export class DashboardInvoicesController {
   @ApiOperation({ summary: 'Get finalized invoice receipt payload' })
   getReceipt(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('invoiceId') invoiceId: string,
+    @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
   ) {
     return this.invoices.getDashboardReceipt(user, invoiceId);
   }
@@ -66,7 +67,7 @@ export class DashboardInvoicesController {
   @ApiOperation({ summary: 'Update invoice (restricted fields)' })
   patch(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('invoiceId') invoiceId: string,
+    @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Body() body: PatchInvoiceDto,
   ) {
     return this.invoices.patchDashboardInvoice(user, invoiceId, body);
@@ -77,7 +78,7 @@ export class DashboardInvoicesController {
   @ApiOperation({ summary: 'Record payment against a finalized invoice' })
   pay(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('invoiceId') invoiceId: string,
+    @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Body() body: CreateInvoicePaymentDto,
   ) {
     return this.payments.recordPaymentForInvoice(user, invoiceId, body);

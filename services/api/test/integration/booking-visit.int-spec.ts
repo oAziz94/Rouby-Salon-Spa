@@ -292,10 +292,18 @@ describe('booking → visit → invoice → payment', () => {
     );
     const queueEntryId = q.body.id as string;
     for (const it of [cut, mani]) {
-      await rec.post(`/api/v1/dashboard/queue/${queueEntryId}/start`, {
-        starts: [{ bookingItemId: it.id, staffProfileId: monaId }],
-        overrideReason: 'integration test',
-      });
+      // The queue start only takes a WAITING visit; later lines start from the booking.
+      const start =
+        it === cut
+          ? await rec.post(`/api/v1/dashboard/queue/${queueEntryId}/start`, {
+              starts: [{ bookingItemId: it.id, staffProfileId: monaId }],
+              overrideReason: 'integration test',
+            })
+          : await rec.post(
+              `/api/v1/dashboard/bookings/${booking.id}/service-items/${it.id}/start`,
+              { staffProfileId: monaId, overrideReason: 'integration test' },
+            );
+      expect(start.status).toBe(201);
       await rec.post(
         `/api/v1/dashboard/bookings/${booking.id}/service-items/${it.id}/complete`,
       );

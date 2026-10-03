@@ -1,4 +1,5 @@
 import {
+  InvoiceStatus,
   LoyaltyTransactionType,
   PaymentMethod,
   PaymentStatus,
@@ -45,6 +46,12 @@ export type LoyaltySummary = {
   visitsToNextReward: number;
   rewardServiceId: string | null;
   rewardServiceName: string | null;
+};
+
+/** A visit counts toward the free reward only once its finalized invoice is fully settled. */
+export const SETTLED_INVOICE: Prisma.InvoiceWhereInput = {
+  status: InvoiceStatus.FINALIZED,
+  remainingAmount: { lte: new Prisma.Decimal(0) },
 };
 
 const num = (d: Prisma.Decimal | number | null | undefined): number =>
@@ -113,6 +120,7 @@ export async function computeLoyaltySummary(
             clientId,
             status: QueueEntryStatus.COMPLETED,
             checkedInAt: { gte: since },
+            booking: { invoices: { some: SETTLED_INVOICE } },
           },
         })
       : 0,

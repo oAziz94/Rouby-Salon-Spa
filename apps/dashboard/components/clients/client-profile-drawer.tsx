@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { bookingStatusLabel } from "@/lib/labels";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 function formatApiError(error: unknown): string {
@@ -353,7 +354,7 @@ export function ClientProfileDrawer({
                     </p>
                   </div>
                   <p className="mt-2 text-xs text-foreground">
-                    {loyalty.visits} completed visit{loyalty.visits === 1 ? "" : "s"}
+                    {loyalty.visits} fully paid visit{loyalty.visits === 1 ? "" : "s"}
                     {loyalty.rewardServiceName
                       ? loyalty.rewardsAvailable > 0
                         ? ` · free ${loyalty.rewardServiceName} ready to use`
@@ -479,7 +480,7 @@ export function ClientProfileDrawer({
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="rounded-full border border-border bg-[#F8F4EC] px-2 py-0.5 text-xs font-medium text-foreground">
-                            {b.status.replace(/_/g, " ")}
+                            {bookingStatusLabel(b.status)}
                           </span>
                           <span className="text-xs font-medium tabular-nums text-foreground">{formatEGP(b.totalAmount)}</span>
                         </div>

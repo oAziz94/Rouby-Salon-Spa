@@ -6,7 +6,9 @@ import {
   IsArray,
   IsEnum,
   IsOptional,
+  IsString,
   IsUUID,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { BookingItemInputDto } from './booking-item-input.dto';
@@ -44,6 +46,15 @@ export class DashboardCreateBookingDto {
   @ApiPropertyOptional()
   @IsOptional()
   adminNotes?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Required to book a slot that already started today, or a client who already has a booking in this slot (SOFT rules).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  overrideReason?: string;
 
   @ApiProperty({ type: [BookingItemInputDto] })
   @IsArray()

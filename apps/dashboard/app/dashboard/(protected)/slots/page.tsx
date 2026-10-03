@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PermissionGuard } from "@/components/auth-required";
 import { useSystemDialog } from "@/components/system-dialog-provider";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
+import { slotStatusLabel } from "@/lib/labels";
 
 type SlotsState = "loading" | "loaded" | "empty" | "error";
 type SlotModalMode = "create" | "edit";
@@ -438,6 +439,7 @@ export default function DashboardSlotsPage() {
       await patchDashboardSlotCapacity(token, branchId, slot.id, nextCapacity);
       await refreshSlots();
     } catch (requestError) {
+      await refreshSlots();
       setMutationError(
         requestError instanceof Error
           ? requestError.message
@@ -484,7 +486,7 @@ export default function DashboardSlotsPage() {
     }
     const confirmed = await confirm({
       title: "Delete slot?",
-      message: `Soft delete slot ${slot.date} ${formatWallClockRange12h(slot.startTime, slot.endTime, "-")}?`,
+      message: `Delete the slot on ${slot.date}, ${formatWallClockRange12h(slot.startTime, slot.endTime, "-")}? A slot with active bookings cannot be deleted.`,
       tone: "danger",
       confirmLabel: "Delete",
       cancelLabel: "Cancel",
@@ -493,13 +495,14 @@ export default function DashboardSlotsPage() {
       return;
     }
     try {
+      setMutationError("");
       await deleteDashboardSlot(token, branchId, slot.id);
       await refreshSlots();
     } catch (requestError) {
       setMutationError(
         requestError instanceof Error
           ? requestError.message
-          : "Failed to delete slot.",
+          : "The slot could not be deleted. Please try again.",
       );
     }
   }
@@ -635,7 +638,7 @@ export default function DashboardSlotsPage() {
                             slot.status,
                           )}`}
                         >
-                          {slot.status}
+                          {slotStatusLabel(slot.status)}
                         </span>
                       </td>
                       <td className="py-3 pr-3 text-[#1F2420]">
@@ -736,7 +739,7 @@ export default function DashboardSlotsPage() {
                         slot.status,
                       )}`}
                     >
-                      {slot.status}
+                      {slotStatusLabel(slot.status)}
                     </span>
                   </div>
                   <p className="mt-2 text-xs text-[#7A6A58]">

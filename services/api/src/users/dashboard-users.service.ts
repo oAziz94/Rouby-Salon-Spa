@@ -693,6 +693,9 @@ export class DashboardUsersService {
       });
     });
 
+    // Role, branch and active changes must apply to the very next request, not after the cache window.
+    invalidateDashboardUserCache(userId);
+
     const newBranchIds = (
       updated.branchAccesses.length > 0
         ? updated.branchAccesses.map((a) => a.branchId)

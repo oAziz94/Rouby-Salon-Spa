@@ -1014,6 +1014,8 @@ export type DashboardCreateBookingInput = {
   initialStatus?: string;
   clientNotes?: string;
   adminNotes?: string;
+  /** Needed to book a slot that already started today, or a client already in this slot (SOFT). */
+  overrideReason?: string;
   items: DashboardBookingLineInput[];
 };
 
@@ -3288,6 +3290,7 @@ export async function postDashboardQueueEntryAction(
 export async function postDashboardQueueInvoiceFinalize(
   accessToken: string,
   queueEntryId: string,
+  body?: { overrideReason?: string },
 ): Promise<{
   queueEntry: DashboardQueueEntry;
   invoice: DashboardInvoiceDetail;
@@ -3295,7 +3298,12 @@ export async function postDashboardQueueInvoiceFinalize(
   return jsonMutation<{
     queueEntry: DashboardQueueEntry;
     invoice: DashboardInvoiceDetail;
-  }>(accessToken, `/dashboard/queue/${queueEntryId}/invoice/finalize`, "POST");
+  }>(
+    accessToken,
+    `/dashboard/queue/${queueEntryId}/invoice/finalize`,
+    "POST",
+    body,
+  );
 }
 
 export async function postDashboardQueuePayment(
@@ -3727,11 +3735,13 @@ export async function getDashboardInvoiceReceipt(
 export async function postDashboardBookingInvoice(
   accessToken: string,
   bookingId: string,
+  body?: { overrideReason?: string },
 ): Promise<DashboardInvoiceDetail> {
   return jsonMutation<DashboardInvoiceDetail>(
     accessToken,
     `/dashboard/bookings/${bookingId}/invoices`,
     "POST",
+    body,
   );
 }
 

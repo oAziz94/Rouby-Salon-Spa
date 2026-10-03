@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import {
   BookingItemLineStatus,
+  BookingItemType,
   BookingSource,
   InvoiceStatus,
   PaymentMethod,
@@ -16,6 +17,7 @@ import {
 } from '@prisma/client';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { presentBookingSlot } from '../common/cairo-slot-time';
+import { overridableException } from '../common/overridable.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { buildListMeta } from '../catalog/catalog.utils';
@@ -134,7 +136,13 @@ export class InvoicesService {
     }
   }
 
-  async createFinalizedForBooking(user: DashboardJwtUser, bookingId: string) {
+  async createFinalizedForBooking(
+    user: DashboardJwtUser,
+    bookingId: string,
+    overrideReason?: string | null,
+  ) {
+    const reason = overrideReason?.trim() || null;
+    let unfinishedOverridden = 0;
     const created = await this.prisma.$transaction(async (tx) => {
       const booking = await tx.booking.findUnique({
         where: { id: bookingId },
@@ -164,6 +172,24 @@ export class InvoicesService {
           'Booking must have at least one item before invoice finalization',
           'BOOKING_ITEMS_REQUIRED',
         );
+      }
+      // Same line types the visit-close check tracks; packages/bundles/add-ons close themselves.
+      const unfinished = booking.items.filter(
+        (it) =>
+          (it.itemType === BookingItemType.SERVICE ||
+            it.itemType === BookingItemType.SERVICE_VARIANT) &&
+          (it.lineStatus === BookingItemLineStatus.PENDING ||
+            it.lineStatus === BookingItemLineStatus.IN_PROGRESS),
+      ).length;
+      if (unfinished > 0) {
+        if (!reason) {
+          throw overridableException(
+            'SERVICE_LINES_NOT_FINISHED',
+            `${unfinished} service line(s) were never started or finished. Finalize the invoice anyway?`,
+            { unfinishedLines: unfinished },
+          );
+        }
+        unfinishedOverridden = unfinished;
       }
 
       const invoiceNumber = await this.nextInvoiceNumber(tx);
@@ -222,6 +248,20 @@ export class InvoicesService {
         },
         tx,
       );
+
+      if (unfinishedOverridden > 0) {
+        await this.audit.log(
+          {
+            userId: user.userId,
+            action: 'override.invoice_unfinished_lines',
+            module: 'billing',
+            entityType: 'Invoice',
+            entityId: invoice.id,
+            newValue: { reason, unfinishedLines: unfinishedOverridden },
+          },
+          tx,
+        );
+      }
 
       return invoice;
     });

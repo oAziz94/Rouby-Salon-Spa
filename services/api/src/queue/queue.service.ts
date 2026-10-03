@@ -680,6 +680,7 @@ export class QueueService {
     let clientId: string | null = null;
     let clientPhoneSnapshot: string | null = null;
     let clientNameSnapshot: string;
+    let newPhoneNeedsCreatePermission = false;
 
     if (dto.clientId) {
       const linked = await this.requireClientForWalkIn(user, dto.clientId);
@@ -716,16 +717,30 @@ export class QueueService {
             preferredBranchId: dto.branchId,
           });
           clientId = created.id;
+        } else {
+          newPhoneNeedsCreatePermission = true;
         }
       }
     }
 
     if (!clientId) {
+      if (newPhoneNeedsCreatePermission) {
+        throw new HttpException(
+          {
+            statusCode: HttpStatus.FORBIDDEN,
+            message:
+              'This phone number is not registered yet, and your role cannot register new clients. Ask a manager to add the client, then select them.',
+            error: 'Forbidden',
+            code: 'WALK_IN_CLIENT_CREATE_FORBIDDEN',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
       throw new HttpException(
         {
           statusCode: HttpStatus.BAD_REQUEST,
           message:
-            'A CRM client is required for walk-in bookings. Select an existing client, or provide a phone number so the system can match or create a client (requires clients.create when the phone is new).',
+            'A client is required for walk-in visits. Select an existing client, or enter a phone number so the system can find or register the client.',
           error: 'Bad Request',
           code: 'WALK_IN_CLIENT_UNRESOLVED',
         },
@@ -939,6 +954,7 @@ export class QueueService {
   async finalizeInvoiceForQueueEntry(
     user: DashboardJwtUser,
     queueEntryId: string,
+    overrideReason?: string | null,
   ) {
     const entry = await this.requireQueueEntry(user, queueEntryId);
     if (!entry.bookingId) {
@@ -970,6 +986,7 @@ export class QueueService {
     const invoice = await this.invoices.createFinalizedForBooking(
       user,
       entry.bookingId,
+      overrideReason,
     );
     await this.audit.log({
       userId: user.userId,

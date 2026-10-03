@@ -13,14 +13,14 @@ import { useEffect, useState } from "react";
 function formatApiError(error: unknown): string {
   if (error instanceof ApiClientError) {
     if (error.statusCode === 403) {
-      return "You do not have permission for this action.";
+      return "Your role does not allow this action. Ask a manager.";
     }
     return error.message;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Something went wrong.";
+  return "Something went wrong. Please try again.";
 }
 
 const modalShell =

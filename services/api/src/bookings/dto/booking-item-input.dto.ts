@@ -50,6 +50,7 @@ export class BookingItemInputDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(20)
   quantity?: number;
 
   /** For `FLEXIBLE` bundles: must match `Bundle.selectableCount` and eligible services. */

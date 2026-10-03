@@ -20,7 +20,12 @@ import {
   assertDashboardBranchAccess,
   buildDashboardBookingBranchWhere,
 } from './dashboard-branch-scope';
-import { decimalMaxZero, sumPaidManualPayments } from './payment-ledger.util';
+import { lockBookingForPayments } from './booking-lock';
+import {
+  decimalMaxZero,
+  sumPaidManualPayments,
+  sumPaidPayments,
+} from './payment-ledger.util';
 import type { CreatePaymentDto } from './dto/create-payment.dto';
 import type { SimplePaymentStatusDto } from './dto/simple-payment-status.dto';
 import type { UpdatePaymentDto } from './dto/update-payment.dto';
@@ -472,11 +477,29 @@ export class PaymentsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await lockBookingForPayments(tx, bookingId);
       const booking = await tx.booking.findUnique({ where: { id: bookingId } });
       if (!booking) {
         throw new NotFoundException('Booking not found');
       }
       assertDashboardBranchAccess(user, booking.branchId);
+      if (dto.status === PaymentStatus.PAID) {
+        const invoice = await tx.invoice.findFirst({
+          where: { bookingId, status: InvoiceStatus.FINALIZED },
+        });
+        if (
+          invoice &&
+          new Prisma.Decimal(dto.amount.toFixed(2)).greaterThan(
+            invoice.remainingAmount,
+          )
+        ) {
+          throw httpBusiness(
+            HttpStatus.BAD_REQUEST,
+            'Payment amount exceeds invoice remaining balance',
+            'PAYMENT_EXCEEDS_REMAINING',
+          );
+        }
+      }
       const payment = await tx.payment.create({
         data: {
           bookingId: booking.id,
@@ -528,6 +551,15 @@ export class PaymentsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const found = await tx.invoice.findUnique({
+        where: { id: invoiceId },
+        select: { bookingId: true },
+      });
+      if (!found) {
+        throw new NotFoundException('Invoice not found');
+      }
+      // Lock first, then read the balance: parallel payments queue here instead of all fitting.
+      await lockBookingForPayments(tx, found.bookingId);
       const invoice = await tx.invoice.findUnique({
         where: { id: invoiceId },
         include: {
@@ -620,6 +652,14 @@ export class PaymentsService {
     dto: UpdatePaymentDto,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      const found = await tx.payment.findUnique({
+        where: { id: paymentId },
+        select: { bookingId: true },
+      });
+      if (!found) {
+        throw new NotFoundException('Payment not found');
+      }
+      await lockBookingForPayments(tx, found.bookingId);
       const existing = await tx.payment.findUnique({
         where: { id: paymentId },
         include: { booking: { select: { branchId: true, id: true } } },
@@ -650,9 +690,54 @@ export class PaymentsService {
         return this.mapPayment(existing);
       }
 
+      const newAmount =
+        dto.amount !== undefined
+          ? new Prisma.Decimal(dto.amount.toFixed(2))
+          : existing.amount;
+      if (newAmount.lessThanOrEqualTo(0)) {
+        throw httpBusiness(
+          HttpStatus.BAD_REQUEST,
+          'Payment amount must be greater than zero',
+          'INVALID_PAYMENT_AMOUNT',
+        );
+      }
+      if (
+        existing.method === PaymentMethod.LOYALTY &&
+        ((dto.amount !== undefined && !newAmount.equals(existing.amount)) ||
+          (dto.method !== undefined && dto.method !== existing.method))
+      ) {
+        throw httpBusiness(
+          HttpStatus.BAD_REQUEST,
+          'A loyalty payment cannot be edited. Cancel it instead to give the points or reward back.',
+          'LOYALTY_PAYMENT_NOT_EDITABLE',
+        );
+      }
+      const newStatus = dto.status ?? existing.status;
+      if (newStatus === PaymentStatus.PAID) {
+        const invoice = await tx.invoice.findFirst({
+          where: {
+            bookingId: existing.booking.id,
+            status: InvoiceStatus.FINALIZED,
+          },
+        });
+        if (invoice) {
+          const siblings = await tx.payment.findMany({
+            where: { bookingId: existing.booking.id, id: { not: existing.id } },
+          });
+          const paidAfter = sumPaidPayments(siblings).add(newAmount);
+          if (paidAfter.greaterThan(invoice.totalAmount)) {
+            throw httpBusiness(
+              HttpStatus.BAD_REQUEST,
+              `This change would make the paid total (${paidAfter.toString()}) higher than the invoice total (${invoice.totalAmount.toString()}).`,
+              'PAYMENT_EXCEEDS_INVOICE_TOTAL',
+            );
+          }
+        }
+      }
+
       const data: Prisma.PaymentUpdateInput = {};
       if (dto.amount !== undefined) {
-        data.amount = new Prisma.Decimal(dto.amount.toFixed(2));
+        data.amount = newAmount;
       }
       if (dto.method !== undefined) {
         data.method = dto.method;
@@ -679,7 +764,12 @@ export class PaymentsService {
       await this.audit.log(
         {
           userId: user.userId,
-          action: 'payment.recorded',
+          action:
+            existing.status === PaymentStatus.PAID &&
+            payment.status !== PaymentStatus.PAID
+              ? 'payment.voided'
+              : 'payment.updated',
+          severity: 'WARNING',
           module: 'billing',
           entityId: payment.id,
           oldValue: {
@@ -710,6 +800,7 @@ export class PaymentsService {
     dto: SimplePaymentStatusDto,
   ) {
     return this.prisma.$transaction(async (tx) => {
+      await lockBookingForPayments(tx, bookingId);
       const booking = await tx.booking.findUnique({
         where: { id: bookingId },
         include: { payments: true },

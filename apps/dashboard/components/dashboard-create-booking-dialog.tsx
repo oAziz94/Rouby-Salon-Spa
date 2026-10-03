@@ -15,6 +15,8 @@ import { formatDayLabel, formatWallClockRange12h } from "@rouby/wall-clock";
 import { AlertCircle, Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { slotStatusLabel, sourceLabel } from "@/lib/labels";
+import { OverrideReasonDialog, useOverrideReason } from "./override-reason-dialog";
 import {
   DashboardServiceVariantLinesBlock,
   type DashboardServiceVariantLinesBlockHandle,
@@ -33,7 +35,10 @@ const BOOKING_SOURCES = [
 function formatApiError(error: unknown): string {
   if (error instanceof ApiClientError) {
     if (error.code === "SLOT_AT_CAPACITY") {
-      return "Slot is at capacity.";
+      return "That slot is full. Choose another slot.";
+    }
+    if (error.code === "SLOT_IN_PAST") {
+      return "That slot is on a past date. Choose today or a later day.";
     }
     if (error.code === "SERVICE_VARIANT_REQUIRED") {
       return "That service needs a variant — pick the variant option below the service.";
@@ -45,20 +50,20 @@ function formatApiError(error: unknown): string {
       return "Check the staff price and duration values (numbers only).";
     }
     if (error.code === "INVALID_BOOKING_SOURCE") {
-      return "Invalid booking source for dashboard.";
+      return "That booking source cannot be used from the dashboard.";
     }
     if (error.code === "ENHANCEMENT_INACTIVE" || error.code === "ENHANCEMENT_NOT_PRICEABLE") {
       return "That add-on cannot be booked (inactive or missing price).";
     }
     if (error.statusCode === 403) {
-      return "You do not have permission to create this booking.";
+      return "Your role cannot create bookings. Ask a manager.";
     }
     return error.message;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Unexpected error.";
+  return "Something went wrong. Please try again.";
 }
 
 type DashboardCreateBookingDialogProps = {
@@ -101,6 +106,7 @@ export function DashboardCreateBookingDialog({
   const linesBlockRef = useRef<DashboardServiceVariantLinesBlockHandle>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const override = useOverrideReason();
 
 
   useEffect(() => {
@@ -248,7 +254,7 @@ export function DashboardCreateBookingDialog({
     const items = built.items;
     setSubmitting(true);
     try {
-      const detail = await postDashboardCreateBooking(token, {
+      const payload: DashboardCreateBookingInput = {
         clientId,
         branchId,
         slotId,
@@ -257,7 +263,16 @@ export function DashboardCreateBookingDialog({
         adminNotes: adminNotes.trim() || undefined,
         clientNotes: clientNotes.trim() || undefined,
         items,
-      });
+      };
+      let detail: DashboardBookingDetail;
+      try {
+        detail = await postDashboardCreateBooking(token, payload);
+      } catch (firstError) {
+        if (!(firstError instanceof ApiClientError) || !firstError.overridable) throw firstError;
+        const reason = await override.ask(firstError.message);
+        if (!reason) return;
+        detail = await postDashboardCreateBooking(token, { ...payload, overrideReason: reason });
+      }
       onCreated(detail);
       handleClose();
     } catch (err) {
@@ -387,7 +402,7 @@ export function DashboardCreateBookingDialog({
                 <option value="">{slotsLoading ? "Loading slots…" : slots.length === 0 ? "No slots this day" : "Select slot"}</option>
                 {slots.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {formatDayLabel(s.date)} · {formatWallClockRange12h(s.startTime, s.endTime)}{s.status !== "AVAILABLE" ? ` (${s.status.toLowerCase()})` : ""}
+                    {formatDayLabel(s.date)} · {formatWallClockRange12h(s.startTime, s.endTime)}{s.status !== "AVAILABLE" ? ` (${slotStatusLabel(s.status).toLowerCase()})` : ""}
                   </option>
                 ))}
               </select>
@@ -403,7 +418,7 @@ export function DashboardCreateBookingDialog({
                 >
                   {BOOKING_SOURCES.map((s) => (
                     <option key={s} value={s}>
-                      {s.replace(/_/g, " ")}
+                      {sourceLabel(s)}
                     </option>
                   ))}
                 </select>
@@ -495,6 +510,7 @@ export function DashboardCreateBookingDialog({
           </form>
         </div>
       </div>
+      <OverrideReasonDialog request={override.request} onClose={override.close} />
     </div>
   );
 }

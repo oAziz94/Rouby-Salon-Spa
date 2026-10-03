@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Put,
@@ -75,7 +76,7 @@ export class DashboardStaffController {
   @ApiOperation({ summary: 'Get staff profile detail' })
   getOne(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.staff.getProfile(user, id);
   }
@@ -85,7 +86,7 @@ export class DashboardStaffController {
   @ApiOperation({ summary: 'Update staff profile' })
   patch(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: PatchStaffProfileDto,
   ) {
     return this.staff.patchProfile(user, id, body);
@@ -96,7 +97,7 @@ export class DashboardStaffController {
   @ApiOperation({ summary: 'Soft-deactivate staff profile' })
   remove(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.staff.deactivateProfile(user, id);
   }
@@ -105,7 +106,7 @@ export class DashboardStaffController {
   @RequirePermissions('staffServices.read')
   getServices(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.staff.getServices(user, id);
   }
@@ -114,7 +115,7 @@ export class DashboardStaffController {
   @RequirePermissions('staffServices.update')
   putServices(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: PutStaffServicesDto,
   ) {
     return this.staff.putServices(user, id, body);
@@ -124,7 +125,7 @@ export class DashboardStaffController {
   @RequirePermissions('staffSchedule.read')
   getSchedule(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.staff.getSchedule(user, id);
   }
@@ -133,7 +134,7 @@ export class DashboardStaffController {
   @RequirePermissions('staffSchedule.update')
   putSchedule(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: PutStaffScheduleDto,
   ) {
     return this.staff.putSchedule(user, id, body);
@@ -143,7 +144,7 @@ export class DashboardStaffController {
   @RequirePermissions('staffSchedule.read')
   listExceptions(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.staff.listExceptions(user, id);
   }
@@ -152,7 +153,7 @@ export class DashboardStaffController {
   @RequirePermissions('staffSchedule.create')
   createException(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: CreateStaffExceptionDto,
   ) {
     return this.staff.createException(user, id, body);
@@ -162,8 +163,8 @@ export class DashboardStaffController {
   @RequirePermissions('staffSchedule.update')
   patchException(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
-    @Param('exceptionId') exceptionId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('exceptionId', ParseUUIDPipe) exceptionId: string,
     @Body() body: PatchStaffExceptionDto,
   ) {
     return this.staff.patchException(user, id, exceptionId, body);
@@ -173,8 +174,8 @@ export class DashboardStaffController {
   @RequirePermissions('staffSchedule.delete')
   deleteException(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
-    @Param('exceptionId') exceptionId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('exceptionId', ParseUUIDPipe) exceptionId: string,
   ) {
     return this.staff.deleteException(user, id, exceptionId);
   }

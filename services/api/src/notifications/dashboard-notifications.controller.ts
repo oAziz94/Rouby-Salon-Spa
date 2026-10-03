@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentDashboardUser } from '../auth/decorators/current-dashboard-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
@@ -32,7 +40,7 @@ export class DashboardNotificationsController {
   @ApiOperation({ summary: 'Get notification log detail' })
   getById(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.dashboardNotifications.getById(user, id);
   }
@@ -42,7 +50,7 @@ export class DashboardNotificationsController {
   @ApiOperation({ summary: 'Retry a failed WhatsApp notification' })
   retry(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.dashboardNotifications.retry(user, id);
   }

@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentDashboardUser } from '../auth/decorators/current-dashboard-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
@@ -30,7 +38,7 @@ export class DashboardBookingChangeRequestsController {
   @ApiOperation({ summary: 'Get change request detail' })
   getOne(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('requestId') requestId: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
   ) {
     return this.bookings.getChangeRequest(user, requestId);
   }
@@ -43,7 +51,7 @@ export class DashboardBookingChangeRequestsController {
   })
   approve(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('requestId') requestId: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
   ) {
     return this.bookings.approveChangeRequest(user, requestId);
   }
@@ -53,7 +61,7 @@ export class DashboardBookingChangeRequestsController {
   @ApiOperation({ summary: 'Reject pending request' })
   reject(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('requestId') requestId: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
   ) {
     return this.bookings.rejectChangeRequest(user, requestId);
   }
@@ -63,7 +71,7 @@ export class DashboardBookingChangeRequestsController {
   @ApiOperation({ summary: 'Cancel (void) pending request' })
   cancel(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('requestId') requestId: string,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
   ) {
     return this.bookings.cancelChangeRequest(user, requestId);
   }

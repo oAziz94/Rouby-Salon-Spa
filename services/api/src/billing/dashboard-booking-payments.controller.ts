@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   UseGuards,
@@ -29,7 +30,7 @@ export class DashboardBookingPaymentsController {
   @ApiOperation({ summary: 'Record a manual payment for a booking' })
   record(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
     @Body() body: CreatePaymentDto,
   ) {
     return this.payments.recordPayment(user, bookingId, body);
@@ -40,7 +41,7 @@ export class DashboardBookingPaymentsController {
   @ApiOperation({ summary: 'List payments for a booking' })
   list(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.payments.listForBooking(user, bookingId);
   }
@@ -50,7 +51,7 @@ export class DashboardBookingPaymentsController {
   @ApiOperation({ summary: 'Simple payment status (receptionist)' })
   simpleStatus(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
     @Body() body: SimplePaymentStatusDto,
   ) {
     return this.payments.applySimplePaymentStatus(user, bookingId, body);

@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -53,7 +54,7 @@ export class DashboardCashDrawerController {
   @ApiOperation({ summary: 'Get cash drawer session detail' })
   getOne(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.cashDrawer.getById(user, id);
   }
@@ -63,7 +64,7 @@ export class DashboardCashDrawerController {
   @ApiOperation({ summary: 'Update counted cash / notes while drawer is open' })
   patch(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: CashDrawerPatchDto,
   ) {
     return this.cashDrawer.patch(user, id, body);
@@ -74,7 +75,7 @@ export class DashboardCashDrawerController {
   @ApiOperation({ summary: 'Record a cash movement' })
   addMovement(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: CashDrawerMovementDto,
   ) {
     return this.cashDrawer.addMovement(user, id, body);
@@ -85,7 +86,7 @@ export class DashboardCashDrawerController {
   @ApiOperation({ summary: 'Close cash drawer with counted cash' })
   close(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: CashDrawerCloseDto,
   ) {
     return this.cashDrawer.close(user, id, body);

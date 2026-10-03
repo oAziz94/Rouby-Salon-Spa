@@ -3,13 +3,13 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentDashboardUser } from '../auth/decorators/current-dashboard-user.decorator';
-import { RequireAnyPermissions } from '../auth/decorators/require-any-permissions.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { DashboardJwtAuthGuard } from '../auth/guards/dashboard-jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -42,17 +42,19 @@ export class DashboardPaymentsController {
   })
   getOne(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('paymentId') paymentId: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
   ) {
     return this.payments.getDashboardDetail(user, paymentId);
   }
 
   @Patch(':paymentId')
-  @RequireAnyPermissions('payments.record', 'payments.refund')
-  @ApiOperation({ summary: 'Update a payment' })
+  @RequirePermissions('payments.refund')
+  @ApiOperation({
+    summary: 'Update, cancel or void a payment (amount, method, status)',
+  })
   patch(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('paymentId') paymentId: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
     @Body() body: UpdatePaymentDto,
   ) {
     return this.payments.updatePayment(user, paymentId, body);

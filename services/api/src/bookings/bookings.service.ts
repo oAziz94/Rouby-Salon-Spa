@@ -34,6 +34,8 @@ import {
 import {
   slotStartCompositeKey,
   getCairoNowCompositeKey,
+  isSlotStartStrictlyInFutureCairo,
+  toDateOnlyUtc,
 } from '../common/cairo-slot-time';
 import { overridableException } from '../common/overridable.exception';
 import { PrismaService } from '../prisma/prisma.service';
@@ -229,6 +231,24 @@ export class BookingsService {
             body.branchId,
             body.slotId,
           );
+          if (
+            await this.clientHasActiveBookingInSlotTx(
+              tx,
+              client.clientId,
+              body.slotId,
+            )
+          ) {
+            throw new HttpException(
+              {
+                statusCode: HttpStatus.BAD_REQUEST,
+                message:
+                  'You already have a booking in this time slot. Please choose a different time.',
+                error: 'Bad Request',
+                code: 'CLIENT_ALREADY_IN_SLOT',
+              },
+              HttpStatus.BAD_REQUEST,
+            );
+          }
           const reserved = await this.slots.tryReserveOneSlotCapacityTx(
             tx,
             body.slotId,
@@ -1048,7 +1068,23 @@ export class BookingsService {
 
     const initialStatus = dto.initialStatus ?? BookingStatus.PENDING;
 
-    await this.assertDashboardSlotAssignable(dto.branchId, dto.slotId);
+    const clientRow = await this.prisma.client.findUnique({
+      where: { id: dto.clientId },
+      select: { id: true },
+    });
+    if (!clientRow) {
+      throw new NotFoundException('Client not found');
+    }
+
+    const slot = await this.assertDashboardSlotAssignable(
+      dto.branchId,
+      dto.slotId,
+    );
+    const overrideReason = dto.overrideReason?.trim() || null;
+    const overrides = new Set<string>();
+    if (this.assertSlotNotPast(slot, overrideReason)) {
+      overrides.add('override.slot_start_passed');
+    }
 
     const settings = await this.pricing.getSystemSettings();
     const lines = await this.pricing.resolveLines(dto.branchId, dto.items, {
@@ -1060,6 +1096,21 @@ export class BookingsService {
     const booking = await withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
+          if (
+            await this.clientHasActiveBookingInSlotTx(
+              tx,
+              dto.clientId,
+              dto.slotId,
+            )
+          ) {
+            if (!overrideReason) {
+              throw overridableException(
+                'CLIENT_ALREADY_IN_SLOT',
+                'This client already has a booking in this slot. Book again anyway?',
+              );
+            }
+            overrides.add('override.client_already_in_slot');
+          }
           if (countsTowardCapacity(initialStatus)) {
             const ok = await this.slots.tryReserveOneSlotCapacityTx(
               tx,
@@ -1136,6 +1187,15 @@ export class BookingsService {
         status: booking.status,
       },
     });
+    for (const action of overrides) {
+      await this.audit.log({
+        userId: user.userId,
+        action,
+        module: 'bookings',
+        entityId: booking.id,
+        newValue: { reason: overrideReason },
+      });
+    }
 
     if (initialStatus === BookingStatus.CONFIRMED) {
       this.bookingNotifications.notifyBookingConfirmed(booking.id);
@@ -1316,7 +1376,35 @@ export class BookingsService {
     bookingId: string,
     body: RescheduleBodyDto,
   ) {
+    const current = await this.requireDashboardBooking(user, bookingId);
+    const newSlot = await this.prisma.bookingSlot.findFirst({
+      where: { id: body.slotId, branchId: current.branchId, deletedAt: null },
+    });
+    const overrideReason = body.overrideReason?.trim() || null;
+    const overrides = new Set<string>();
+    if (newSlot && newSlot.id !== current.slotId) {
+      if (this.assertSlotNotPast(newSlot, overrideReason)) {
+        overrides.add('override.slot_start_passed');
+      }
+    }
     await this.mutateBookingStatus(user, bookingId, async (tx) => {
+      if (
+        body.slotId !== current.slotId &&
+        (await this.clientHasActiveBookingInSlotTx(
+          tx,
+          current.clientId,
+          body.slotId,
+          bookingId,
+        ))
+      ) {
+        if (!overrideReason) {
+          throw overridableException(
+            'CLIENT_ALREADY_IN_SLOT',
+            'This client already has a booking in that slot. Move anyway?',
+          );
+        }
+        overrides.add('override.client_already_in_slot');
+      }
       await this.rescheduleBookingTx(tx, bookingId, body.slotId);
     });
     const updated = await this.getDashboardBooking(user, bookingId);
@@ -1327,6 +1415,15 @@ export class BookingsService {
       entityId: bookingId,
       newValue: { status: updated.status, slotId: updated.slotId },
     });
+    for (const action of overrides) {
+      await this.audit.log({
+        userId: user.userId,
+        action,
+        module: 'bookings',
+        entityId: bookingId,
+        newValue: { reason: overrideReason },
+      });
+    }
     this.bookingNotifications.notifyBookingRescheduled(bookingId);
     return updated;
   }
@@ -3008,6 +3105,21 @@ export class BookingsService {
         HttpStatus.BAD_REQUEST,
       );
     }
+    const paidPayments = await tx.payment.count({
+      where: { bookingId: booking.id, status: PaymentStatus.PAID },
+    });
+    if (paidPayments > 0) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.CONFLICT,
+          message:
+            'This booking has payments recorded. Void or refund the payments first (Payments page), then cancel the booking.',
+          error: 'Conflict',
+          code: 'BOOKING_HAS_PAYMENTS',
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
     if (countsTowardCapacity(booking.status)) {
       await tx.bookingSlot.update({
         where: { id: booking.slotId },
@@ -3032,6 +3144,19 @@ export class BookingsService {
         },
       },
       data: { lineStatus: BookingItemLineStatus.CANCELLED },
+    });
+    // A checked-in visit must not stay in the queue once its booking is cancelled.
+    await tx.queueEntry.updateMany({
+      where: {
+        bookingId: booking.id,
+        status: {
+          in: [QueueEntryStatus.WAITING, QueueEntryStatus.IN_SERVICE],
+        },
+      },
+      data: {
+        status: QueueEntryStatus.CANCELLED,
+        cancelledAt: new Date(),
+      },
     });
     await tx.booking.update({
       where: { id: booking.id },
@@ -3189,10 +3314,66 @@ export class BookingsService {
     });
   }
 
+  /**
+   * A slot on an earlier Cairo day is refused outright. A slot that starts earlier today is a
+   * SOFT rule: refused unless an override reason is given. Returns true when it was overridden.
+   */
+  private assertSlotNotPast(
+    slot: { date: Date; startTime: Date },
+    overrideReason: string | null,
+  ): boolean {
+    const nowKey = getCairoNowCompositeKey();
+    if (toDateOnlyUtc(slot.date) < nowKey.slice(0, 10)) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: 'This slot is on a past date. Choose today or a later day.',
+          error: 'Bad Request',
+          code: 'SLOT_IN_PAST',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (isSlotStartStrictlyInFutureCairo(slot)) {
+      return false;
+    }
+    if (!overrideReason) {
+      throw overridableException(
+        'SLOT_START_PASSED',
+        'This slot already started today. Book it anyway?',
+      );
+    }
+    return true;
+  }
+
+  private async clientHasActiveBookingInSlotTx(
+    tx: Prisma.TransactionClient,
+    clientId: string,
+    slotId: string,
+    excludeBookingId?: string,
+  ): Promise<boolean> {
+    const existing = await tx.booking.findFirst({
+      where: {
+        clientId,
+        slotId,
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+        status: {
+          notIn: [
+            BookingStatus.CANCELLED,
+            BookingStatus.REJECTED,
+            BookingStatus.NO_SHOW,
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    return Boolean(existing);
+  }
+
   private async assertDashboardSlotAssignable(
     branchId: string,
     slotId: string,
-  ): Promise<void> {
+  ) {
     const slot = await this.prisma.bookingSlot.findFirst({
       where: {
         id: slotId,
@@ -3212,6 +3393,7 @@ export class BookingsService {
         HttpStatus.BAD_REQUEST,
       );
     }
+    return slot;
   }
 
   private async getOwnedBookingOrThrow(clientId: string, bookingId: string) {

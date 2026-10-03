@@ -1,10 +1,18 @@
-import { Controller, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentDashboardUser } from '../auth/decorators/current-dashboard-user.decorator';
 import { RequireAnyPermissions } from '../auth/decorators/require-any-permissions.decorator';
 import { DashboardJwtAuthGuard } from '../auth/guards/dashboard-jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
+import { FinalizeInvoiceDto } from './dto/finalize-invoice.dto';
 import { InvoicesService } from './invoices.service';
 
 @ApiTags('dashboard-booking-invoices')
@@ -25,9 +33,14 @@ export class DashboardBookingInvoicesController {
   })
   create(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Body() body: FinalizeInvoiceDto,
   ) {
-    return this.invoices.createFinalizedForBooking(user, bookingId);
+    return this.invoices.createFinalizedForBooking(
+      user,
+      bookingId,
+      body?.overrideReason,
+    );
   }
 
   @Post(':bookingId/invoice/finalize')
@@ -42,8 +55,13 @@ export class DashboardBookingInvoicesController {
   })
   finalize(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Body() body: FinalizeInvoiceDto,
   ) {
-    return this.invoices.createFinalizedForBooking(user, bookingId);
+    return this.invoices.createFinalizedForBooking(
+      user,
+      bookingId,
+      body?.overrideReason,
+    );
   }
 }

@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -48,7 +49,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'Get booking detail' })
   getOne(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.bookings.getDashboardBooking(user, bookingId);
   }
@@ -71,7 +72,7 @@ export class DashboardBookingsController {
   })
   createChangeRequest(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
     @Body() body: DashboardCreateChangeRequestDto,
   ) {
     return this.bookings.dashboardCreateChangeRequest(user, bookingId, body);
@@ -82,7 +83,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'Confirm pending booking' })
   confirm(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
     @Body() body: ConfirmBookingDto,
   ) {
     return this.bookings.confirmBooking(user, bookingId, body?.overrideReason);
@@ -93,7 +94,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'Reject pending booking' })
   reject(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.bookings.rejectBooking(user, bookingId);
   }
@@ -105,7 +106,7 @@ export class DashboardBookingsController {
   })
   reschedule(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
     @Body() body: RescheduleBodyDto,
   ) {
     return this.bookings.rescheduleBooking(user, bookingId, body);
@@ -116,7 +117,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'RESCHEDULED → CONFIRMED' })
   confirmReschedule(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.bookings.confirmReschedule(user, bookingId);
   }
@@ -126,7 +127,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'Cancel booking' })
   cancel(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.bookings.cancelBooking(user, bookingId);
   }
@@ -136,7 +137,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'Mark arrived' })
   markArrived(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.bookings.markArrived(user, bookingId);
   }
@@ -146,7 +147,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'Mark in progress' })
   markInProgress(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.bookings.markInProgress(user, bookingId);
   }
@@ -156,7 +157,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'Mark completed' })
   markCompleted(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.bookings.markCompleted(user, bookingId);
   }
@@ -169,8 +170,8 @@ export class DashboardBookingsController {
   })
   lineDiscount(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
-    @Param('itemId') itemId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
     @Body() body: DiscountBodyDto,
   ) {
     return this.bookings.applyLineDiscount(user, bookingId, itemId, body);
@@ -184,7 +185,7 @@ export class DashboardBookingsController {
   })
   appendServiceItems(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
     @Body() body: AppendBookingServiceItemsDto,
   ) {
     return this.bookings.appendServiceItemsForActiveQueue(
@@ -201,8 +202,8 @@ export class DashboardBookingsController {
   })
   startServiceItem(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
-    @Param('itemId') itemId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
     @Body() body: StartBookingServiceItemDto,
   ) {
     return this.bookings.startBookingServiceItem(
@@ -221,8 +222,8 @@ export class DashboardBookingsController {
   })
   completeServiceItem(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
-    @Param('itemId') itemId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
   ) {
     return this.bookings.completeBookingServiceItem(user, bookingId, itemId);
   }
@@ -232,7 +233,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'Mark no-show' })
   markNoShow(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.bookings.markNoShow(user, bookingId);
   }
@@ -242,7 +243,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'Recalculate pricing from catalog (PENDING only)' })
   recalculate(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
   ) {
     return this.bookings.recalculatePricing(user, bookingId);
   }
@@ -252,7 +253,7 @@ export class DashboardBookingsController {
   @ApiOperation({ summary: 'Apply manual discount' })
   discount(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
     @Body() body: DiscountBodyDto,
   ) {
     return this.bookings.applyDiscount(user, bookingId, body);
@@ -266,8 +267,8 @@ export class DashboardBookingsController {
   })
   removeItem(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('bookingId') bookingId: string,
-    @Param('itemId') itemId: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
     @Query() query: RemoveBookingItemQueryDto,
   ) {
     return this.bookings.removeBookingItem(

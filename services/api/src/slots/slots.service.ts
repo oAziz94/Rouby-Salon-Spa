@@ -300,6 +300,30 @@ export class SlotsService {
     await this.getBranchOrFail(branchId);
     this.assertTimeRange(dto.startTime, dto.endTime);
 
+    const duplicate = await this.prisma.bookingSlot.findFirst({
+      where: {
+        branchId,
+        date: this.parseDateOnly(dto.date),
+        startTime: this.parseTimeOnly(dto.startTime),
+        endTime: this.parseTimeOnly(dto.endTime),
+        deletedAt: null,
+        isWalkInBucket: false,
+      },
+      select: { id: true },
+    });
+    if (duplicate) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.CONFLICT,
+          message:
+            'A slot with the same date and start and end time already exists for this branch. Edit that slot instead.',
+          error: 'Conflict',
+          code: 'SLOT_DUPLICATE',
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
     const row = await this.prisma.bookingSlot.create({
       data: {
         branchId,
@@ -406,6 +430,18 @@ export class SlotsService {
       where: { id: slotId },
       select: { capacity: true },
     });
+    const live = (await this.liveBookingsCountBySlotIds([slotId])).get(slotId);
+    if (live !== undefined && dto.capacity < live) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.CONFLICT,
+          message: `This slot has ${live} active booking(s), so the capacity cannot be lower than ${live}. Cancel or move some bookings first.`,
+          error: 'Conflict',
+          code: 'SLOT_CAPACITY_BELOW_BOOKINGS',
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
     const row = await this.prisma.bookingSlot.update({
       where: { id: slotId },
       data: { capacity: dto.capacity },
@@ -507,9 +543,35 @@ export class SlotsService {
     if (slot.branchId !== branchId) {
       throw new NotFoundException('Slot not found');
     }
+    const live = (await this.liveBookingsCountBySlotIds([slotId])).get(slotId);
+    if (live !== undefined && live > 0) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.CONFLICT,
+          message: `This slot has ${live} active booking(s) and cannot be deleted. Cancel or move them first.`,
+          error: 'Conflict',
+          code: 'SLOT_HAS_BOOKINGS',
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
     const row = await this.prisma.bookingSlot.update({
       where: { id: slotId },
       data: { deletedAt: new Date() },
+    });
+    await this.audit.log({
+      userId: user.userId,
+      action: 'slot.deleted',
+      module: 'slots',
+      entityId: row.id,
+      branchId: row.branchId,
+      oldValue: {
+        date: row.date.toISOString(),
+        startTime: row.startTime.toISOString(),
+        endTime: row.endTime.toISOString(),
+        capacity: row.capacity,
+        status: row.status,
+      },
     });
     const liveBySlot = await this.liveBookingsCountBySlotIds([row.id]);
     return this.mapSlot(row, liveBySlot.get(row.id) ?? 0);

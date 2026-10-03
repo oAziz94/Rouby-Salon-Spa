@@ -36,20 +36,20 @@ type LoadState = "idle" | "loading" | "loaded" | "error";
 function formatApiError(error: unknown): string {
   if (error instanceof ApiClientError) {
     if (error.statusCode === 401) {
-      return "Unauthorized. Please sign in again.";
+      return "Your session expired. Please sign in again.";
     }
     if (error.statusCode === 403) {
-      return "You do not have permission to view clients.";
+      return "Your role cannot view clients. Ask a manager.";
     }
     if (error.statusCode === 404) {
-      return "Clients endpoint is not available.";
+      return "The client list could not be found. Please refresh the page.";
     }
     return error.message;
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return "Unexpected API error.";
+  return "Something went wrong. Please try again.";
 }
 
 function initialsFromName(name: string): string {

@@ -47,11 +47,18 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
 import { PermissionGuard } from "@/components/auth-required";
 import { useDashboardAuth } from "@/lib/dashboard-auth";
+import {
+  invoiceStatusLabel,
+  paymentMethodLabel,
+  paymentStatusLabel,
+  sourceLabel,
+} from "@/lib/labels";
 
 const PAYMENT_METHODS = [
   "CASH",
@@ -64,9 +71,17 @@ const PAYMENT_METHODS = [
 type ListPhase = "idle" | "loading" | "ready" | "empty" | "error";
 
 function formatApiError(error: unknown): string {
-  if (error instanceof ApiClientError) return error.message;
+  if (error instanceof ApiClientError) {
+    if (error.statusCode === 403) {
+      return "Your role does not allow this action. Ask a manager.";
+    }
+    if (error.code === "PAYMENT_EXCEEDS_REMAINING") {
+      return "That amount is more than what is still owed on this invoice. Check the remaining amount and try again.";
+    }
+    return error.message;
+  }
   if (error instanceof Error) return error.message;
-  return "Unexpected API error.";
+  return "Something went wrong. Please try again.";
 }
 
 function formatEGP(amount: number): string {
@@ -121,7 +136,7 @@ function paymentRowStatusLabel(status: string): string {
     case "PARTIALLY_PAID":
       return "Recorded";
     default:
-      return status;
+      return paymentStatusLabel(status);
   }
 }
 
@@ -155,7 +170,7 @@ function bookingSourceLabel(source: string): string {
     case "FACEBOOK":
       return "Facebook";
     default:
-      return source;
+      return sourceLabel(source);
   }
 }
 
@@ -206,7 +221,10 @@ export default function DashboardPaymentsPage() {
   const canPrint = hasPermission("invoices.print") || hasPermission("invoices.read");
   const canOpenInvoice = hasPermission("invoices.read");
   const canOpenBooking = hasPermission("bookings.read");
-  const canUpdatePayment = hasPermission("payments.record") || hasPermission("payments.refund");
+  /** Editing, cancelling or voiding a payment is a refund-level action; reception only records payments. */
+  const canUpdatePayment = hasPermission("payments.refund");
+  /** Stops a double click from sending the same payment twice before the button re-renders as disabled. */
+  const submitLock = useRef(false);
   const canRecordSimple = hasPermission("payments.record_simple");
   const canReadBranches = hasPermission("branches.read");
   const canAccessMultipleBranches = user?.branchId === null && canReadBranches;
@@ -520,6 +538,8 @@ export default function DashboardPaymentsPage() {
       setRecordError("Reference number is recommended for non-cash methods.");
       return;
     }
+    if (submitLock.current) return;
+    submitLock.current = true;
     setRecordSaving(true);
     setRecordError("");
     try {
@@ -540,6 +560,7 @@ export default function DashboardPaymentsPage() {
     } catch (err) {
       setRecordError(formatApiError(err));
     } finally {
+      submitLock.current = false;
       setRecordSaving(false);
     }
   };
@@ -606,7 +627,8 @@ export default function DashboardPaymentsPage() {
 
   async function onUpdatePayment(ev: FormEvent) {
     ev.preventDefault();
-    if (!token || !editingPayment || !selectedBookingId) return;
+    if (!token || !editingPayment || !selectedBookingId || submitLock.current) return;
+    submitLock.current = true;
     setEditSaving(true);
     setEditError("");
     try {
@@ -623,13 +645,15 @@ export default function DashboardPaymentsPage() {
     } catch (err) {
       setEditError(formatApiError(err));
     } finally {
+      submitLock.current = false;
       setEditSaving(false);
     }
   }
 
   async function onBookingRecordPayment(ev: FormEvent) {
     ev.preventDefault();
-    if (!token || !selectedBookingId) return;
+    if (!token || !selectedBookingId || submitLock.current) return;
+    submitLock.current = true;
     setBookingPaySaving(true);
     setBookingPayError("");
     try {
@@ -646,6 +670,7 @@ export default function DashboardPaymentsPage() {
     } catch (err) {
       setBookingPayError(formatApiError(err));
     } finally {
+      submitLock.current = false;
       setBookingPaySaving(false);
     }
   }
@@ -1258,8 +1283,8 @@ export default function DashboardPaymentsPage() {
                         {legacyPayments.map((p) => (
                           <tr key={p.id} className="border-b border-[#E8E0D4]/50">
                             <td className="py-2 pr-2">{formatEGP(p.amount)}</td>
-                            <td className="py-2 pr-2">{p.method}</td>
-                            <td className="py-2 pr-2">{p.status}</td>
+                            <td className="py-2 pr-2">{paymentMethodLabel(p.method)}</td>
+                            <td className="py-2 pr-2">{paymentStatusLabel(p.status)}</td>
                             <td className="py-2 pr-2">
                               {canUpdatePayment ? (
                                 <button
@@ -1291,9 +1316,9 @@ export default function DashboardPaymentsPage() {
                           }
                           className="w-full rounded-lg border border-[#E8E0D4] px-2 py-2"
                         >
-                          <option value="UNPAID">UNPAID</option>
-                          <option value="PARTIALLY_PAID">PARTIALLY_PAID</option>
-                          <option value="PAID">PAID</option>
+                          <option value="UNPAID">Unpaid</option>
+                          <option value="PARTIALLY_PAID">Partly paid</option>
+                          <option value="PAID">Paid</option>
                         </select>
                       </label>
                       <label className="text-sm">
@@ -1444,14 +1469,14 @@ export default function DashboardPaymentsPage() {
                         </p>
                         <p>
                           <span className="text-[#7A6A58]">Status: </span>
-                          {drawerData.invoice.status}
+                          {invoiceStatusLabel(drawerData.invoice.status)}
                         </p>
                         <p>
                           <span className="text-[#7A6A58]">Payment status: </span>
                           <span
                             className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${invoicePayBadgeClass(drawerData.invoice.paymentStatus)}`}
                           >
-                            {drawerData.invoice.paymentStatus.replaceAll("_", " ")}
+                            {paymentStatusLabel(drawerData.invoice.paymentStatus)}
                           </span>
                         </p>
                         <p>
@@ -1758,10 +1783,8 @@ export default function DashboardPaymentsPage() {
                   onChange={(ev) => setBookingPayStatus(ev.target.value)}
                   className="w-full rounded-lg border px-3 py-2"
                 >
-                  <option value="PAID">PAID</option>
-                  <option value="PENDING">PENDING</option>
-                  <option value="FAILED">FAILED</option>
-                  <option value="CANCELLED">CANCELLED</option>
+                  <option value="PAID">Paid</option>
+                  <option value="CANCELLED">Cancelled</option>
                 </select>
               </label>
               <label className="text-sm md:col-span-2">
@@ -1831,7 +1854,7 @@ export default function DashboardPaymentsPage() {
                 >
                   {PAYMENT_METHODS.map((m) => (
                     <option key={m} value={m}>
-                      {m}
+                      {methodLabel(m)}
                     </option>
                   ))}
                 </select>
@@ -1843,10 +1866,9 @@ export default function DashboardPaymentsPage() {
                   onChange={(ev) => setEditStatus(ev.target.value)}
                   className="w-full rounded-lg border px-3 py-2"
                 >
-                  <option value="PAID">PAID</option>
-                  <option value="PENDING">PENDING</option>
-                  <option value="FAILED">FAILED</option>
-                  <option value="CANCELLED">CANCELLED</option>
+                  <option value="PAID">Paid</option>
+                  <option value="CANCELLED">Cancelled (void)</option>
+                  <option value="REFUNDED">Refunded</option>
                 </select>
               </label>
               <label className="text-sm">

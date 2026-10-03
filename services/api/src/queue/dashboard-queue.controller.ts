@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -21,6 +22,7 @@ import { QueueListQueryDto } from './dto/queue-list-query.dto';
 import { WalkInQueueDto } from './dto/walk-in-queue.dto';
 import { QueueService } from './queue.service';
 import { CreateInvoicePaymentDto } from '../billing/dto/create-invoice-payment.dto';
+import { FinalizeInvoiceDto } from '../billing/dto/finalize-invoice.dto';
 import { CompleteQueueEntryDto } from './dto/complete-queue-entry.dto';
 import { StartQueueEntryDto } from './dto/start-queue-entry.dto';
 
@@ -66,7 +68,7 @@ export class DashboardQueueController {
   })
   appendBookingItems(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('queueEntryId') queueEntryId: string,
+    @Param('queueEntryId', ParseUUIDPipe) queueEntryId: string,
     @Body() body: AppendQueueBookingItemsDto,
   ) {
     return this.queue.appendQueueEntryBookingItems(user, queueEntryId, body);
@@ -77,7 +79,7 @@ export class DashboardQueueController {
   @ApiOperation({ summary: 'Update queue entry notes' })
   patchNotes(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('queueEntryId') queueEntryId: string,
+    @Param('queueEntryId', ParseUUIDPipe) queueEntryId: string,
     @Body() body: PatchQueueNotesDto,
   ) {
     return this.queue.patchNotes(user, queueEntryId, body);
@@ -95,7 +97,7 @@ export class DashboardQueueController {
   })
   start(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('queueEntryId') queueEntryId: string,
+    @Param('queueEntryId', ParseUUIDPipe) queueEntryId: string,
     @Body() body: StartQueueEntryDto,
   ) {
     return this.queue.startQueueEntry(user, queueEntryId, body);
@@ -111,9 +113,14 @@ export class DashboardQueueController {
   @ApiOperation({ summary: 'Finalize invoice for queue-linked booking' })
   finalizeInvoice(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('queueEntryId') queueEntryId: string,
+    @Param('queueEntryId', ParseUUIDPipe) queueEntryId: string,
+    @Body() body: FinalizeInvoiceDto,
   ) {
-    return this.queue.finalizeInvoiceForQueueEntry(user, queueEntryId);
+    return this.queue.finalizeInvoiceForQueueEntry(
+      user,
+      queueEntryId,
+      body?.overrideReason,
+    );
   }
 
   @Post(':queueEntryId/payments')
@@ -124,7 +131,7 @@ export class DashboardQueueController {
   })
   recordPayment(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('queueEntryId') queueEntryId: string,
+    @Param('queueEntryId', ParseUUIDPipe) queueEntryId: string,
     @Body() body: CreateInvoicePaymentDto,
   ) {
     return this.queue.recordPaymentForQueueEntry(user, queueEntryId, body);
@@ -138,7 +145,7 @@ export class DashboardQueueController {
   })
   complete(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('queueEntryId') queueEntryId: string,
+    @Param('queueEntryId', ParseUUIDPipe) queueEntryId: string,
     @Body() body: CompleteQueueEntryDto,
   ) {
     return this.queue.completeQueueEntry(user, queueEntryId, body);
@@ -149,7 +156,7 @@ export class DashboardQueueController {
   @ApiOperation({ summary: 'Cancel queue entry (does not cancel booking)' })
   cancel(
     @CurrentDashboardUser() user: DashboardJwtUser,
-    @Param('queueEntryId') queueEntryId: string,
+    @Param('queueEntryId', ParseUUIDPipe) queueEntryId: string,
   ) {
     return this.queue.cancelQueueEntry(user, queueEntryId);
   }
