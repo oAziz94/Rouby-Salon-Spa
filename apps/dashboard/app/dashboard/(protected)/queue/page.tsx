@@ -515,6 +515,7 @@ function CommandQueueCard({
   onDiscount,
   onOpenDetails,
   onCompleteLine,
+  onStartLine,
   onRemoveLine,
 }: {
   row: DashboardQueueEntry;
@@ -534,6 +535,7 @@ function CommandQueueCard({
   onDiscount: (row: DashboardQueueEntry) => void;
   onOpenDetails: (row: DashboardQueueEntry) => void;
   onCompleteLine: (row: DashboardQueueEntry, lineId: string) => void;
+  onStartLine: (row: DashboardQueueEntry, lineId: string) => void;
   onRemoveLine: (row: DashboardQueueEntry, line: { id: string; name: string; lineStatus: string }) => void;
 }) {
   const busy = busyId === row.id;
@@ -612,6 +614,15 @@ function CommandQueueCard({
                   >
                     Done
                   </button>
+                ) : line.lineStatus === "PENDING" && canProgressVisit ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onStartLine(row, line.id)}
+                    className="rounded-md border border-[#062A2D]/40 bg-white px-2 py-0.5 font-semibold text-[#062A2D] hover:bg-[#EEF3F2] disabled:opacity-50"
+                  >
+                    Start
+                  </button>
                 ) : line.lineStatus === "PENDING" ? (
                   <span className="text-[#9A8B7A]">not started</span>
                 ) : null}
@@ -686,7 +697,7 @@ function CommandQueueCard({
           {!canFinish ? (
             <p className="text-center text-[0.65rem] leading-relaxed text-[#9A8B7A]">
               {pendingLineNames.length > 0
-                ? `Start first: ${pendingLineNames.join(", ")}`
+                ? `Press Start on: ${pendingLineNames.join(", ")}`
                 : "No service lines to finish."}
             </p>
           ) : null}
@@ -1317,6 +1328,8 @@ export default function DashboardQueuePage() {
   const [detailCache, setDetailCache] = useState<Record<string, DashboardBookingDetail>>({});
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedQueueRow, setSelectedQueueRow] = useState<DashboardQueueEntry | null>(null);
+  /** A card's "Start" on a waiting service line: open the details panel straight on that line. */
+  const [pendingStartLineId, setPendingStartLineId] = useState("");
   const [selectedBookingId, setSelectedBookingId] = useState("");
   const [selectedBooking, setSelectedBooking] = useState<DashboardBookingDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1844,6 +1857,14 @@ export default function DashboardQueuePage() {
     }
   }
 
+  useEffect(() => {
+    if (!pendingStartLineId || !selectedBooking || !selectedQueueRow) return;
+    const item = selectedBooking.items.find((it) => it.id === pendingStartLineId);
+    setPendingStartLineId("");
+    if (item) void openDrawerStartService(item);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingStartLineId, selectedBooking, selectedQueueRow]);
+
   async function prepareStartVisit(id: string): Promise<void> {
     if (!token) {
       return;
@@ -2342,6 +2363,10 @@ export default function DashboardQueuePage() {
         onDiscount={(r) => openDiscountModal(r)}
         onOpenDetails={(r) => void openQueueDetails(r)}
         onCompleteLine={(r, lineId) => void completeLine(r, lineId)}
+        onStartLine={(r, lineId) => {
+          setPendingStartLineId(lineId);
+          void openQueueDetails(r);
+        }}
         onRemoveLine={(r, line) => void removeLine(r, line)}
         busyId={busyId}
         startVisitModalOpen={startVisitOpen}

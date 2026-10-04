@@ -1443,6 +1443,25 @@ export default function DashboardPaymentsPage() {
                           Open booking
                         </Link>
                       ) : null}
+                      {canUpdatePayment ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const payment = drawerData.payment;
+                            setSelectedBookingId(drawerData.booking.id);
+                            closeDrawer();
+                            openEditModal({
+                              ...payment,
+                              bookingId: drawerData.booking.id,
+                              clientId: drawerData.client.id,
+                              updatedAt: payment.createdAt,
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 rounded-xl border border-[#E7B9A4] bg-[#FFF1EC] px-3 py-2 text-xs font-medium text-[#8B4428]"
+                        >
+                          Correct payment
+                        </button>
+                      ) : null}
                     </div>
                   </div>
 

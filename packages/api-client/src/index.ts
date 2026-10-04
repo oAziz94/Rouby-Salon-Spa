@@ -1723,6 +1723,17 @@ export type DashboardBookingChangeRequestListItem = {
     status: string;
     slotId: string;
   };
+  clientName: string;
+  clientPhone: string;
+  /** Cairo wall clock: date YYYY-MM-DD, times HH:mm. */
+  currentSlot: DashboardChangeRequestSlotView | null;
+  requestedSlot: DashboardChangeRequestSlotView | null;
+};
+
+export type DashboardChangeRequestSlotView = {
+  date: string;
+  startTime: string;
+  endTime: string;
 };
 
 export type DashboardBookingChangeRequestsResponse = {

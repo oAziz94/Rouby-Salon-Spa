@@ -2699,11 +2699,32 @@ export class BookingsService {
         orderBy: { createdAt: 'desc' },
         include: {
           booking: {
-            select: { id: true, branchId: true, status: true, slotId: true },
+            select: {
+              id: true,
+              branchId: true,
+              status: true,
+              slotId: true,
+              slot: { select: { date: true, startTime: true, endTime: true } },
+            },
+          },
+          client: { select: { fullName: true, phone: true } },
+          requestedSlot: {
+            select: { date: true, startTime: true, endTime: true },
           },
         },
       }),
     ]);
+
+    const slotView = (
+      s: { date: Date; startTime: Date; endTime: Date } | null,
+    ) =>
+      s
+        ? {
+            date: s.date.toISOString().slice(0, 10),
+            startTime: s.startTime.toISOString().slice(11, 16),
+            endTime: s.endTime.toISOString().slice(11, 16),
+          }
+        : null;
 
     return {
       data: rows.map((r) => ({
@@ -2715,7 +2736,16 @@ export class BookingsService {
         status: r.status,
         reason: r.reason,
         createdAt: r.createdAt,
-        booking: r.booking,
+        booking: {
+          id: r.booking.id,
+          branchId: r.booking.branchId,
+          status: r.booking.status,
+          slotId: r.booking.slotId,
+        },
+        clientName: r.client.fullName,
+        clientPhone: r.client.phone,
+        currentSlot: slotView(r.booking.slot),
+        requestedSlot: slotView(r.requestedSlot),
       })),
       meta: buildListMeta({
         page: query.page,
