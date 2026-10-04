@@ -9,6 +9,7 @@ import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/all-exceptions.filter';
 import { requestIdMiddleware } from '../../src/common/request-id.middleware';
+import { WapilotWhatsAppClient } from '../../src/wapilot/wapilot-whatsapp.client';
 import { TEST_PASSWORDS } from './global-setup';
 
 export const BRANCH_ID = '00000000-0000-4000-8000-000000000001';
@@ -29,11 +30,21 @@ export type Role = keyof typeof USERS;
 
 export const prisma = new PrismaClient();
 
-/** Same wiring as src/main.ts so the tests see real validation, prefixes and error shapes. */
-export async function createApp(): Promise<INestApplication> {
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule],
-  }).compile();
+/**
+ * Same wiring as src/main.ts so the tests see real validation, prefixes and error shapes.
+ * `whatsapp` replaces the Wapilot HTTP client: messages are built by the real code and
+ * captured instead of sent.
+ */
+export async function createApp(
+  opts: { whatsapp?: Pick<WapilotWhatsAppClient, 'sendTextMessage'> } = {},
+): Promise<INestApplication> {
+  let builder = Test.createTestingModule({ imports: [AppModule] });
+  if (opts.whatsapp) {
+    builder = builder
+      .overrideProvider(WapilotWhatsAppClient)
+      .useValue(opts.whatsapp);
+  }
+  const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication({ logger: ['error', 'warn'] });
   app.setGlobalPrefix('api/v1', {
     exclude: [

@@ -17,6 +17,7 @@ import { AuditService } from '../audit/audit.service';
 import type { DashboardJwtUser } from '../auth/dashboard-jwt-user';
 import { lockBookingForPayments } from '../billing/booking-lock';
 import { assertDashboardBranchAccess } from '../billing/dashboard-branch-scope';
+import { assertMoneyDayOpen } from '../billing/business-day-guard';
 import { InvoicesService } from '../billing/invoices.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SYSTEM_SETTINGS_ID } from '../settings/settings.constants';
@@ -298,6 +299,7 @@ export class LoyaltyService {
         (blocks * rules.redeemValue).toFixed(2),
       );
       const points = blocks * rules.redeemPoints;
+      await assertMoneyDayOpen(tx, ctx.branchId, new Date(), { cash: false });
       const payment = await tx.payment.create({
         data: {
           bookingId: ctx.bookingId,
@@ -387,6 +389,7 @@ export class LoyaltyService {
         );
       }
       const amount = new Prisma.Decimal(value.toFixed(2));
+      await assertMoneyDayOpen(tx, ctx.branchId, new Date(), { cash: false });
       const payment = await tx.payment.create({
         data: {
           bookingId: ctx.bookingId,

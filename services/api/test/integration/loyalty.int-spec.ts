@@ -23,6 +23,9 @@ type Loyalty = {
   rewardLineOnVisit?: boolean;
 };
 
+// Three full visits against a remote test database take close to the 60 s default.
+jest.setTimeout(120_000);
+
 describe('loyalty program', () => {
   let app: INestApplication;
   let api: Api;

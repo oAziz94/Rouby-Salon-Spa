@@ -21,6 +21,7 @@ import {
   buildDashboardBookingBranchWhere,
 } from './dashboard-branch-scope';
 import { lockBookingForPayments } from './booking-lock';
+import { assertMoneyDayOpen } from './business-day-guard';
 import {
   decimalMaxZero,
   sumPaidManualPayments,
@@ -483,6 +484,12 @@ export class PaymentsService {
         throw new NotFoundException('Booking not found');
       }
       assertDashboardBranchAccess(user, booking.branchId);
+      await assertMoneyDayOpen(
+        tx,
+        booking.branchId,
+        dto.paidAt ? new Date(dto.paidAt) : new Date(),
+        { cash: dto.method === PaymentMethod.CASH },
+      );
       if (dto.status === PaymentStatus.PAID) {
         const invoice = await tx.invoice.findFirst({
           where: { bookingId, status: InvoiceStatus.FINALIZED },
@@ -577,6 +584,9 @@ export class PaymentsService {
           'INVOICE_NOT_FINALIZED',
         );
       }
+      await assertMoneyDayOpen(tx, invoice.booking.branchId, new Date(), {
+        cash: dto.method === PaymentMethod.CASH,
+      });
 
       const amount = new Prisma.Decimal(dto.amount.toFixed(2));
       if (amount.lessThanOrEqualTo(0)) {
@@ -672,6 +682,17 @@ export class PaymentsService {
       if (dto.method !== undefined) {
         assertAllowedMethod(dto.method);
       }
+      // The payment belongs to the day it was taken; a closed day or counted drawer is final.
+      await assertMoneyDayOpen(
+        tx,
+        existing.booking.branchId,
+        existing.paidAt ?? existing.createdAt,
+        {
+          cash:
+            existing.method === PaymentMethod.CASH ||
+            dto.method === PaymentMethod.CASH,
+        },
+      );
       if (dto.reference === SIMPLE_PAYMENT_STATUS_REFERENCE) {
         throw httpBusiness(
           HttpStatus.BAD_REQUEST,
@@ -817,6 +838,18 @@ export class PaymentsService {
       const simple = booking.payments.find(
         (p) => p.reference === SIMPLE_PAYMENT_STATUS_REFERENCE,
       );
+      // Simple status is recorded as cash today, and may rewrite the earlier simple payment.
+      await assertMoneyDayOpen(tx, booking.branchId, new Date(), {
+        cash: true,
+      });
+      if (simple) {
+        await assertMoneyDayOpen(
+          tx,
+          booking.branchId,
+          simple.paidAt ?? simple.createdAt,
+          { cash: true },
+        );
+      }
 
       if (dto.paymentStatus === 'UNPAID') {
         if (simple) {
